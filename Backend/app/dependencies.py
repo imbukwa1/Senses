@@ -1,8 +1,9 @@
 from collections.abc import Iterator
 from uuid import UUID
 
-from fastapi import Request
+from fastapi import Depends, Request
 
+from app.auth import AuthenticatedUser, get_current_user
 from app.db import Database, DatabaseSession
 
 
@@ -22,4 +23,13 @@ def db_session_with_actor(
 ) -> Iterator[DatabaseSession]:
     database = get_database(request)
     with database.session(actor_user_id=actor_user_id) as session:
+        yield session
+
+
+def get_authenticated_db_session(
+    request: Request,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> Iterator[DatabaseSession]:
+    database = get_database(request)
+    with database.session(actor_user_id=current_user.id) as session:
         yield session

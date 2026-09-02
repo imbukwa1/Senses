@@ -21,6 +21,8 @@ def test_database_connection_opens_pings_and_closes() -> None:
             log_level="CRITICAL",
             db_pool_min_size=1,
             db_pool_max_size=1,
+            auth_token_secret="test-secret",
+            access_token_expire_minutes=60,
         )
     )
 
@@ -44,6 +46,8 @@ def test_health_endpoint_reports_reachable_database() -> None:
         log_level="CRITICAL",
         db_pool_min_size=1,
         db_pool_max_size=1,
+        auth_token_secret="test-secret",
+        access_token_expire_minutes=60,
     )
     app = create_app(settings=settings)
 
@@ -174,5 +178,7 @@ def _database_from_env() -> Database:
             log_level="CRITICAL",
             db_pool_min_size=1,
             db_pool_max_size=1,
+            auth_token_secret="test-secret",
+            access_token_expire_minutes=60,
         )
     )

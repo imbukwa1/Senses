@@ -65,4 +65,6 @@ def _settings() -> Settings:
         log_level="CRITICAL",
         db_pool_min_size=1,
         db_pool_max_size=1,
+        auth_token_secret="test-secret",
+        access_token_expire_minutes=60,
     )

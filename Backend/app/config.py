@@ -9,6 +9,8 @@ class Settings:
     log_level: str
     db_pool_min_size: int
     db_pool_max_size: int
+    auth_token_secret: str
+    access_token_expire_minutes: int
 
 
 def _read_int_env(name: str, default: int) -> int:
@@ -29,4 +31,6 @@ def get_settings() -> Settings:
         log_level=os.getenv("LOG_LEVEL", "INFO"),
         db_pool_min_size=_read_int_env("DB_POOL_MIN_SIZE", 1),
         db_pool_max_size=_read_int_env("DB_POOL_MAX_SIZE", 10),
+        auth_token_secret=os.getenv("AUTH_TOKEN_SECRET", ""),
+        access_token_expire_minutes=_read_int_env("ACCESS_TOKEN_EXPIRE_MINUTES", 60),
     )
