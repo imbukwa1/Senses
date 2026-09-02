@@ -287,8 +287,8 @@ def test_database_date_constraint_rejects_invalid_task_dates() -> None:
                 },
             )
 
-        assert response.status_code == 500
-        assert response.json() == {"error": {"message": "Database operation failed"}}
+        assert response.status_code == 422
+        assert response.json() == {"error": {"message": "Database constraint failed"}}
     finally:
         database.close()
 

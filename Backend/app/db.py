@@ -4,7 +4,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from psycopg import Connection
+from psycopg import Connection, IntegrityError
 from psycopg import Error as PsycopgError
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
@@ -19,6 +19,10 @@ Row = dict[str, Any]
 
 class DatabaseError(RuntimeError):
     """Raised when database access fails inside the backend layer."""
+
+
+class DatabaseConstraintError(DatabaseError):
+    """Raised when PostgreSQL rejects data through a schema constraint."""
 
 
 class Database:
@@ -85,6 +89,9 @@ class Database:
                     session = DatabaseSession(connection)
                     session.set_audit_actor(actor_user_id)
                     yield session
+            except IntegrityError as exc:
+                logger.exception("Database constraint failed")
+                raise DatabaseConstraintError("Database constraint failed") from exc
             except PsycopgError as exc:
                 logger.exception("Database operation failed")
                 raise DatabaseError("Database operation failed") from exc
@@ -99,6 +106,8 @@ class DatabaseSession:
             with self.connection.cursor() as cursor:
                 cursor.execute(query, params)
                 return cursor.rowcount
+        except IntegrityError as exc:
+            raise DatabaseConstraintError("Database constraint failed") from exc
         except PsycopgError as exc:
             raise DatabaseError("Database execute failed") from exc
 
@@ -107,6 +116,8 @@ class DatabaseSession:
             with self.connection.cursor() as cursor:
                 cursor.execute(query, params)
                 return cursor.fetchone()
+        except IntegrityError as exc:
+            raise DatabaseConstraintError("Database constraint failed") from exc
         except PsycopgError as exc:
             raise DatabaseError("Database fetch_one failed") from exc
 
@@ -115,6 +126,8 @@ class DatabaseSession:
             with self.connection.cursor() as cursor:
                 cursor.execute(query, params)
                 return list(cursor.fetchall())
+        except IntegrityError as exc:
+            raise DatabaseConstraintError("Database constraint failed") from exc
         except PsycopgError as exc:
             raise DatabaseError("Database fetch_all failed") from exc
 

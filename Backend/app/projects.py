@@ -274,6 +274,23 @@ class ChecklistResponse(BaseModel):
     items: list[ChecklistItemResponse]
 
 
+class TaskCommentCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    comment: str = Field(min_length=1)
+
+
+class TaskCommentResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    user_id: UUID
+    author_name: str
+    author_email: str
+    comment: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class ProjectMemberResponse(BaseModel):
     project_id: UUID
     user_id: UUID
@@ -1051,6 +1068,48 @@ def remove_checklist_item(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/comments",
+    response_model=TaskCommentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_task_comment(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    payload: TaskCommentCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> TaskCommentResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    comment = session.fetch_one(
+        """
+        INSERT INTO comments (task_id, user_id, comment)
+        VALUES (%s, %s, %s)
+        RETURNING id
+        """,
+        (task_id, current_user.id, payload.comment),
+    )
+    return task_comment_to_response(fetch_task_comment_or_404(session, task_id, comment["id"]))
+
+
+@router.get(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/comments",
+    response_model=list[TaskCommentResponse],
+)
+def list_task_comments(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[TaskCommentResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    return [task_comment_to_response(row) for row in fetch_task_comments(session, task_id)]
+
+
 @router.patch("/{project_id}", response_model=ProjectResponse)
 def update_project(
     project_id: UUID,
@@ -1607,6 +1666,55 @@ def fetch_checklist_summary(session: DatabaseSession, task_id: UUID) -> Row:
     return row
 
 
+def fetch_task_comments(session: DatabaseSession, task_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          comments.id,
+          comments.task_id,
+          comments.user_id,
+          users.name AS author_name,
+          users.email AS author_email,
+          comments.comment,
+          comments.created_at,
+          comments.updated_at
+        FROM comments
+        JOIN users ON users.id = comments.user_id
+        WHERE comments.task_id = %s
+        ORDER BY comments.created_at, comments.id
+        """,
+        (task_id,),
+    )
+
+
+def fetch_task_comment(session: DatabaseSession, task_id: UUID, comment_id: UUID) -> Row | None:
+    return session.fetch_one(
+        """
+        SELECT
+          comments.id,
+          comments.task_id,
+          comments.user_id,
+          users.name AS author_name,
+          users.email AS author_email,
+          comments.comment,
+          comments.created_at,
+          comments.updated_at
+        FROM comments
+        JOIN users ON users.id = comments.user_id
+        WHERE comments.task_id = %s
+          AND comments.id = %s
+        """,
+        (task_id, comment_id),
+    )
+
+
+def fetch_task_comment_or_404(session: DatabaseSession, task_id: UUID, comment_id: UUID) -> Row:
+    comment = fetch_task_comment(session, task_id, comment_id)
+    if comment is None:
+        raise_task_not_found()
+    return comment
+
+
 def ensure_phase_in_project(session: DatabaseSession, project_id: UUID, phase_id: UUID) -> None:
     if fetch_project_phase(session, project_id, phase_id) is None:
         raise_phase_not_found()
@@ -1666,6 +1774,10 @@ def checklist_to_response(session: DatabaseSession, task_id: UUID) -> ChecklistR
         ),
         items=[checklist_item_to_response(row) for row in fetch_checklist_items(session, task_id)],
     )
+
+
+def task_comment_to_response(row: Row) -> TaskCommentResponse:
+    return TaskCommentResponse(**row)
 
 
 def dashboard_project_to_response(row: Row) -> DashboardProjectResponse:

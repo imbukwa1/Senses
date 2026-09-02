@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.db import DatabaseError
+from app.db import DatabaseConstraintError, DatabaseError
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,17 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=422,
             content={"error": {"message": "Request validation failed", "details": exc.errors()}},
+        )
+
+    @app.exception_handler(DatabaseConstraintError)
+    async def database_constraint_exception_handler(
+        request: Request,
+        exc: DatabaseConstraintError,
+    ) -> JSONResponse:
+        logger.exception("Database constraint exception")
+        return JSONResponse(
+            status_code=422,
+            content={"error": {"message": "Database constraint failed"}},
         )
 
     @app.exception_handler(DatabaseError)
