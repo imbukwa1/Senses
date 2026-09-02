@@ -1,0 +1,32 @@
+from dataclasses import dataclass
+import os
+
+
+@dataclass(frozen=True)
+class Settings:
+    app_name: str
+    database_url: str | None
+    log_level: str
+    db_pool_min_size: int
+    db_pool_max_size: int
+
+
+def _read_int_env(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == "":
+        return default
+
+    try:
+        return int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+
+
+def get_settings() -> Settings:
+    return Settings(
+        app_name=os.getenv("APP_NAME", "SENSES Project Management API"),
+        database_url=os.getenv("DATABASE_URL"),
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
+        db_pool_min_size=_read_int_env("DB_POOL_MIN_SIZE", 1),
+        db_pool_max_size=_read_int_env("DB_POOL_MAX_SIZE", 10),
+    )

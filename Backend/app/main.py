@@ -1,0 +1,54 @@
+from contextlib import asynccontextmanager
+import logging
+
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
+
+from app.config import Settings, get_settings
+from app.db import Database
+from app.exceptions import register_exception_handlers
+
+
+def configure_logging(level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+
+def create_app(settings: Settings | None = None, database: Database | None = None) -> FastAPI:
+    resolved_settings = settings or get_settings()
+    configure_logging(resolved_settings.log_level)
+    resolved_database = database or Database(resolved_settings)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        app.state.settings = resolved_settings
+        app.state.database = resolved_database
+        resolved_database.connect()
+        try:
+            yield
+        finally:
+            resolved_database.close()
+
+    app = FastAPI(title=resolved_settings.app_name, lifespan=lifespan)
+    register_exception_handlers(app)
+
+    @app.get("/health")
+    def health(request: Request) -> JSONResponse:
+        db_ready = request.app.state.database.ping()
+        http_status = status.HTTP_200_OK if db_ready else status.HTTP_503_SERVICE_UNAVAILABLE
+
+        return JSONResponse(
+            status_code=http_status,
+            content={
+                "status": "ok" if db_ready else "degraded",
+                "api": "running",
+                "database": "reachable" if db_ready else "unreachable",
+            },
+        )
+
+    return app
+
+
+app = create_app()
