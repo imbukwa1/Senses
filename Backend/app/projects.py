@@ -15,9 +15,11 @@ from app.dependencies import get_authenticated_db_session
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 ProjectStatus = Literal["Planning", "Not Started", "Active", "On Hold", "Completed"]
+PhaseStatus = Literal["Not Started", "In Progress", "Completed"]
 PriorityLevel = Literal["Low", "Medium", "High"]
 
 PROJECT_NOT_FOUND_DETAIL = "Project not found"
+PHASE_NOT_FOUND_DETAIL = "Phase not found"
 USER_NOT_FOUND_DETAIL = "User not found"
 PROJECT_LEAD_REQUIRED_DETAIL = "Project lead is required to change project status"
 REQUIRED_PROJECT_FIELDS = {
@@ -27,6 +29,11 @@ REQUIRED_PROJECT_FIELDS = {
     "start_date",
     "end_date",
     "status",
+}
+REQUIRED_PHASE_FIELDS = {
+    "name",
+    "status",
+    "display_order",
 }
 
 
@@ -91,6 +98,60 @@ class ProjectMemberCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: UUID
+
+
+class PhaseCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    owner_id: UUID | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    status: PhaseStatus = "Not Started"
+    display_order: int = Field(gt=0)
+    objectives: str | None = None
+
+
+class PhaseUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+    owner_id: UUID | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    status: PhaseStatus | None = None
+    display_order: int | None = Field(default=None, gt=0)
+    objectives: str | None = None
+
+
+class PhaseReorderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    phase_ids: list[UUID] = Field(min_length=1)
+
+
+class CurrentPhaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    phase_id: UUID | None
+
+
+class PhaseResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    name: str
+    description: str | None
+    owner_id: UUID | None
+    start_date: date | None
+    end_date: date | None
+    status: str
+    display_order: int
+    objectives: str | None
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None
 
 
 class ProjectMemberResponse(BaseModel):
@@ -288,6 +349,238 @@ def get_project_dashboard(
         phases=phases,
         deliverables=deliverables,
     )
+
+
+@router.post("/{project_id}/phases", response_model=PhaseResponse, status_code=status.HTTP_201_CREATED)
+def create_phase(
+    project_id: UUID,
+    payload: PhaseCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> PhaseResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    if payload.owner_id is not None:
+        ensure_user_exists(session, payload.owner_id)
+    phase = session.fetch_one(
+        """
+        INSERT INTO phases (
+          project_id,
+          name,
+          description,
+          owner_id,
+          start_date,
+          end_date,
+          status,
+          display_order,
+          objectives
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING *
+        """,
+        (
+            project_id,
+            payload.name,
+            payload.description,
+            payload.owner_id,
+            payload.start_date,
+            payload.end_date,
+            payload.status,
+            payload.display_order,
+            payload.objectives,
+        ),
+    )
+    return phase_to_response(phase)
+
+
+@router.get("/{project_id}/phases", response_model=list[PhaseResponse])
+def list_phases(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[PhaseResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    return [phase_to_response(row) for row in fetch_project_phases(session, project_id)]
+
+
+@router.patch("/{project_id}/phases/reorder", response_model=list[PhaseResponse])
+def reorder_phases(
+    project_id: UUID,
+    payload: PhaseReorderRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[PhaseResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if len(set(payload.phase_ids)) != len(payload.phase_ids):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Phase IDs must be unique",
+        )
+
+    active_phase_ids = [row["id"] for row in fetch_project_phases(session, project_id)]
+    if set(active_phase_ids) != set(payload.phase_ids):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Reorder must include every active phase for the project exactly once",
+        )
+
+    session.execute("SET CONSTRAINTS phases_project_display_order_key DEFERRED")
+    for display_order, phase_id in enumerate(payload.phase_ids, start=1):
+        session.execute(
+            """
+            UPDATE phases
+            SET display_order = %s
+            WHERE id = %s
+              AND project_id = %s
+              AND archived_at IS NULL
+            """,
+            (display_order, phase_id, project_id),
+        )
+
+    return [phase_to_response(row) for row in fetch_project_phases(session, project_id)]
+
+
+@router.patch("/{project_id}/current-phase", response_model=ProjectResponse)
+def set_current_phase(
+    project_id: UUID,
+    payload: CurrentPhaseRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    if payload.phase_id is not None:
+        ensure_phase_in_project(session, project_id, payload.phase_id)
+
+    project = session.fetch_one(
+        """
+        UPDATE projects
+        SET current_phase_id = %s
+        WHERE id = %s
+          AND archived_at IS NULL
+        RETURNING id
+        """,
+        (payload.phase_id, project_id),
+    )
+    if project is None:
+        raise_project_not_found()
+
+    return project_to_response(fetch_project_health_by_id(session, project["id"]))
+
+
+@router.get("/{project_id}/phases/{phase_id}", response_model=PhaseResponse)
+def get_phase(
+    project_id: UUID,
+    phase_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> PhaseResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    phase = fetch_project_phase(session, project_id, phase_id)
+    if phase is None:
+        raise_phase_not_found()
+    return phase_to_response(phase)
+
+
+@router.patch("/{project_id}/phases/{phase_id}", response_model=PhaseResponse)
+def update_phase(
+    project_id: UUID,
+    phase_id: UUID,
+    payload: PhaseUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> PhaseResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_phase_in_project(session, project_id, phase_id)
+    values = payload.model_dump(exclude_unset=True)
+    if not values:
+        return phase_to_response(fetch_project_phase_or_404(session, project_id, phase_id))
+
+    null_required_fields = sorted(
+        field for field in REQUIRED_PHASE_FIELDS if field in values and values[field] is None
+    )
+    if null_required_fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Required phase fields cannot be null: {', '.join(null_required_fields)}",
+        )
+    if "owner_id" in values and values["owner_id"] is not None:
+        ensure_user_exists(session, values["owner_id"])
+
+    set_clause = ", ".join(f"{field} = %s" for field in values)
+    params = [*values.values(), phase_id, project_id]
+    phase = session.fetch_one(
+        f"""
+        UPDATE phases
+        SET {set_clause}
+        WHERE id = %s
+          AND project_id = %s
+          AND archived_at IS NULL
+        RETURNING *
+        """,
+        params,
+    )
+    if phase is None:
+        raise_phase_not_found()
+
+    return phase_to_response(phase)
+
+
+@router.patch("/{project_id}/phases/{phase_id}/complete", response_model=PhaseResponse)
+def mark_phase_complete(
+    project_id: UUID,
+    phase_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> PhaseResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    phase = session.fetch_one(
+        """
+        UPDATE phases
+        SET status = 'Completed'
+        WHERE id = %s
+          AND project_id = %s
+          AND archived_at IS NULL
+        RETURNING *
+        """,
+        (phase_id, project_id),
+    )
+    if phase is None:
+        raise_phase_not_found()
+
+    return phase_to_response(phase)
+
+
+@router.patch("/{project_id}/phases/{phase_id}/archive", response_model=PhaseResponse)
+def archive_phase(
+    project_id: UUID,
+    phase_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> PhaseResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    phase = session.fetch_one(
+        """
+        UPDATE phases
+        SET archived_at = COALESCE(archived_at, NOW())
+        WHERE id = %s
+          AND project_id = %s
+          AND archived_at IS NULL
+        RETURNING *
+        """,
+        (phase_id, project_id),
+    )
+    if phase is None:
+        raise_phase_not_found()
+    session.execute(
+        """
+        UPDATE projects
+        SET current_phase_id = NULL
+        WHERE id = %s
+          AND current_phase_id = %s
+        """,
+        (project_id, phase_id),
+    )
+
+    return phase_to_response(phase)
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
@@ -647,6 +940,44 @@ def fetch_dashboard_deliverables(session: DatabaseSession, project_id: UUID) -> 
     )
 
 
+def fetch_project_phases(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT *
+        FROM phases
+        WHERE project_id = %s
+          AND archived_at IS NULL
+        ORDER BY display_order, created_at, id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_phase(session: DatabaseSession, project_id: UUID, phase_id: UUID) -> Row | None:
+    return session.fetch_one(
+        """
+        SELECT *
+        FROM phases
+        WHERE id = %s
+          AND project_id = %s
+          AND archived_at IS NULL
+        """,
+        (phase_id, project_id),
+    )
+
+
+def fetch_project_phase_or_404(session: DatabaseSession, project_id: UUID, phase_id: UUID) -> Row:
+    phase = fetch_project_phase(session, project_id, phase_id)
+    if phase is None:
+        raise_phase_not_found()
+    return phase
+
+
+def ensure_phase_in_project(session: DatabaseSession, project_id: UUID, phase_id: UUID) -> None:
+    if fetch_project_phase(session, project_id, phase_id) is None:
+        raise_phase_not_found()
+
+
 def ensure_project_lead(session: DatabaseSession, user_id: UUID, project_id: UUID) -> None:
     row = session.fetch_one(
         """
@@ -672,6 +1003,10 @@ def project_to_response(row: Row) -> ProjectResponse:
 
 def project_member_to_response(row: Row) -> ProjectMemberResponse:
     return ProjectMemberResponse(**row)
+
+
+def phase_to_response(row: Row) -> PhaseResponse:
+    return PhaseResponse(**row)
 
 
 def dashboard_project_to_response(row: Row) -> DashboardProjectResponse:
@@ -705,3 +1040,7 @@ def dashboard_phase_to_response(row: Row) -> DashboardPhaseResponse:
 
 def raise_project_not_found() -> None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=PROJECT_NOT_FOUND_DETAIL)
+
+
+def raise_phase_not_found() -> None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=PHASE_NOT_FOUND_DETAIL)
