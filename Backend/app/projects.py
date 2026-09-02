@@ -1,17 +1,23 @@
 from datetime import date, datetime
 from decimal import Decimal
+import logging
+import re
+from urllib.parse import quote
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from app.access import ensure_project_access, fetch_accessible_project, fetch_accessible_projects
 from app.auth import AuthenticatedUser, get_current_user
 from app.db import DatabaseSession, Row
 from app.dependencies import get_authenticated_db_session
+from app.storage import FileStorage, FileStorageError
 
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 ProjectStatus = Literal["Planning", "Not Started", "Active", "On Hold", "Completed"]
@@ -23,6 +29,8 @@ PROJECT_NOT_FOUND_DETAIL = "Project not found"
 PHASE_NOT_FOUND_DETAIL = "Phase not found"
 TASK_NOT_FOUND_DETAIL = "Task not found"
 DELIVERABLE_NOT_FOUND_DETAIL = "Checklist item not found"
+TASK_FILE_NOT_FOUND_DETAIL = "Task file not found"
+FILE_STORAGE_NOT_CONFIGURED_DETAIL = "File storage is not configured"
 TASK_SUPPORTER_EXISTS_DETAIL = "Task supporter already exists"
 USER_NOT_FOUND_DETAIL = "User not found"
 PROJECT_LEAD_REQUIRED_DETAIL = "Project lead is required to change project status"
@@ -289,6 +297,19 @@ class TaskCommentResponse(BaseModel):
     comment: str
     created_at: datetime
     updated_at: datetime
+
+
+class TaskFileResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    uploaded_by: UUID
+    uploader_name: str
+    uploader_email: str
+    file_name: str
+    storage_key: str
+    file_type: str | None
+    file_size: int
+    created_at: datetime
 
 
 class ProjectMemberResponse(BaseModel):
@@ -1110,6 +1131,102 @@ def list_task_comments(
     return [task_comment_to_response(row) for row in fetch_task_comments(session, task_id)]
 
 
+@router.post(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/files",
+    response_model=TaskFileResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_task_file(
+    request: Request,
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    file: UploadFile = File(...),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> TaskFileResponse:
+    with request.app.state.database.session(actor_user_id=current_user.id) as session:
+        ensure_project_access(session, current_user.id, project_id)
+        fetch_project_task_or_404(session, project_id, phase_id, task_id)
+
+    storage = get_file_storage(request)
+    content = await file.read()
+    storage_key = build_task_file_storage_key(task_id, file.filename or "attachment")
+
+    await run_in_threadpool(storage.upload, storage_key, content, file.content_type)
+    try:
+        with request.app.state.database.session(actor_user_id=current_user.id) as session:
+            ensure_project_access(session, current_user.id, project_id)
+            fetch_project_task_or_404(session, project_id, phase_id, task_id)
+            row = session.fetch_one(
+                """
+                INSERT INTO task_files (
+                  task_id,
+                  uploaded_by,
+                  file_name,
+                  storage_key,
+                  file_type,
+                  file_size
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (
+                    task_id,
+                    current_user.id,
+                    file.filename or "attachment",
+                    storage_key,
+                    file.content_type,
+                    len(content),
+                ),
+            )
+            response = task_file_to_response(fetch_task_file_or_404(session, task_id, row["id"]))
+    except Exception:
+        await run_in_threadpool(cleanup_uploaded_file, storage, storage_key)
+        raise
+
+    return response
+
+
+@router.get(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/files",
+    response_model=list[TaskFileResponse],
+)
+def list_task_files(
+    request: Request,
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[TaskFileResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    return [task_file_to_response(row) for row in fetch_task_files(session, task_id)]
+
+
+@router.get("/{project_id}/phases/{phase_id}/tasks/{task_id}/files/{file_id}/download")
+def download_task_file(
+    request: Request,
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    file_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> Response:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    metadata = fetch_task_file_or_404(session, task_id, file_id)
+    stored_file = get_file_storage(request).download(metadata["storage_key"])
+    content_type = metadata["file_type"] or stored_file.content_type or "application/octet-stream"
+    quoted_name = quote(metadata["file_name"])
+    return Response(
+        content=stored_file.content,
+        media_type=content_type,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted_name}"},
+    )
+
+
 @router.patch("/{project_id}", response_model=ProjectResponse)
 def update_project(
     project_id: UUID,
@@ -1715,6 +1832,59 @@ def fetch_task_comment_or_404(session: DatabaseSession, task_id: UUID, comment_i
     return comment
 
 
+def fetch_task_files(session: DatabaseSession, task_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          task_files.id,
+          task_files.task_id,
+          task_files.uploaded_by,
+          users.name AS uploader_name,
+          users.email AS uploader_email,
+          task_files.file_name,
+          task_files.storage_key,
+          task_files.file_type,
+          task_files.file_size,
+          task_files.created_at
+        FROM task_files
+        JOIN users ON users.id = task_files.uploaded_by
+        WHERE task_files.task_id = %s
+        ORDER BY task_files.created_at, task_files.id
+        """,
+        (task_id,),
+    )
+
+
+def fetch_task_file(session: DatabaseSession, task_id: UUID, file_id: UUID) -> Row | None:
+    return session.fetch_one(
+        """
+        SELECT
+          task_files.id,
+          task_files.task_id,
+          task_files.uploaded_by,
+          users.name AS uploader_name,
+          users.email AS uploader_email,
+          task_files.file_name,
+          task_files.storage_key,
+          task_files.file_type,
+          task_files.file_size,
+          task_files.created_at
+        FROM task_files
+        JOIN users ON users.id = task_files.uploaded_by
+        WHERE task_files.task_id = %s
+          AND task_files.id = %s
+        """,
+        (task_id, file_id),
+    )
+
+
+def fetch_task_file_or_404(session: DatabaseSession, task_id: UUID, file_id: UUID) -> Row:
+    file_metadata = fetch_task_file(session, task_id, file_id)
+    if file_metadata is None:
+        raise_task_file_not_found()
+    return file_metadata
+
+
 def ensure_phase_in_project(session: DatabaseSession, project_id: UUID, phase_id: UUID) -> None:
     if fetch_project_phase(session, project_id, phase_id) is None:
         raise_phase_not_found()
@@ -1780,6 +1950,10 @@ def task_comment_to_response(row: Row) -> TaskCommentResponse:
     return TaskCommentResponse(**row)
 
 
+def task_file_to_response(row: Row) -> TaskFileResponse:
+    return TaskFileResponse(**row)
+
+
 def dashboard_project_to_response(row: Row) -> DashboardProjectResponse:
     return DashboardProjectResponse(
         id=row["id"],
@@ -1823,3 +1997,35 @@ def raise_task_not_found() -> None:
 
 def raise_deliverable_not_found() -> None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=DELIVERABLE_NOT_FOUND_DETAIL)
+
+
+def raise_task_file_not_found() -> None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=TASK_FILE_NOT_FOUND_DETAIL)
+
+
+def get_file_storage(request: Request) -> FileStorage:
+    storage = getattr(request.app.state, "file_storage", None)
+    if storage is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=FILE_STORAGE_NOT_CONFIGURED_DETAIL,
+        )
+    return storage
+
+
+def build_task_file_storage_key(task_id: UUID, file_name: str) -> str:
+    safe_name = sanitize_storage_file_name(file_name)
+    return f"tasks/{task_id}/{uuid4().hex}-{safe_name}"
+
+
+def sanitize_storage_file_name(file_name: str) -> str:
+    name = file_name.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+    return name or "attachment"
+
+
+def cleanup_uploaded_file(storage: FileStorage, storage_key: str) -> None:
+    try:
+        storage.delete(storage_key)
+    except FileStorageError:
+        logger.exception("Uploaded file cleanup failed for storage key %s", storage_key)

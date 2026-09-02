@@ -11,6 +11,8 @@ class Settings:
     db_pool_max_size: int
     auth_token_secret: str
     access_token_expire_minutes: int
+    gcs_project_id: str | None = None
+    gcs_bucket_name: str | None = None
 
 
 def _read_int_env(name: str, default: int) -> int:
@@ -33,4 +35,6 @@ def get_settings() -> Settings:
         db_pool_max_size=_read_int_env("DB_POOL_MAX_SIZE", 10),
         auth_token_secret=os.getenv("AUTH_TOKEN_SECRET", ""),
         access_token_expire_minutes=_read_int_env("ACCESS_TOKEN_EXPIRE_MINUTES", 60),
+        gcs_project_id=os.getenv("GCS_PROJECT_ID"),
+        gcs_bucket_name=os.getenv("GCS_BUCKET_NAME"),
     )

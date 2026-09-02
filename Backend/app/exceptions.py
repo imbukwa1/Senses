@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.db import DatabaseConstraintError, DatabaseError
+from app.storage import FileStorageError
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,14 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=500,
             content={"error": {"message": "Database operation failed"}},
+        )
+
+    @app.exception_handler(FileStorageError)
+    async def file_storage_exception_handler(request: Request, exc: FileStorageError) -> JSONResponse:
+        logger.exception("File storage exception")
+        return JSONResponse(
+            status_code=502,
+            content={"error": {"message": str(exc)}},
         )
 
     @app.exception_handler(Exception)
