@@ -18,6 +18,7 @@ PriorityLevel = Literal["Low", "Medium", "High"]
 
 PROJECT_NOT_FOUND_DETAIL = "Project not found"
 USER_NOT_FOUND_DETAIL = "User not found"
+PROJECT_LEAD_REQUIRED_DETAIL = "Project lead is required to change project status"
 REQUIRED_PROJECT_FIELDS = {
     "name",
     "description",
@@ -58,6 +59,12 @@ class ProjectUpdateRequest(BaseModel):
     priority: PriorityLevel | None = None
 
 
+class ProjectStatusUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ProjectStatus
+
+
 class ProjectResponse(BaseModel):
     id: UUID
     code: str
@@ -68,6 +75,8 @@ class ProjectResponse(BaseModel):
     start_date: date
     end_date: date
     status: str
+    health: str
+    health_color: str
     funder_partner: str | None
     project_type: str | None
     objectives: str | None
@@ -149,7 +158,7 @@ def create_project(
         """,
         (project["id"], current_user.id),
     )
-    return project_to_response(project)
+    return project_to_response(fetch_project_health_by_id(session, project["id"]))
 
 
 @router.get("", response_model=list[ProjectResponse])
@@ -199,6 +208,8 @@ def update_project(
 
     if "project_lead_id" in values:
         ensure_user_exists(session, values["project_lead_id"])
+    if "status" in values:
+        ensure_project_lead(session, current_user.id, project_id)
 
     set_clause = ", ".join(f"{field} = %s" for field in values)
     params = [*values.values(), project_id]
@@ -208,14 +219,39 @@ def update_project(
         SET {set_clause}
         WHERE id = %s
           AND archived_at IS NULL
-        RETURNING *
+        RETURNING id
         """,
         params,
     )
     if project is None:
         raise_project_not_found()
 
-    return project_to_response(project)
+    return project_to_response(fetch_project_health_by_id(session, project["id"]))
+
+
+@router.patch("/{project_id}/status", response_model=ProjectResponse)
+def update_project_status(
+    project_id: UUID,
+    payload: ProjectStatusUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_lead(session, current_user.id, project_id)
+    project = session.fetch_one(
+        """
+        UPDATE projects
+        SET status = %s
+        WHERE id = %s
+          AND archived_at IS NULL
+        RETURNING id
+        """,
+        (payload.status, project_id),
+    )
+    if project is None:
+        raise_project_not_found()
+
+    return project_to_response(fetch_project_health_by_id(session, project["id"]))
 
 
 @router.patch("/{project_id}/archive", response_model=ProjectResponse)
@@ -230,14 +266,14 @@ def archive_project(
         UPDATE projects
         SET archived_at = COALESCE(archived_at, NOW())
         WHERE id = %s
-        RETURNING *
+        RETURNING id
         """,
         (project_id,),
     )
     if project is None:
         raise_project_not_found()
 
-    return project_to_response(project)
+    return project_to_response(fetch_project_health_by_id(session, project["id"]))
 
 
 @router.get("/{project_id}/members", response_model=list[ProjectMemberResponse])
@@ -334,6 +370,32 @@ def fetch_project_member(
     if row is None:
         raise_project_not_found()
     return row
+
+
+def fetch_project_health_by_id(session: DatabaseSession, project_id: UUID) -> Row:
+    row = session.fetch_one("SELECT * FROM project_health WHERE id = %s", (project_id,))
+    if row is None:
+        raise_project_not_found()
+    return row
+
+
+def ensure_project_lead(session: DatabaseSession, user_id: UUID, project_id: UUID) -> None:
+    row = session.fetch_one(
+        """
+        SELECT project_lead_id
+        FROM projects
+        WHERE id = %s
+          AND archived_at IS NULL
+        """,
+        (project_id,),
+    )
+    if row is None:
+        raise_project_not_found()
+    if row["project_lead_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PROJECT_LEAD_REQUIRED_DETAIL,
+        )
 
 
 def project_to_response(row: Row) -> ProjectResponse:

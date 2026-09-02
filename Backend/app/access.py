@@ -38,13 +38,13 @@ def fetch_accessible_projects(
 ) -> list:
     return session.fetch_all(
         """
-        SELECT projects.*
-        FROM projects
+        SELECT project_health.*
+        FROM project_health
         JOIN project_members
-          ON project_members.project_id = projects.id
+          ON project_members.project_id = project_health.id
         WHERE project_members.user_id = %s
-          AND projects.archived_at IS NULL
-        ORDER BY projects.created_at DESC, projects.id
+          AND project_health.archived_at IS NULL
+        ORDER BY project_health.created_at DESC, project_health.id
         """,
         (user_id,),
     )
@@ -57,13 +57,13 @@ def fetch_accessible_project(
 ):
     return session.fetch_one(
         """
-        SELECT projects.*
-        FROM projects
+        SELECT project_health.*
+        FROM project_health
         JOIN project_members
-          ON project_members.project_id = projects.id
-        WHERE projects.id = %s
+          ON project_members.project_id = project_health.id
+        WHERE project_health.id = %s
           AND project_members.user_id = %s
-          AND projects.archived_at IS NULL
+          AND project_health.archived_at IS NULL
         """,
         (project_id, user_id),
     )
