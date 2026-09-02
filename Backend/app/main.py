@@ -8,6 +8,7 @@ from app.auth import router as auth_router
 from app.config import Settings, get_settings
 from app.db import Database
 from app.exceptions import register_exception_handlers
+from app.projects import router as projects_router
 
 
 def configure_logging(level: str) -> None:
@@ -35,6 +36,7 @@ def create_app(settings: Settings | None = None, database: Database | None = Non
     app = FastAPI(title=resolved_settings.app_name, lifespan=lifespan)
     register_exception_handlers(app)
     app.include_router(auth_router)
+    app.include_router(projects_router)
 
     @app.get("/health")
     def health(request: Request) -> JSONResponse:
