@@ -16,10 +16,13 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 ProjectStatus = Literal["Planning", "Not Started", "Active", "On Hold", "Completed"]
 PhaseStatus = Literal["Not Started", "In Progress", "Completed"]
+TaskStatus = Literal["Not Started", "In Progress", "Blocked", "Completed"]
 PriorityLevel = Literal["Low", "Medium", "High"]
 
 PROJECT_NOT_FOUND_DETAIL = "Project not found"
 PHASE_NOT_FOUND_DETAIL = "Phase not found"
+TASK_NOT_FOUND_DETAIL = "Task not found"
+TASK_SUPPORTER_EXISTS_DETAIL = "Task supporter already exists"
 USER_NOT_FOUND_DETAIL = "User not found"
 PROJECT_LEAD_REQUIRED_DETAIL = "Project lead is required to change project status"
 REQUIRED_PROJECT_FIELDS = {
@@ -34,6 +37,12 @@ REQUIRED_PHASE_FIELDS = {
     "name",
     "status",
     "display_order",
+}
+REQUIRED_TASK_FIELDS = {
+    "name",
+    "owner_id",
+    "priority",
+    "status",
 }
 
 
@@ -152,6 +161,66 @@ class PhaseResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
+
+
+class TaskCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    description: str | None = None
+    owner_id: UUID
+    priority: PriorityLevel = "Medium"
+    status: TaskStatus = "Not Started"
+    start_date: date | None = None
+    due_date: date | None = None
+
+
+class TaskUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+    owner_id: UUID | None = None
+    priority: PriorityLevel | None = None
+    status: TaskStatus | None = None
+    start_date: date | None = None
+    due_date: date | None = None
+
+
+class TaskStatusUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: TaskStatus
+
+
+class TaskSupporterCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+
+
+class TaskResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    phase_id: UUID
+    name: str
+    description: str | None
+    owner_id: UUID
+    priority: str
+    status: str
+    start_date: date | None
+    due_date: date | None
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class TaskSupporterResponse(BaseModel):
+    task_id: UUID
+    user_id: UUID
+    name: str
+    email: str
+    added_at: datetime
 
 
 class ProjectMemberResponse(BaseModel):
@@ -583,6 +652,208 @@ def archive_phase(
     return phase_to_response(phase)
 
 
+@router.post(
+    "/{project_id}/phases/{phase_id}/tasks",
+    response_model=TaskResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_task(
+    project_id: UUID,
+    phase_id: UUID,
+    payload: TaskCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> TaskResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_phase_in_project(session, project_id, phase_id)
+    ensure_user_exists(session, payload.owner_id)
+    task = session.fetch_one(
+        """
+        INSERT INTO tasks (
+          phase_id,
+          name,
+          description,
+          owner_id,
+          priority,
+          status,
+          start_date,
+          due_date
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            phase_id,
+            payload.name,
+            payload.description,
+            payload.owner_id,
+            payload.priority,
+            payload.status,
+            payload.start_date,
+            payload.due_date,
+        ),
+    )
+    return task_to_response(fetch_project_task_or_404(session, project_id, phase_id, task["id"]))
+
+
+@router.get("/{project_id}/phases/{phase_id}/tasks", response_model=list[TaskResponse])
+def list_tasks(
+    project_id: UUID,
+    phase_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[TaskResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_phase_in_project(session, project_id, phase_id)
+    return [task_to_response(row) for row in fetch_project_phase_tasks(session, project_id, phase_id)]
+
+
+@router.get("/{project_id}/phases/{phase_id}/tasks/{task_id}", response_model=TaskResponse)
+def get_task(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> TaskResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return task_to_response(fetch_project_task_or_404(session, project_id, phase_id, task_id))
+
+
+@router.patch("/{project_id}/phases/{phase_id}/tasks/{task_id}", response_model=TaskResponse)
+def update_task(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    payload: TaskUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> TaskResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    values = payload.model_dump(exclude_unset=True)
+    if not values:
+        return task_to_response(fetch_project_task_or_404(session, project_id, phase_id, task_id))
+
+    null_required_fields = sorted(
+        field for field in REQUIRED_TASK_FIELDS if field in values and values[field] is None
+    )
+    if null_required_fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Required task fields cannot be null: {', '.join(null_required_fields)}",
+        )
+    if "owner_id" in values:
+        ensure_user_exists(session, values["owner_id"])
+
+    set_clause = ", ".join(f"{field} = %s" for field in values)
+    params = [*values.values(), task_id, phase_id]
+    task = session.fetch_one(
+        f"""
+        UPDATE tasks
+        SET {set_clause}
+        WHERE id = %s
+          AND phase_id = %s
+        RETURNING id
+        """,
+        params,
+    )
+    if task is None:
+        raise_task_not_found()
+
+    return task_to_response(fetch_project_task_or_404(session, project_id, phase_id, task["id"]))
+
+
+@router.patch("/{project_id}/phases/{phase_id}/tasks/{task_id}/status", response_model=TaskResponse)
+def update_task_status(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    payload: TaskStatusUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> TaskResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    task = session.fetch_one(
+        """
+        UPDATE tasks
+        SET status = %s
+        WHERE id = %s
+          AND phase_id = %s
+        RETURNING id
+        """,
+        (payload.status, task_id, phase_id),
+    )
+    if task is None:
+        raise_task_not_found()
+
+    return task_to_response(fetch_project_task_or_404(session, project_id, phase_id, task["id"]))
+
+
+@router.get(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/supporters",
+    response_model=list[TaskSupporterResponse],
+)
+def list_task_supporters(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[TaskSupporterResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    return [task_supporter_to_response(row) for row in fetch_task_supporters(session, task_id)]
+
+
+@router.post(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/supporters",
+    response_model=TaskSupporterResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_task_supporter(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    payload: TaskSupporterCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> TaskSupporterResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    ensure_user_exists(session, payload.user_id)
+    if fetch_task_supporter(session, task_id, payload.user_id) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=TASK_SUPPORTER_EXISTS_DETAIL)
+
+    session.execute(
+        "INSERT INTO task_supporters (task_id, user_id) VALUES (%s, %s)",
+        (task_id, payload.user_id),
+    )
+    return task_supporter_to_response(fetch_task_supporter_or_404(session, task_id, payload.user_id))
+
+
+@router.delete(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/supporters/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_task_supporter(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    user_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> Response:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    session.execute(
+        "DELETE FROM task_supporters WHERE task_id = %s AND user_id = %s",
+        (task_id, user_id),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.patch("/{project_id}", response_model=ProjectResponse)
 def update_project(
     project_id: UUID,
@@ -973,6 +1244,122 @@ def fetch_project_phase_or_404(session: DatabaseSession, project_id: UUID, phase
     return phase
 
 
+def fetch_project_phase_tasks(session: DatabaseSession, project_id: UUID, phase_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          tasks.id,
+          phases.project_id,
+          tasks.phase_id,
+          tasks.name,
+          tasks.description,
+          tasks.owner_id,
+          tasks.priority,
+          tasks.status,
+          tasks.start_date,
+          tasks.due_date,
+          tasks.completed_at,
+          tasks.created_at,
+          tasks.updated_at
+        FROM tasks
+        JOIN phases ON phases.id = tasks.phase_id
+        WHERE phases.project_id = %s
+          AND phases.id = %s
+          AND phases.archived_at IS NULL
+        ORDER BY tasks.created_at, tasks.id
+        """,
+        (project_id, phase_id),
+    )
+
+
+def fetch_project_task(
+    session: DatabaseSession,
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+) -> Row | None:
+    return session.fetch_one(
+        """
+        SELECT
+          tasks.id,
+          phases.project_id,
+          tasks.phase_id,
+          tasks.name,
+          tasks.description,
+          tasks.owner_id,
+          tasks.priority,
+          tasks.status,
+          tasks.start_date,
+          tasks.due_date,
+          tasks.completed_at,
+          tasks.created_at,
+          tasks.updated_at
+        FROM tasks
+        JOIN phases ON phases.id = tasks.phase_id
+        WHERE tasks.id = %s
+          AND tasks.phase_id = %s
+          AND phases.project_id = %s
+          AND phases.archived_at IS NULL
+        """,
+        (task_id, phase_id, project_id),
+    )
+
+
+def fetch_project_task_or_404(
+    session: DatabaseSession,
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+) -> Row:
+    task = fetch_project_task(session, project_id, phase_id, task_id)
+    if task is None:
+        raise_task_not_found()
+    return task
+
+
+def fetch_task_supporters(session: DatabaseSession, task_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          task_supporters.task_id,
+          users.id AS user_id,
+          users.name,
+          users.email,
+          task_supporters.added_at
+        FROM task_supporters
+        JOIN users ON users.id = task_supporters.user_id
+        WHERE task_supporters.task_id = %s
+        ORDER BY task_supporters.added_at, users.name, users.id
+        """,
+        (task_id,),
+    )
+
+
+def fetch_task_supporter(session: DatabaseSession, task_id: UUID, user_id: UUID) -> Row | None:
+    return session.fetch_one(
+        """
+        SELECT
+          task_supporters.task_id,
+          users.id AS user_id,
+          users.name,
+          users.email,
+          task_supporters.added_at
+        FROM task_supporters
+        JOIN users ON users.id = task_supporters.user_id
+        WHERE task_supporters.task_id = %s
+          AND task_supporters.user_id = %s
+        """,
+        (task_id, user_id),
+    )
+
+
+def fetch_task_supporter_or_404(session: DatabaseSession, task_id: UUID, user_id: UUID) -> Row:
+    supporter = fetch_task_supporter(session, task_id, user_id)
+    if supporter is None:
+        raise_task_not_found()
+    return supporter
+
+
 def ensure_phase_in_project(session: DatabaseSession, project_id: UUID, phase_id: UUID) -> None:
     if fetch_project_phase(session, project_id, phase_id) is None:
         raise_phase_not_found()
@@ -1007,6 +1394,14 @@ def project_member_to_response(row: Row) -> ProjectMemberResponse:
 
 def phase_to_response(row: Row) -> PhaseResponse:
     return PhaseResponse(**row)
+
+
+def task_to_response(row: Row) -> TaskResponse:
+    return TaskResponse(**row)
+
+
+def task_supporter_to_response(row: Row) -> TaskSupporterResponse:
+    return TaskSupporterResponse(**row)
 
 
 def dashboard_project_to_response(row: Row) -> DashboardProjectResponse:
@@ -1044,3 +1439,7 @@ def raise_project_not_found() -> None:
 
 def raise_phase_not_found() -> None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=PHASE_NOT_FOUND_DETAIL)
+
+
+def raise_task_not_found() -> None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=TASK_NOT_FOUND_DETAIL)
