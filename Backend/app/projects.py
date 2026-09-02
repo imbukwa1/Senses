@@ -22,6 +22,7 @@ PriorityLevel = Literal["Low", "Medium", "High"]
 PROJECT_NOT_FOUND_DETAIL = "Project not found"
 PHASE_NOT_FOUND_DETAIL = "Phase not found"
 TASK_NOT_FOUND_DETAIL = "Task not found"
+DELIVERABLE_NOT_FOUND_DETAIL = "Checklist item not found"
 TASK_SUPPORTER_EXISTS_DETAIL = "Task supporter already exists"
 USER_NOT_FOUND_DETAIL = "User not found"
 PROJECT_LEAD_REQUIRED_DETAIL = "Project lead is required to change project status"
@@ -43,6 +44,11 @@ REQUIRED_TASK_FIELDS = {
     "owner_id",
     "priority",
     "status",
+}
+REQUIRED_DELIVERABLE_FIELDS = {
+    "description",
+    "is_completed",
+    "display_order",
 }
 
 
@@ -221,6 +227,51 @@ class TaskSupporterResponse(BaseModel):
     name: str
     email: str
     added_at: datetime
+
+
+class ChecklistItemCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    description: str = Field(min_length=1)
+    is_completed: bool = False
+    display_order: int = Field(gt=0)
+
+
+class ChecklistItemUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    description: str | None = Field(default=None, min_length=1)
+    is_completed: bool | None = None
+    display_order: int | None = Field(default=None, gt=0)
+
+
+class ChecklistItemCompletionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_completed: bool
+
+
+class ChecklistSummaryResponse(BaseModel):
+    completed_items: int
+    total_items: int
+    progress: Decimal
+
+
+class ChecklistItemResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    description: str
+    is_completed: bool
+    display_order: int
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChecklistResponse(BaseModel):
+    task_id: UUID
+    summary: ChecklistSummaryResponse
+    items: list[ChecklistItemResponse]
 
 
 class ProjectMemberResponse(BaseModel):
@@ -854,6 +905,152 @@ def remove_task_supporter(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/checklist",
+    response_model=ChecklistItemResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_checklist_item(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    payload: ChecklistItemCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ChecklistItemResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    item = session.fetch_one(
+        """
+        INSERT INTO task_deliverables (
+          task_id,
+          description,
+          is_completed,
+          display_order
+        )
+        VALUES (%s, %s, %s, %s)
+        RETURNING *
+        """,
+        (task_id, payload.description, payload.is_completed, payload.display_order),
+    )
+    return checklist_item_to_response(item)
+
+
+@router.get(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/checklist",
+    response_model=ChecklistResponse,
+)
+def list_checklist_items(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ChecklistResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    return checklist_to_response(session, task_id)
+
+
+@router.patch(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/checklist/{item_id}",
+    response_model=ChecklistItemResponse,
+)
+def update_checklist_item(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    item_id: UUID,
+    payload: ChecklistItemUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ChecklistItemResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    fetch_checklist_item_or_404(session, task_id, item_id)
+    values = payload.model_dump(exclude_unset=True)
+    if not values:
+        return checklist_item_to_response(fetch_checklist_item_or_404(session, task_id, item_id))
+
+    null_required_fields = sorted(
+        field for field in REQUIRED_DELIVERABLE_FIELDS if field in values and values[field] is None
+    )
+    if null_required_fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Required checklist item fields cannot be null: {', '.join(null_required_fields)}",
+        )
+
+    set_clause = ", ".join(f"{field} = %s" for field in values)
+    params = [*values.values(), item_id, task_id]
+    item = session.fetch_one(
+        f"""
+        UPDATE task_deliverables
+        SET {set_clause}
+        WHERE id = %s
+          AND task_id = %s
+        RETURNING *
+        """,
+        params,
+    )
+    if item is None:
+        raise_deliverable_not_found()
+
+    return checklist_item_to_response(item)
+
+
+@router.patch(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/checklist/{item_id}/completion",
+    response_model=ChecklistItemResponse,
+)
+def set_checklist_item_completion(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    item_id: UUID,
+    payload: ChecklistItemCompletionRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ChecklistItemResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    item = session.fetch_one(
+        """
+        UPDATE task_deliverables
+        SET is_completed = %s
+        WHERE id = %s
+          AND task_id = %s
+        RETURNING *
+        """,
+        (payload.is_completed, item_id, task_id),
+    )
+    if item is None:
+        raise_deliverable_not_found()
+
+    return checklist_item_to_response(item)
+
+
+@router.delete(
+    "/{project_id}/phases/{phase_id}/tasks/{task_id}/checklist/{item_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_checklist_item(
+    project_id: UUID,
+    phase_id: UUID,
+    task_id: UUID,
+    item_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> Response:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    session.execute(
+        "DELETE FROM task_deliverables WHERE id = %s AND task_id = %s",
+        (item_id, task_id),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.patch("/{project_id}", response_model=ProjectResponse)
 def update_project(
     project_id: UUID,
@@ -1360,6 +1557,56 @@ def fetch_task_supporter_or_404(session: DatabaseSession, task_id: UUID, user_id
     return supporter
 
 
+def fetch_checklist_items(session: DatabaseSession, task_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT *
+        FROM task_deliverables
+        WHERE task_id = %s
+        ORDER BY display_order, created_at, id
+        """,
+        (task_id,),
+    )
+
+
+def fetch_checklist_item(session: DatabaseSession, task_id: UUID, item_id: UUID) -> Row | None:
+    return session.fetch_one(
+        """
+        SELECT *
+        FROM task_deliverables
+        WHERE id = %s
+          AND task_id = %s
+        """,
+        (item_id, task_id),
+    )
+
+
+def fetch_checklist_item_or_404(session: DatabaseSession, task_id: UUID, item_id: UUID) -> Row:
+    item = fetch_checklist_item(session, task_id, item_id)
+    if item is None:
+        raise_deliverable_not_found()
+    return item
+
+
+def fetch_checklist_summary(session: DatabaseSession, task_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT
+          task_deliverable_counts.task_id,
+          task_deliverable_counts.completed_items,
+          task_deliverable_counts.total_items,
+          task_progress.progress
+        FROM task_deliverable_counts
+        JOIN task_progress ON task_progress.task_id = task_deliverable_counts.task_id
+        WHERE task_deliverable_counts.task_id = %s
+        """,
+        (task_id,),
+    )
+    if row is None:
+        raise_task_not_found()
+    return row
+
+
 def ensure_phase_in_project(session: DatabaseSession, project_id: UUID, phase_id: UUID) -> None:
     if fetch_project_phase(session, project_id, phase_id) is None:
         raise_phase_not_found()
@@ -1404,6 +1651,23 @@ def task_supporter_to_response(row: Row) -> TaskSupporterResponse:
     return TaskSupporterResponse(**row)
 
 
+def checklist_item_to_response(row: Row) -> ChecklistItemResponse:
+    return ChecklistItemResponse(**row)
+
+
+def checklist_to_response(session: DatabaseSession, task_id: UUID) -> ChecklistResponse:
+    summary = fetch_checklist_summary(session, task_id)
+    return ChecklistResponse(
+        task_id=task_id,
+        summary=ChecklistSummaryResponse(
+            completed_items=summary["completed_items"],
+            total_items=summary["total_items"],
+            progress=summary["progress"],
+        ),
+        items=[checklist_item_to_response(row) for row in fetch_checklist_items(session, task_id)],
+    )
+
+
 def dashboard_project_to_response(row: Row) -> DashboardProjectResponse:
     return DashboardProjectResponse(
         id=row["id"],
@@ -1443,3 +1707,7 @@ def raise_phase_not_found() -> None:
 
 def raise_task_not_found() -> None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=TASK_NOT_FOUND_DETAIL)
+
+
+def raise_deliverable_not_found() -> None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=DELIVERABLE_NOT_FOUND_DETAIL)
