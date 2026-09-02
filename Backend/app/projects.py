@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -100,6 +101,79 @@ class ProjectMemberResponse(BaseModel):
     joined_at: datetime
 
 
+class ProjectLeadResponse(BaseModel):
+    id: UUID
+    name: str
+    email: str
+
+
+class DashboardProjectResponse(BaseModel):
+    id: UUID
+    code: str
+    name: str
+    description: str
+    project_lead: ProjectLeadResponse
+    status: str
+    health: str
+    health_color: str
+    overall_progress: Decimal
+    current_phase_id: UUID | None
+    start_date: date
+    end_date: date
+    priority: str | None
+    archived_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class DashboardPhaseResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    name: str
+    description: str | None
+    owner_id: UUID | None
+    start_date: date | None
+    end_date: date | None
+    status: str
+    display_order: int
+    objectives: str | None
+    progress: Decimal
+    created_at: datetime
+    updated_at: datetime
+    archived_at: datetime | None
+
+
+class UpcomingDeadlineResponse(BaseModel):
+    entity_type: str
+    entity_id: UUID
+    name: str
+    deadline_date: date
+    phase_id: UUID | None
+    project_id: UUID
+
+
+class DashboardDeliverableResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    task_name: str
+    phase_id: UUID
+    phase_name: str
+    description: str
+    is_completed: bool
+    display_order: int
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectDashboardResponse(BaseModel):
+    project: DashboardProjectResponse
+    current_phase: DashboardPhaseResponse | None
+    upcoming_deadlines: list[UpcomingDeadlineResponse]
+    phases: list[DashboardPhaseResponse]
+    deliverables: list[DashboardDeliverableResponse]
+
+
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 def create_project(
     payload: ProjectCreateRequest,
@@ -180,6 +254,40 @@ def get_project(
         raise_project_not_found()
 
     return project_to_response(project)
+
+
+@router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
+def get_project_dashboard(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectDashboardResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    project = fetch_dashboard_project(session, project_id)
+    if project is None:
+        raise_project_not_found()
+
+    phases = [dashboard_phase_to_response(row) for row in fetch_dashboard_phases(session, project_id)]
+    current_phase = next(
+        (phase for phase in phases if phase.id == project["current_phase_id"]),
+        None,
+    )
+    deadlines = [
+        UpcomingDeadlineResponse(**row)
+        for row in fetch_upcoming_deadlines(session, project_id)
+    ]
+    deliverables = [
+        DashboardDeliverableResponse(**row)
+        for row in fetch_dashboard_deliverables(session, project_id)
+    ]
+
+    return ProjectDashboardResponse(
+        project=dashboard_project_to_response(project),
+        current_phase=current_phase,
+        upcoming_deadlines=deadlines,
+        phases=phases,
+        deliverables=deliverables,
+    )
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
@@ -379,6 +487,166 @@ def fetch_project_health_by_id(session: DatabaseSession, project_id: UUID) -> Ro
     return row
 
 
+def fetch_dashboard_project(session: DatabaseSession, project_id: UUID) -> Row | None:
+    return session.fetch_one(
+        """
+        SELECT
+          project_dashboard.id,
+          project_dashboard.code,
+          project_dashboard.project_name AS name,
+          project_dashboard.description,
+          project_dashboard.project_lead_id,
+          project_dashboard.project_lead_name,
+          project_dashboard.project_lead_email,
+          project_dashboard.status,
+          project_dashboard.health,
+          project_dashboard.health_color,
+          calculate_average_progress(ARRAY_AGG(task_progress.progress)) AS overall_progress,
+          project_dashboard.current_phase_id,
+          project_dashboard.start_date,
+          project_dashboard.end_date,
+          project_dashboard.priority,
+          project_dashboard.archived_at,
+          project_dashboard.created_at,
+          project_dashboard.updated_at
+        FROM project_dashboard
+        LEFT JOIN phases
+          ON phases.project_id = project_dashboard.id
+         AND phases.archived_at IS NULL
+        LEFT JOIN tasks
+          ON tasks.phase_id = phases.id
+        LEFT JOIN task_progress
+          ON task_progress.task_id = tasks.id
+        WHERE project_dashboard.id = %s
+          AND project_dashboard.archived_at IS NULL
+        GROUP BY
+          project_dashboard.id,
+          project_dashboard.code,
+          project_dashboard.project_name,
+          project_dashboard.description,
+          project_dashboard.project_lead_id,
+          project_dashboard.project_lead_name,
+          project_dashboard.project_lead_email,
+          project_dashboard.status,
+          project_dashboard.health,
+          project_dashboard.health_color,
+          project_dashboard.current_phase_id,
+          project_dashboard.start_date,
+          project_dashboard.end_date,
+          project_dashboard.priority,
+          project_dashboard.archived_at,
+          project_dashboard.created_at,
+          project_dashboard.updated_at
+        """,
+        (project_id,),
+    )
+
+
+def fetch_dashboard_phases(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          phases.id,
+          phases.project_id,
+          phases.name,
+          phases.description,
+          phases.owner_id,
+          phases.start_date,
+          phases.end_date,
+          phases.status,
+          phases.display_order,
+          phases.objectives,
+          calculate_average_progress(ARRAY_AGG(task_progress.progress)) AS progress,
+          phases.created_at,
+          phases.updated_at,
+          phases.archived_at
+        FROM phases
+        LEFT JOIN tasks
+          ON tasks.phase_id = phases.id
+        LEFT JOIN task_progress
+          ON task_progress.task_id = tasks.id
+        WHERE phases.project_id = %s
+          AND phases.archived_at IS NULL
+        GROUP BY phases.id
+        ORDER BY phases.display_order, phases.created_at, phases.id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_upcoming_deadlines(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          'project' AS entity_type,
+          projects.id AS entity_id,
+          projects.name,
+          projects.end_date AS deadline_date,
+          NULL::UUID AS phase_id,
+          projects.id AS project_id
+        FROM projects
+        WHERE projects.id = %s
+          AND projects.archived_at IS NULL
+          AND projects.end_date >= CURRENT_DATE
+        UNION ALL
+        SELECT
+          'phase' AS entity_type,
+          phases.id AS entity_id,
+          phases.name,
+          phases.end_date AS deadline_date,
+          phases.id AS phase_id,
+          phases.project_id
+        FROM phases
+        WHERE phases.project_id = %s
+          AND phases.archived_at IS NULL
+          AND phases.end_date IS NOT NULL
+          AND phases.end_date >= CURRENT_DATE
+        UNION ALL
+        SELECT
+          'task' AS entity_type,
+          tasks.id AS entity_id,
+          tasks.name,
+          tasks.due_date AS deadline_date,
+          phases.id AS phase_id,
+          phases.project_id
+        FROM tasks
+        JOIN phases ON phases.id = tasks.phase_id
+        WHERE phases.project_id = %s
+          AND phases.archived_at IS NULL
+          AND tasks.due_date IS NOT NULL
+          AND tasks.due_date >= CURRENT_DATE
+        ORDER BY deadline_date, entity_type, name, entity_id
+        """,
+        (project_id, project_id, project_id),
+    )
+
+
+def fetch_dashboard_deliverables(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          task_deliverables.id,
+          task_deliverables.task_id,
+          tasks.name AS task_name,
+          phases.id AS phase_id,
+          phases.name AS phase_name,
+          task_deliverables.description,
+          task_deliverables.is_completed,
+          task_deliverables.display_order,
+          task_deliverables.completed_at,
+          task_deliverables.created_at,
+          task_deliverables.updated_at
+        FROM task_deliverables
+        JOIN tasks ON tasks.id = task_deliverables.task_id
+        JOIN phases ON phases.id = tasks.phase_id
+        WHERE phases.project_id = %s
+          AND phases.archived_at IS NULL
+        ORDER BY phases.display_order, tasks.created_at, tasks.id, task_deliverables.display_order
+        """,
+        (project_id,),
+    )
+
+
 def ensure_project_lead(session: DatabaseSession, user_id: UUID, project_id: UUID) -> None:
     row = session.fetch_one(
         """
@@ -404,6 +672,35 @@ def project_to_response(row: Row) -> ProjectResponse:
 
 def project_member_to_response(row: Row) -> ProjectMemberResponse:
     return ProjectMemberResponse(**row)
+
+
+def dashboard_project_to_response(row: Row) -> DashboardProjectResponse:
+    return DashboardProjectResponse(
+        id=row["id"],
+        code=row["code"],
+        name=row["name"],
+        description=row["description"],
+        project_lead=ProjectLeadResponse(
+            id=row["project_lead_id"],
+            name=row["project_lead_name"],
+            email=row["project_lead_email"],
+        ),
+        status=row["status"],
+        health=row["health"],
+        health_color=row["health_color"],
+        overall_progress=row["overall_progress"],
+        current_phase_id=row["current_phase_id"],
+        start_date=row["start_date"],
+        end_date=row["end_date"],
+        priority=row["priority"],
+        archived_at=row["archived_at"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def dashboard_phase_to_response(row: Row) -> DashboardPhaseResponse:
+    return DashboardPhaseResponse(**row)
 
 
 def raise_project_not_found() -> None:
