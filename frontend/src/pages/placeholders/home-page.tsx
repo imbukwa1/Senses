@@ -1,6 +1,7 @@
 import { CheckCircle2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ComponentPreview } from "@/components/common/component-preview";
 import { Input } from "@/components/ui/input";
 import { env } from "@/lib/env";
 
@@ -39,6 +40,9 @@ export function HomePage() {
           </div>
         </dl>
       </aside>
+      <div className="lg:col-span-2">
+        <ComponentPreview />
+      </div>
     </section>
   );
 }
