@@ -6,7 +6,7 @@ import { LoadingState } from "@/components/common/loading-state";
 import { StatusBadge } from "@/components/common/status-badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ApiError } from "@/features/auth/api";
+import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import { useTasksQuery } from "./hooks";
 import { TaskFormDialog } from "./task-form-dialog";
@@ -95,18 +95,10 @@ function TaskTable({ phase, projectId, tasks }: { projectId: string; phase: Dash
 }
 
 function taskErrorMessage(error: Error | null) {
-  if (error instanceof ApiError) {
-    if (error.status === 403) {
-      return "You do not have access to tasks for this phase.";
-    }
-    if (error.status === 404) {
-      return "The project or phase could not be found.";
-    }
-
-    return error.message;
-  }
-
-  return "The task list could not be loaded.";
+  return userFacingErrorMessage(error, {
+    forbidden: "You do not have access to tasks for this phase.",
+    notFound: "The project or phase could not be found.",
+  });
 }
 
 function formatOptionalDate(value: string | null) {

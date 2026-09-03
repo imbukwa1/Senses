@@ -49,8 +49,28 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, token?
 }
 
 async function safeErrorMessage(response: Response) {
+  if (response.status === 400) {
+    return "Please check your request and try again.";
+  }
+
   if (response.status === 401) {
     return "Invalid or expired credentials.";
+  }
+
+  if (response.status === 403) {
+    return "You do not have access to this resource.";
+  }
+
+  if (response.status === 404) {
+    return "The requested record could not be found.";
+  }
+
+  if (response.status === 409) {
+    return "This change conflicts with existing data.";
+  }
+
+  if (response.status === 413) {
+    return "The selected file is too large.";
   }
 
   if (response.status === 422) {

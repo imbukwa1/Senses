@@ -7,6 +7,7 @@ import { InlineErrorMessage } from "@/components/common/error-state";
 import { FormField } from "@/components/common/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import { ApiError } from "./api";
 import { loginSchema, type LoginFormValues } from "./schemas";
@@ -36,11 +37,16 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
       onSuccess();
     } catch (error) {
       if (error instanceof ApiError) {
-        setFormError(error.status === 401 ? "Invalid email or password." : error.message);
+        setFormError(
+          userFacingErrorMessage(error, {
+            unauthenticated: "Invalid email or password.",
+            validation: "Please check your email and password and try again.",
+          }),
+        );
         return;
       }
 
-      setFormError("Unable to reach the server. Please try again.");
+      setFormError(userFacingErrorMessage(error instanceof Error ? error : null));
     }
   }
 

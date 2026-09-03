@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/common/status-badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError } from "@/features/auth/api";
+import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import { useProjectsQuery } from "./hooks";
 import { ProjectFormDialog } from "./project-form-dialog";
@@ -138,9 +139,7 @@ function errorTitle(error: Error | null) {
 }
 
 function errorMessage(error: Error | null) {
-  if (error instanceof ApiError && error.status === 403) {
-    return "You do not have access to these projects.";
-  }
-
-  return error?.message ?? "The server is unavailable. Please try again shortly.";
+  return userFacingErrorMessage(error, {
+    forbidden: "You do not have access to these projects.",
+  });
 }

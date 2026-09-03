@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/features/auth/api";
 import { normalizeSearchQuery, useSearchQuery } from "@/features/search/hooks";
 import type { SearchResult, SearchResultType } from "@/features/search/types";
+import { userFacingErrorMessage } from "@/lib/api-errors";
 
 const resultTypeLabels: Record<SearchResultType, string> = {
   project: "Project",
@@ -222,9 +223,7 @@ function errorTitle(error: Error | null) {
 }
 
 function errorMessage(error: Error | null) {
-  if (error instanceof ApiError && error.status === 403) {
-    return "You do not have access to these search results.";
-  }
-
-  return error?.message ?? "The server is unavailable. Please try again shortly.";
+  return userFacingErrorMessage(error, {
+    forbidden: "You do not have access to these search results.",
+  });
 }

@@ -22,7 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError } from "@/features/auth/api";
+import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import { useCreateTaskMutation, useProjectMembersQuery, useTaskSupportersQuery, useUpdateTaskMutation } from "./hooks";
 import type { DashboardPhase, ProjectMember, Task, TaskMutationPayload, TaskSupporter } from "./types";
@@ -350,22 +350,10 @@ function blankToNull(value: string | undefined) {
 }
 
 function taskMutationErrorMessage(error: Error) {
-  if (error instanceof ApiError) {
-    if (error.status === 403) {
-      return "You do not have access to manage tasks for this project.";
-    }
-    if (error.status === 404) {
-      return "The project, phase, task, owner, or supporter could not be found.";
-    }
-    if (error.status === 409) {
-      return "The supporter is already assigned to this task.";
-    }
-    if (error.status === 422 || error.status === 400) {
-      return "Please check the task details and try again.";
-    }
-
-    return error.message;
-  }
-
-  return "The task could not be saved. Please try again.";
+  return userFacingErrorMessage(error, {
+    action: "the task details",
+    conflict: "The supporter is already assigned to this task.",
+    forbidden: "You do not have access to manage tasks for this project.",
+    notFound: "The project, phase, task, owner, or supporter could not be found.",
+  });
 }

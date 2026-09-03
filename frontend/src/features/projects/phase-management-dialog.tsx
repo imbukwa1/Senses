@@ -17,7 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
-import { ApiError } from "@/features/auth/api";
+import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import {
   useArchivePhaseMutation,
@@ -168,24 +168,12 @@ export function PhaseManagementDialog({ children, currentPhaseId, phases, projec
 }
 
 function phaseActionErrorMessage(error: Error) {
-  if (error instanceof ApiError) {
-    if (error.status === 403) {
-      return "You do not have access to manage phases for this project.";
-    }
-    if (error.status === 404) {
-      return "The project or phase could not be found.";
-    }
-    if (error.status === 409) {
-      return "The phase change conflicts with existing data.";
-    }
-    if (error.status === 422 || error.status === 400) {
-      return "Please check the phase request and try again.";
-    }
-
-    return error.message;
-  }
-
-  return "The phase request could not be completed.";
+  return userFacingErrorMessage(error, {
+    action: "the phase request",
+    conflict: "The phase change conflicts with existing data.",
+    forbidden: "You do not have access to manage phases for this project.",
+    notFound: "The project or phase could not be found.",
+  });
 }
 
 function formatOptionalDate(value: string | null) {

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ApiError } from "@/features/auth/api";
+import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import { useProjectDashboardQuery, useProjectQuery } from "./hooks";
 import { PhaseManagementDialog } from "./phase-management-dialog";
@@ -323,14 +324,10 @@ function dashboardErrorTitle(error: Error | null) {
 }
 
 function dashboardErrorMessage(error: Error | null) {
-  if (error instanceof ApiError && error.status === 403) {
-    return "You do not have access to this project.";
-  }
-  if (error instanceof ApiError && error.status === 404) {
-    return "The requested project was not found.";
-  }
-
-  return error?.message ?? "The server is unavailable. Please try again shortly.";
+  return userFacingErrorMessage(error, {
+    forbidden: "You do not have access to this project.",
+    notFound: "The requested project was not found.",
+  });
 }
 
 function formatDate(value: string) {

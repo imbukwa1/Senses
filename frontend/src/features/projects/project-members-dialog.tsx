@@ -16,7 +16,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { ApiError } from "@/features/auth/api";
+import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import { useProjectMembersQuery, useRemoveProjectMemberMutation } from "./hooks";
 import type { ProjectMember, ProjectSummary } from "./types";
@@ -123,22 +123,10 @@ function getInitials(value: string) {
 }
 
 function memberErrorMessage(error: Error | null) {
-  if (error instanceof ApiError) {
-    if (error.status === 403) {
-      return "You do not have access to manage members for this project.";
-    }
-    if (error.status === 404) {
-      return "The project or member could not be found.";
-    }
-    if (error.status === 409) {
-      return "The member change conflicts with existing data.";
-    }
-    if (error.status === 422 || error.status === 400) {
-      return "Please check the selected member and try again.";
-    }
-
-    return error.message;
-  }
-
-  return "The member request could not be completed.";
+  return userFacingErrorMessage(error, {
+    action: "the selected member",
+    conflict: "The member change conflicts with existing data.",
+    forbidden: "You do not have access to manage members for this project.",
+    notFound: "The project or member could not be found.",
+  });
 }

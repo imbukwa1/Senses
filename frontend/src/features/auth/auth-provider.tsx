@@ -25,6 +25,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(() => readStoredToken());
   const [sessionExpired, setSessionExpired] = useState(false);
 
+  const clearAuthState = useCallback(
+    (expired: boolean) => {
+      clearStoredToken();
+      setToken(null);
+      setSessionExpired(expired);
+      queryClient.clear();
+    },
+    [queryClient],
+  );
+
   const meQuery = useQuery({
     queryKey: ME_QUERY_KEY,
     queryFn: () => getMe(token ?? ""),
@@ -34,12 +44,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (meQuery.error instanceof ApiError && meQuery.error.status === 401) {
-      clearStoredToken();
-      setToken(null);
-      setSessionExpired(true);
-      queryClient.removeQueries();
+      clearAuthState(true);
     }
-  }, [meQuery.error, queryClient]);
+  }, [clearAuthState, meQuery.error]);
 
   const login = useCallback(
     async (payload: LoginPayload) => {
@@ -57,11 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(() => {
-    clearStoredToken();
-    setToken(null);
-    setSessionExpired(false);
-    queryClient.clear();
-  }, [queryClient]);
+    clearAuthState(false);
+  }, [clearAuthState]);
 
   const status: AuthStatus = useMemo(() => {
     if (!token) {

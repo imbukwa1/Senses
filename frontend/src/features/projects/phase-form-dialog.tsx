@@ -21,8 +21,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError } from "@/features/auth/api";
 import { useAuth } from "@/features/auth/hooks";
+import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import { useCreatePhaseMutation, useUpdatePhaseMutation } from "./hooks";
 import type { DashboardPhase, PhaseMutationPayload } from "./types";
@@ -242,22 +242,10 @@ function blankToNull(value: string | undefined) {
 }
 
 function phaseMutationErrorMessage(error: Error) {
-  if (error instanceof ApiError) {
-    if (error.status === 403) {
-      return "You do not have access to manage phases for this project.";
-    }
-    if (error.status === 404) {
-      return "The project, phase, or selected owner could not be found.";
-    }
-    if (error.status === 409) {
-      return "The phase could not be saved because it conflicts with existing data.";
-    }
-    if (error.status === 422 || error.status === 400) {
-      return "Please check the phase details and try again.";
-    }
-
-    return error.message;
-  }
-
-  return "The phase could not be saved. Please try again.";
+  return userFacingErrorMessage(error, {
+    action: "the phase details",
+    conflict: "The phase could not be saved because it conflicts with existing data.",
+    forbidden: "You do not have access to manage phases for this project.",
+    notFound: "The project, phase, or selected owner could not be found.",
+  });
 }

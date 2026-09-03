@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError } from "@/features/auth/api";
+import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import {
   useChecklistQuery,
@@ -550,66 +550,31 @@ function ChecklistItemRow({ item, phaseId, projectId, taskId }: { item: Checklis
 }
 
 function checklistErrorMessage(error: Error) {
-  if (error instanceof ApiError) {
-    if (error.status === 403) {
-      return "You do not have access to update this task.";
-    }
-    if (error.status === 404) {
-      return "The task or checklist item could not be found.";
-    }
-    if (error.status === 409) {
-      return "The checklist change conflicts with existing data.";
-    }
-    if (error.status === 422 || error.status === 400) {
-      return "Please check the checklist item and try again.";
-    }
-
-    return error.message;
-  }
-
-  return "The checklist request could not be completed.";
+  return userFacingErrorMessage(error, {
+    action: "the checklist item",
+    conflict: "The checklist change conflicts with existing data.",
+    forbidden: "You do not have access to update this task.",
+    notFound: "The task or checklist item could not be found.",
+  });
 }
 
 function commentErrorMessage(error: Error) {
-  if (error instanceof ApiError) {
-    if (error.status === 403) {
-      return "You do not have access to comments for this task.";
-    }
-    if (error.status === 404) {
-      return "The task or comment could not be found.";
-    }
-    if (error.status === 422 || error.status === 400) {
-      return "Please enter a comment and try again.";
-    }
-
-    return error.message;
-  }
-
-  return "The comment request could not be completed.";
+  return userFacingErrorMessage(error, {
+    action: "a comment",
+    forbidden: "You do not have access to comments for this task.",
+    notFound: "The task or comment could not be found.",
+    validation: "Please enter a comment and try again.",
+  });
 }
 
 function fileErrorMessage(error: Error) {
-  if (error instanceof ApiError) {
-    if (error.status === 403) {
-      return "You do not have access to files for this task.";
-    }
-    if (error.status === 404) {
-      return "The task file could not be found.";
-    }
-    if (error.status === 413) {
-      return "The selected file is too large.";
-    }
-    if (error.status === 422 || error.status === 400) {
-      return "Please check the selected file and try again.";
-    }
-    if (error.status >= 500) {
-      return "File storage is unavailable. This may require GCS configuration.";
-    }
-
-    return error.message;
-  }
-
-  return "The file request could not be completed.";
+  return userFacingErrorMessage(error, {
+    action: "the selected file",
+    forbidden: "You do not have access to files for this task.",
+    notFound: "The task file could not be found.",
+    payloadTooLarge: "The selected file is too large.",
+    server: "File storage is unavailable. This may require GCS configuration.",
+  });
 }
 
 function formatFileType(value: string | null) {

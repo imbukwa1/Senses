@@ -21,8 +21,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError } from "@/features/auth/api";
 import { useAuth } from "@/features/auth/hooks";
+import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import { useCreateProjectMutation, useUpdateProjectMutation } from "./hooks";
 import type { ProjectMutationPayload, ProjectSummary } from "./types";
@@ -280,22 +280,10 @@ function buildLeadOptions(user: ReturnType<typeof useAuth>["user"], project: Pro
 }
 
 function mutationErrorMessage(error: Error) {
-  if (error instanceof ApiError) {
-    if (error.status === 403) {
-      return "You do not have access to update this project.";
-    }
-    if (error.status === 404) {
-      return "The project or selected user could not be found.";
-    }
-    if (error.status === 409) {
-      return "The project could not be saved because it conflicts with existing data.";
-    }
-    if (error.status === 422 || error.status === 400) {
-      return "Please check the project details and try again.";
-    }
-
-    return error.message;
-  }
-
-  return "The project could not be saved. Please try again.";
+  return userFacingErrorMessage(error, {
+    action: "the project details",
+    conflict: "The project could not be saved because it conflicts with existing data.",
+    forbidden: "You do not have access to update this project.",
+    notFound: "The project or selected user could not be found.",
+  });
 }
