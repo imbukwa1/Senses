@@ -26,7 +26,7 @@ export function SearchPage() {
   const queryParam = searchParams.get("q") ?? "";
   const [draftQuery, setDraftQuery] = useState(queryParam);
   const searchQuery = useSearchQuery(queryParam);
-  const results = searchQuery.data ?? [];
+  const results = useMemo(() => searchQuery.data ?? [], [searchQuery.data]);
   const groupedResults = useMemo(() => groupResults(results), [results]);
 
   useEffect(() => {

@@ -20,7 +20,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return { hasError: true };
   }
 
-  componentDidCatch(_error: Error, _errorInfo: ErrorInfo) {
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    void error;
+    void errorInfo;
     // Avoid logging details here; API and auth errors are surfaced through safe UI states.
   }
 

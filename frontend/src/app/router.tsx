@@ -1,19 +1,32 @@
+import { lazy, Suspense } from "react";
 import { createBrowserRouter } from "react-router-dom";
 
+import { LoadingState } from "@/components/common/loading-state";
 import { AppShell } from "@/components/layout/app-shell";
 import { ProtectedRoute } from "@/features/auth/protected-route";
 import { ProjectsHeaderActions } from "@/features/projects/project-header-actions";
-import { LoginPage } from "@/pages/login-page";
-import { ProjectDetailPlaceholderPage } from "@/pages/project-detail-placeholder-page";
-import { HomePage } from "@/pages/placeholders/home-page";
-import { NotFoundPage } from "@/pages/placeholders/not-found-page";
-import { ProjectsPage } from "@/pages/placeholders/projects-page";
-import { SearchPage } from "@/pages/placeholders/search-page";
+
+const LoginPage = lazy(() => import("@/pages/login-page").then((module) => ({ default: module.LoginPage })));
+const ProjectDetailPlaceholderPage = lazy(() =>
+  import("@/pages/project-detail-placeholder-page").then((module) => ({ default: module.ProjectDetailPlaceholderPage })),
+);
+const HomePage = lazy(() => import("@/pages/placeholders/home-page").then((module) => ({ default: module.HomePage })));
+const NotFoundPage = lazy(() => import("@/pages/placeholders/not-found-page").then((module) => ({ default: module.NotFoundPage })));
+const ProjectsPage = lazy(() => import("@/pages/placeholders/projects-page").then((module) => ({ default: module.ProjectsPage })));
+const SearchPage = lazy(() => import("@/pages/placeholders/search-page").then((module) => ({ default: module.SearchPage })));
+
+function RouteLoader({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<LoadingState label="Loading page" />}>{children}</Suspense>;
+}
 
 export const router = createBrowserRouter([
   {
     path: "/login",
-    element: <LoginPage />,
+    element: (
+      <RouteLoader>
+        <LoginPage />
+      </RouteLoader>
+    ),
   },
   {
     path: "/",
@@ -25,7 +38,11 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <HomePage />,
+        element: (
+          <RouteLoader>
+            <HomePage />
+          </RouteLoader>
+        ),
         handle: {
           title: "Home",
           subtitle: "Shared application layout foundation.",
@@ -34,7 +51,11 @@ export const router = createBrowserRouter([
       },
       {
         path: "projects",
-        element: <ProjectsPage />,
+        element: (
+          <RouteLoader>
+            <ProjectsPage />
+          </RouteLoader>
+        ),
         handle: {
           title: "Projects",
           subtitle: "Accessible project portfolio.",
@@ -44,7 +65,11 @@ export const router = createBrowserRouter([
       },
       {
         path: "projects/:projectId",
-        element: <ProjectDetailPlaceholderPage />,
+        element: (
+          <RouteLoader>
+            <ProjectDetailPlaceholderPage />
+          </RouteLoader>
+        ),
         handle: {
           title: "Project",
           subtitle: "Prepared route for the future project dashboard.",
@@ -53,7 +78,11 @@ export const router = createBrowserRouter([
       },
       {
         path: "search",
-        element: <SearchPage />,
+        element: (
+          <RouteLoader>
+            <SearchPage />
+          </RouteLoader>
+        ),
         handle: {
           title: "Search",
           subtitle: "Find accessible projects, phases, and tasks.",
@@ -62,7 +91,11 @@ export const router = createBrowserRouter([
       },
       {
         path: "*",
-        element: <NotFoundPage />,
+        element: (
+          <RouteLoader>
+            <NotFoundPage />
+          </RouteLoader>
+        ),
         handle: {
           title: "Not found",
           breadcrumbs: [{ label: "Not found" }],
