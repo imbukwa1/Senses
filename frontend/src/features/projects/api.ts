@@ -10,6 +10,8 @@ import {
   projectSummariesSchema,
   projectSummarySchema,
   taskSchema,
+  taskCommentSchema,
+  taskCommentsSchema,
   taskSupporterSchema,
   taskSupportersSchema,
   tasksSchema,
@@ -24,6 +26,7 @@ import type {
   Task,
   Checklist,
   ChecklistItem,
+  TaskComment,
   TaskMutationPayload,
   TaskSupporter,
 } from "./types";
@@ -325,6 +328,41 @@ export async function removeChecklistItem(token: string, projectId: string, phas
     },
     token,
   );
+}
+
+export async function listTaskComments(token: string, projectId: string, phaseId: string, taskId: string): Promise<TaskComment[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/comments`, {}, token);
+  const result = taskCommentsSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Comment data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createTaskComment(
+  token: string,
+  projectId: string,
+  phaseId: string,
+  taskId: string,
+  comment: string,
+): Promise<TaskComment> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/comments`,
+    {
+      method: "POST",
+      body: JSON.stringify({ comment }),
+    },
+    token,
+  );
+  const result = taskCommentSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Comment data could not be loaded.", 500);
+  }
+
+  return result.data;
 }
 
 function parseProject(data: unknown) {

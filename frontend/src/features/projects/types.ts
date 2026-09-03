@@ -199,3 +199,14 @@ export type Checklist = {
   summary: ChecklistSummary;
   items: ChecklistItem[];
 };
+
+export type TaskComment = {
+  id: string;
+  task_id: string;
+  user_id: string;
+  author_name: string;
+  author_email: string;
+  comment: string;
+  created_at: string;
+  updated_at: string;
+};

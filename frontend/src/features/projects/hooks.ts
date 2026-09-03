@@ -12,12 +12,14 @@ import {
   createChecklistItem,
   createPhase,
   createProject,
+  createTaskComment,
   createTask,
   getChecklist,
   getProject,
   getProjectDashboard,
   listProjectMembers,
   listProjects,
+  listTaskComments,
   listTasks,
   listTaskSupporters,
   removeProjectMember,
@@ -42,6 +44,8 @@ export const taskSupportersQueryKey = (projectId: string, phaseId: string, taskI
   ["projects", projectId, "phases", phaseId, "tasks", taskId, "supporters"] as const;
 export const checklistQueryKey = (projectId: string, phaseId: string, taskId: string) =>
   ["projects", projectId, "phases", phaseId, "tasks", taskId, "checklist"] as const;
+export const taskCommentsQueryKey = (projectId: string, phaseId: string, taskId: string) =>
+  ["projects", projectId, "phases", phaseId, "tasks", taskId, "comments"] as const;
 
 export function useProjectsQuery() {
   const { logout, status, token } = useAuth();
@@ -348,6 +352,37 @@ export function useRemoveChecklistItemMutation(projectId: string, phaseId: strin
   return useMutation({
     mutationFn: (itemId: string) => removeChecklistItem(requireToken(token), projectId, phaseId, taskId, itemId),
     onSuccess: () => invalidateChecklistQueries(queryClient, projectId, phaseId, taskId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useTaskCommentsQuery(projectId: string, phaseId: string, taskId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: taskCommentsQueryKey(projectId, phaseId, taskId),
+    queryFn: () => listTaskComments(requireToken(token), projectId, phaseId, taskId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useCreateTaskCommentMutation(projectId: string, phaseId: string, taskId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (comment: string) => createTaskComment(requireToken(token), projectId, phaseId, taskId, comment),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: taskCommentsQueryKey(projectId, phaseId, taskId) });
+    },
     onError: authFailureHandler(logout),
   });
 }

@@ -176,3 +176,16 @@ export const checklistSchema = z.object({
   summary: checklistSummarySchema,
   items: z.array(checklistItemSchema),
 });
+
+export const taskCommentSchema = z.object({
+  id: z.uuid(),
+  task_id: z.uuid(),
+  user_id: z.uuid(),
+  author_name: z.string().min(1),
+  author_email: z.email(),
+  comment: z.string().min(1),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const taskCommentsSchema = z.array(taskCommentSchema);

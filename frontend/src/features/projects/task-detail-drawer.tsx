@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Edit, Save, Trash2 } from "lucide-react";
+import { Edit, MessageSquare, Save, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -14,29 +14,38 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/features/auth/api";
 
 import {
   useChecklistQuery,
+  useCreateTaskCommentMutation,
   useCreateChecklistItemMutation,
   useRemoveChecklistItemMutation,
   useSetChecklistItemCompletionMutation,
+  useTaskCommentsQuery,
   useTaskSupportersQuery,
   useUpdateChecklistItemMutation,
 } from "./hooks";
 import { TaskFormDialog } from "./task-form-dialog";
-import type { ChecklistItem, DashboardPhase, Task } from "./types";
+import type { ChecklistItem, DashboardPhase, Task, TaskComment } from "./types";
 
 const checklistItemSchema = z.object({
   description: z.string().trim().min(1, "Checklist item description is required."),
 });
 
+const commentSchema = z.object({
+  comment: z.string().trim().min(1, "Comment is required."),
+});
+
 type ChecklistItemFormValues = z.infer<typeof checklistItemSchema>;
+type CommentFormValues = z.infer<typeof commentSchema>;
 
 export function TaskDetailDrawer({ children, phase, projectId, task }: { children: React.ReactNode; projectId: string; phase: DashboardPhase; task: Task }) {
   const [open, setOpen] = useState(false);
   const [editTaskOpen, setEditTaskOpen] = useState(false);
   const checklistQuery = useChecklistQuery(projectId, phase.id, task.id, open);
+  const commentsQuery = useTaskCommentsQuery(projectId, phase.id, task.id, open);
   const supportersQuery = useTaskSupportersQuery(projectId, phase.id, task.id, open);
   const checklist = checklistQuery.data;
   const taskProgress = checklist?.summary.progress;
@@ -102,10 +111,104 @@ export function TaskDetailDrawer({ children, phase, projectId, task }: { childre
                 taskId={task.id}
               />
             </section>
+            <CommentsSection
+              comments={commentsQuery.data ?? []}
+              commentsError={commentsQuery.error}
+              commentsLoading={commentsQuery.isLoading}
+              projectId={projectId}
+              phaseId={phase.id}
+              taskId={task.id}
+            />
           </div>
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function CommentsSection({
+  comments,
+  commentsError,
+  commentsLoading,
+  phaseId,
+  projectId,
+  taskId,
+}: {
+  comments: TaskComment[];
+  commentsError: Error | null;
+  commentsLoading: boolean;
+  projectId: string;
+  phaseId: string;
+  taskId: string;
+}) {
+  const createComment = useCreateTaskCommentMutation(projectId, phaseId, taskId);
+  const {
+    formState: { errors, isSubmitting },
+    handleSubmit,
+    register,
+    reset,
+  } = useForm<CommentFormValues>({
+    resolver: zodResolver(commentSchema),
+    defaultValues: {
+      comment: "",
+    },
+  });
+  const isAdding = createComment.isPending || isSubmitting;
+  const addError = createComment.error ? commentErrorMessage(createComment.error) : null;
+
+  async function onSubmit(values: CommentFormValues) {
+    try {
+      await createComment.mutateAsync(values.comment.trim());
+      reset();
+    } catch {
+      return;
+    }
+  }
+
+  return (
+    <section className="rounded-md border bg-background p-4">
+      <div className="flex items-center gap-2">
+        <MessageSquare className="size-4 text-primary" aria-hidden="true" />
+        <h3 className="text-sm font-semibold text-foreground">Comments</h3>
+      </div>
+      <form className="mt-4 space-y-2" noValidate onSubmit={handleSubmit(onSubmit)}>
+        {addError ? <InlineErrorMessage message={addError} /> : null}
+        <label className="sr-only" htmlFor={`task-comment-${taskId}`}>
+          Add comment
+        </label>
+        <Textarea
+          id={`task-comment-${taskId}`}
+          aria-invalid={Boolean(errors.comment)}
+          placeholder="Add a comment"
+          disabled={isAdding}
+          {...register("comment")}
+        />
+        {errors.comment?.message ? <p className="text-sm font-medium text-error">{errors.comment.message}</p> : null}
+        <div className="flex justify-end">
+          <Button type="submit" disabled={isAdding} className="bg-brand-red text-white hover:bg-brand-red/90">
+            {isAdding ? "Posting..." : "Add Comment"}
+          </Button>
+        </div>
+      </form>
+      <div className="mt-5">
+        {commentsLoading ? <LoadingState label="Loading comments" /> : null}
+        {commentsError ? <ErrorState title="Comments could not be loaded" message={commentErrorMessage(commentsError)} /> : null}
+        {!commentsLoading && !commentsError && comments.length === 0 ? <EmptyState title="No comments yet." /> : null}
+        {!commentsLoading && !commentsError && comments.length > 0 ? (
+          <div className="space-y-3">
+            {comments.map((comment) => (
+              <article key={comment.id} className="rounded-md border bg-surface p-3">
+                <header className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  <p className="font-semibold text-foreground">{comment.author_name}</p>
+                  <p className="text-muted-foreground">{formatDateTime(comment.created_at)}</p>
+                </header>
+                <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{comment.comment}</p>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -335,6 +438,24 @@ function checklistErrorMessage(error: Error) {
   }
 
   return "The checklist request could not be completed.";
+}
+
+function commentErrorMessage(error: Error) {
+  if (error instanceof ApiError) {
+    if (error.status === 403) {
+      return "You do not have access to comments for this task.";
+    }
+    if (error.status === 404) {
+      return "The task or comment could not be found.";
+    }
+    if (error.status === 422 || error.status === 400) {
+      return "Please enter a comment and try again.";
+    }
+
+    return error.message;
+  }
+
+  return "The comment request could not be completed.";
 }
 
 function formatOptionalDate(value: string | null) {
