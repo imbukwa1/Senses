@@ -1,0 +1,60 @@
+import { env } from "@/lib/env";
+
+import type { AuthenticatedUser, LoginPayload, TokenResponse } from "./types";
+
+const API_BASE_URL = env.apiBaseUrl.replace(/\/+$/, "");
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+export async function login(payload: LoginPayload): Promise<TokenResponse> {
+  return request<TokenResponse>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getMe(token: string): Promise<AuthenticatedUser> {
+  return request<AuthenticatedUser>("/me", {}, token);
+}
+
+async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      Accept: "application/json",
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init.headers,
+    },
+  });
+
+  if (!response.ok) {
+    throw new ApiError(await safeErrorMessage(response), response.status);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function safeErrorMessage(response: Response) {
+  if (response.status === 401) {
+    return "Invalid or expired credentials.";
+  }
+
+  if (response.status === 422) {
+    return "Please check the form and try again.";
+  }
+
+  if (response.status >= 500) {
+    return "The server is unavailable. Please try again shortly.";
+  }
+
+  return "The request could not be completed.";
+}

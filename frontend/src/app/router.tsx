@@ -1,6 +1,8 @@
 import { createBrowserRouter } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/app-shell";
+import { ProtectedRoute } from "@/features/auth/protected-route";
+import { LoginPage } from "@/pages/login-page";
 import { HomePage } from "@/pages/placeholders/home-page";
 import { NotFoundPage } from "@/pages/placeholders/not-found-page";
 import { ProjectsPage } from "@/pages/placeholders/projects-page";
@@ -8,8 +10,16 @@ import { SearchPage } from "@/pages/placeholders/search-page";
 
 export const router = createBrowserRouter([
   {
+    path: "/login",
+    element: <LoginPage />,
+  },
+  {
     path: "/",
-    element: <AppShell />,
+    element: (
+      <ProtectedRoute>
+        <AppShell />
+      </ProtectedRoute>
+    ),
     children: [
       {
         index: true,
