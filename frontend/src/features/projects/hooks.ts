@@ -14,12 +14,14 @@ import {
   createProject,
   createTaskComment,
   createTask,
+  downloadTaskFile,
   getChecklist,
   getProject,
   getProjectDashboard,
   listProjectMembers,
   listProjects,
   listTaskComments,
+  listTaskFiles,
   listTasks,
   listTaskSupporters,
   removeProjectMember,
@@ -32,6 +34,7 @@ import {
   updatePhase,
   updateProject,
   updateTask,
+  uploadTaskFile,
 } from "./api";
 import type { PhaseMutationPayload, ProjectMutationPayload, TaskMutationPayload } from "./types";
 
@@ -46,6 +49,8 @@ export const checklistQueryKey = (projectId: string, phaseId: string, taskId: st
   ["projects", projectId, "phases", phaseId, "tasks", taskId, "checklist"] as const;
 export const taskCommentsQueryKey = (projectId: string, phaseId: string, taskId: string) =>
   ["projects", projectId, "phases", phaseId, "tasks", taskId, "comments"] as const;
+export const taskFilesQueryKey = (projectId: string, phaseId: string, taskId: string) =>
+  ["projects", projectId, "phases", phaseId, "tasks", taskId, "files"] as const;
 
 export function useProjectsQuery() {
   const { logout, status, token } = useAuth();
@@ -383,6 +388,46 @@ export function useCreateTaskCommentMutation(projectId: string, phaseId: string,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: taskCommentsQueryKey(projectId, phaseId, taskId) });
     },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useTaskFilesQuery(projectId: string, phaseId: string, taskId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: taskFilesQueryKey(projectId, phaseId, taskId),
+    queryFn: () => listTaskFiles(requireToken(token), projectId, phaseId, taskId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useUploadTaskFileMutation(projectId: string, phaseId: string, taskId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (file: File) => uploadTaskFile(requireToken(token), projectId, phaseId, taskId, file),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: taskFilesQueryKey(projectId, phaseId, taskId) });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useDownloadTaskFileMutation(projectId: string, phaseId: string, taskId: string) {
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (fileId: string) => downloadTaskFile(requireToken(token), projectId, phaseId, taskId, fileId),
     onError: authFailureHandler(logout),
   });
 }

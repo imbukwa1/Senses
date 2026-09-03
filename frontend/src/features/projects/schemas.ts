@@ -189,3 +189,18 @@ export const taskCommentSchema = z.object({
 });
 
 export const taskCommentsSchema = z.array(taskCommentSchema);
+
+export const taskFileSchema = z.object({
+  id: z.uuid(),
+  task_id: z.uuid(),
+  uploaded_by: z.uuid(),
+  uploader_name: z.string().min(1),
+  uploader_email: z.email(),
+  file_name: z.string().min(1),
+  storage_key: z.string().min(1),
+  file_type: z.string().nullable(),
+  file_size: z.number(),
+  created_at: z.string().min(1),
+});
+
+export const taskFilesSchema = z.array(taskFileSchema);

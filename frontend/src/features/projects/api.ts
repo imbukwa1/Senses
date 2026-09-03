@@ -12,6 +12,8 @@ import {
   taskSchema,
   taskCommentSchema,
   taskCommentsSchema,
+  taskFileSchema,
+  taskFilesSchema,
   taskSupporterSchema,
   taskSupportersSchema,
   tasksSchema,
@@ -27,6 +29,8 @@ import type {
   Checklist,
   ChecklistItem,
   TaskComment,
+  DownloadedTaskFile,
+  TaskFile,
   TaskMutationPayload,
   TaskSupporter,
 } from "./types";
@@ -365,6 +369,54 @@ export async function createTaskComment(
   return result.data;
 }
 
+export async function listTaskFiles(token: string, projectId: string, phaseId: string, taskId: string): Promise<TaskFile[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/files`, {}, token);
+  const result = taskFilesSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("File data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function uploadTaskFile(token: string, projectId: string, phaseId: string, taskId: string, file: File): Promise<TaskFile> {
+  const body = new FormData();
+  body.append("file", file);
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/files`,
+    {
+      method: "POST",
+      body,
+    },
+    token,
+  );
+  const result = taskFileSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("File data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function downloadTaskFile(token: string, projectId: string, phaseId: string, taskId: string, fileId: string): Promise<DownloadedTaskFile> {
+  const response = await fetch(`${apiBaseUrl()}/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/files/${fileId}/download`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new ApiError(await safeFileErrorMessage(response), response.status);
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: parseDownloadFileName(response.headers.get("content-disposition")) ?? "attachment",
+  };
+}
+
 function parseProject(data: unknown) {
   const result = projectSummarySchema.safeParse(data);
 
@@ -403,4 +455,42 @@ function parseChecklistItem(data: unknown) {
   }
 
   return result.data;
+}
+
+function apiBaseUrl() {
+  return import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, "") || "http://localhost:8000";
+}
+
+async function safeFileErrorMessage(response: Response) {
+  if (response.status === 401) {
+    return "Invalid or expired credentials.";
+  }
+  if (response.status === 403) {
+    return "You do not have access to this file.";
+  }
+  if (response.status === 404) {
+    return "The requested file could not be found.";
+  }
+  if (response.status === 413) {
+    return "The selected file is too large.";
+  }
+  if (response.status >= 500) {
+    return "File storage is unavailable. Please try again later.";
+  }
+
+  return "The file request could not be completed.";
+}
+
+function parseDownloadFileName(contentDisposition: string | null) {
+  if (!contentDisposition) {
+    return null;
+  }
+
+  const encodedMatch = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition);
+  if (encodedMatch?.[1]) {
+    return decodeURIComponent(encodedMatch[1]);
+  }
+
+  const fallbackMatch = /filename="?([^";]+)"?/i.exec(contentDisposition);
+  return fallbackMatch?.[1] ?? null;
 }

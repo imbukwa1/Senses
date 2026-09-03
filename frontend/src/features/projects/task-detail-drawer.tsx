@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Edit, MessageSquare, Save, Trash2 } from "lucide-react";
+import { Download, Edit, FileText, MessageSquare, Paperclip, Save, Trash2, Upload } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -24,11 +24,14 @@ import {
   useRemoveChecklistItemMutation,
   useSetChecklistItemCompletionMutation,
   useTaskCommentsQuery,
+  useDownloadTaskFileMutation,
+  useTaskFilesQuery,
   useTaskSupportersQuery,
+  useUploadTaskFileMutation,
   useUpdateChecklistItemMutation,
 } from "./hooks";
 import { TaskFormDialog } from "./task-form-dialog";
-import type { ChecklistItem, DashboardPhase, Task, TaskComment } from "./types";
+import type { ChecklistItem, DashboardPhase, Task, TaskComment, TaskFile } from "./types";
 
 const checklistItemSchema = z.object({
   description: z.string().trim().min(1, "Checklist item description is required."),
@@ -46,6 +49,7 @@ export function TaskDetailDrawer({ children, phase, projectId, task }: { childre
   const [editTaskOpen, setEditTaskOpen] = useState(false);
   const checklistQuery = useChecklistQuery(projectId, phase.id, task.id, open);
   const commentsQuery = useTaskCommentsQuery(projectId, phase.id, task.id, open);
+  const filesQuery = useTaskFilesQuery(projectId, phase.id, task.id, open);
   const supportersQuery = useTaskSupportersQuery(projectId, phase.id, task.id, open);
   const checklist = checklistQuery.data;
   const taskProgress = checklist?.summary.progress;
@@ -119,10 +123,136 @@ export function TaskDetailDrawer({ children, phase, projectId, task }: { childre
               phaseId={phase.id}
               taskId={task.id}
             />
+            <TaskFilesSection
+              files={filesQuery.data ?? []}
+              filesError={filesQuery.error}
+              filesLoading={filesQuery.isLoading}
+              projectId={projectId}
+              phaseId={phase.id}
+              taskId={task.id}
+            />
           </div>
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function TaskFilesSection({
+  files,
+  filesError,
+  filesLoading,
+  phaseId,
+  projectId,
+  taskId,
+}: {
+  files: TaskFile[];
+  filesError: Error | null;
+  filesLoading: boolean;
+  projectId: string;
+  phaseId: string;
+  taskId: string;
+}) {
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const uploadFile = useUploadTaskFileMutation(projectId, phaseId, taskId);
+  const uploadError = uploadFile.error ? fileErrorMessage(uploadFile.error) : null;
+  const isUploading = uploadFile.isPending;
+
+  async function handleUpload() {
+    if (!selectedFile) {
+      return;
+    }
+
+    try {
+      await uploadFile.mutateAsync(selectedFile);
+      setSelectedFile(null);
+      setFileInputKey((key) => key + 1);
+    } catch {
+      return;
+    }
+  }
+
+  return (
+    <section className="rounded-md border bg-background p-4">
+      <div className="flex items-center gap-2">
+        <Paperclip className="size-4 text-primary" aria-hidden="true" />
+        <h3 className="text-sm font-semibold text-foreground">Files</h3>
+      </div>
+      <div className="mt-4 rounded-md border bg-surface p-3">
+        {uploadError ? <InlineErrorMessage message={uploadError} /> : null}
+        <label className="text-sm font-medium text-foreground" htmlFor={`task-file-${taskId}`}>
+          Select file
+        </label>
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+          <Input
+            key={fileInputKey}
+            id={`task-file-${taskId}`}
+            type="file"
+            disabled={isUploading}
+            onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+          />
+          <Button type="button" disabled={!selectedFile || isUploading} onClick={handleUpload} className="bg-brand-red text-white hover:bg-brand-red/90">
+            <Upload className="size-4" aria-hidden="true" />
+            {isUploading ? "Uploading..." : "Upload"}
+          </Button>
+        </div>
+        {selectedFile ? <p className="mt-2 text-xs text-muted-foreground">Selected: {selectedFile.name}</p> : null}
+      </div>
+      <div className="mt-5">
+        {filesLoading ? <LoadingState label="Loading files" /> : null}
+        {filesError ? <ErrorState title="Files could not be loaded" message={fileErrorMessage(filesError)} /> : null}
+        {!filesLoading && !filesError && files.length === 0 ? <EmptyState title="No files attached." /> : null}
+        {!filesLoading && !filesError && files.length > 0 ? (
+          <div className="divide-y rounded-md border bg-surface">
+            {files.map((file) => (
+              <TaskFileRow key={file.id} file={file} projectId={projectId} phaseId={phaseId} taskId={taskId} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function TaskFileRow({ file, phaseId, projectId, taskId }: { file: TaskFile; projectId: string; phaseId: string; taskId: string }) {
+  const downloadFile = useDownloadTaskFileMutation(projectId, phaseId, taskId);
+  const downloadError = downloadFile.error ? fileErrorMessage(downloadFile.error) : null;
+
+  async function handleDownload() {
+    try {
+      const downloadedFile = await downloadFile.mutateAsync(file.id);
+      const objectUrl = URL.createObjectURL(downloadedFile.blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = downloadedFile.fileName || file.file_name;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      return;
+    }
+  }
+
+  return (
+    <div className="px-3 py-3">
+      {downloadError ? <InlineErrorMessage message={downloadError} /> : null}
+      <div className="flex items-start gap-3">
+        <FileText className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-foreground">{file.file_name}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {formatFileType(file.file_type)} - {formatFileSize(file.file_size)} - Uploaded by {file.uploader_name} on {formatDateTime(file.created_at)}
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" disabled={downloadFile.isPending} onClick={handleDownload} aria-label={`Download ${file.file_name}`}>
+          <Download className="size-4" aria-hidden="true" />
+          {downloadFile.isPending ? "Downloading..." : "Download"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -456,6 +586,59 @@ function commentErrorMessage(error: Error) {
   }
 
   return "The comment request could not be completed.";
+}
+
+function fileErrorMessage(error: Error) {
+  if (error instanceof ApiError) {
+    if (error.status === 403) {
+      return "You do not have access to files for this task.";
+    }
+    if (error.status === 404) {
+      return "The task file could not be found.";
+    }
+    if (error.status === 413) {
+      return "The selected file is too large.";
+    }
+    if (error.status === 422 || error.status === 400) {
+      return "Please check the selected file and try again.";
+    }
+    if (error.status >= 500) {
+      return "File storage is unavailable. This may require GCS configuration.";
+    }
+
+    return error.message;
+  }
+
+  return "The file request could not be completed.";
+}
+
+function formatFileType(value: string | null) {
+  if (!value) {
+    return "Unknown type";
+  }
+
+  return value.split("/").pop()?.toUpperCase() || value;
+}
+
+function formatFileSize(value: number) {
+  if (!Number.isFinite(value)) {
+    return "Unknown size";
+  }
+
+  if (value < 1024) {
+    return `${value} B`;
+  }
+
+  const units = ["KB", "MB", "GB"];
+  let size = value / 1024;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size.toFixed(size >= 10 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
 function formatOptionalDate(value: string | null) {

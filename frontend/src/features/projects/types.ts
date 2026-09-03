@@ -210,3 +210,21 @@ export type TaskComment = {
   created_at: string;
   updated_at: string;
 };
+
+export type TaskFile = {
+  id: string;
+  task_id: string;
+  uploaded_by: string;
+  uploader_name: string;
+  uploader_email: string;
+  file_name: string;
+  storage_key: string;
+  file_type: string | null;
+  file_size: number;
+  created_at: string;
+};
+
+export type DownloadedTaskFile = {
+  blob: Blob;
+  fileName: string;
+};

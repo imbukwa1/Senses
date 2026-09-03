@@ -26,11 +26,12 @@ export async function getMe(token: string): Promise<AuthenticatedUser> {
 }
 
 export async function apiRequest<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+  const isFormData = init.body instanceof FormData;
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       Accept: "application/json",
-      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(init.body && !isFormData ? { "Content-Type": "application/json" } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init.headers,
     },
