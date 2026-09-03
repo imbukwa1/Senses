@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { Outlet, useMatches } from "react-router-dom";
 
 import { PageHeader, type BreadcrumbItem } from "@/components/layout/page-header";
@@ -8,6 +9,7 @@ export type RouteHandle = {
   title?: string;
   subtitle?: string;
   breadcrumbs?: BreadcrumbItem[];
+  actions?: React.ReactNode;
 };
 
 export function AppShell() {
@@ -27,6 +29,7 @@ export function AppShell() {
             title={currentHandle?.title ?? "SENSES"}
             subtitle={currentHandle?.subtitle}
             breadcrumbs={currentHandle?.breadcrumbs}
+            actions={currentHandle?.actions}
           />
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
             <div className="mx-auto w-full max-w-7xl">

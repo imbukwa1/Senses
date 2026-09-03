@@ -1,4 +1,5 @@
 import { ChevronRight } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export type BreadcrumbItem = {
   label: string;
@@ -22,12 +23,12 @@ export function PageHeader({ title, subtitle, breadcrumbs = [], actions }: PageH
               <li key={`${item.label}-${index}`} className="flex items-center gap-1">
                 {index > 0 ? <ChevronRight className="size-4" aria-hidden="true" /> : null}
                 {item.href ? (
-                  <a
-                    href={item.href}
+                  <Link
+                    to={item.href}
                     className="rounded-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {item.label}
-                  </a>
+                  </Link>
                 ) : (
                   <span>{item.label}</span>
                 )}

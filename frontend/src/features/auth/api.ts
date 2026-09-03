@@ -15,17 +15,17 @@ export class ApiError extends Error {
 }
 
 export async function login(payload: LoginPayload): Promise<TokenResponse> {
-  return request<TokenResponse>("/auth/login", {
+  return apiRequest<TokenResponse>("/auth/login", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 export async function getMe(token: string): Promise<AuthenticatedUser> {
-  return request<AuthenticatedUser>("/me", {}, token);
+  return apiRequest<AuthenticatedUser>("/me", {}, token);
 }
 
-async function request<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+export async function apiRequest<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
