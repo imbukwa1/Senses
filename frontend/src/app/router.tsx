@@ -1,9 +1,8 @@
 import { createBrowserRouter } from "react-router-dom";
-import { Plus } from "lucide-react";
 
 import { AppShell } from "@/components/layout/app-shell";
-import { Button } from "@/components/ui/button";
 import { ProtectedRoute } from "@/features/auth/protected-route";
+import { ProjectsHeaderActions } from "@/features/projects/project-header-actions";
 import { LoginPage } from "@/pages/login-page";
 import { ProjectDetailPlaceholderPage } from "@/pages/project-detail-placeholder-page";
 import { HomePage } from "@/pages/placeholders/home-page";
@@ -40,12 +39,7 @@ export const router = createBrowserRouter([
           title: "Projects",
           subtitle: "Accessible project portfolio.",
           breadcrumbs: [{ label: "Projects" }],
-          actions: (
-            <Button type="button" disabled title="Project creation is planned for a later frontend section.">
-              <Plus className="size-4" aria-hidden="true" />
-              Add Project
-            </Button>
-          ),
+          actions: <ProjectsHeaderActions />,
         },
       },
       {

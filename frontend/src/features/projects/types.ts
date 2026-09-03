@@ -21,3 +21,24 @@ export type ProjectSummary = {
   updated_at: string;
   archived_at: string | null;
 };
+
+export type ProjectMutationPayload = {
+  name: string;
+  description: string;
+  project_lead_id: string;
+  start_date: string;
+  end_date: string;
+  status: ProjectStatus;
+  funder_partner: string | null;
+  project_type: string | null;
+  objectives: string | null;
+  priority: Priority | null;
+};
+
+export type ProjectMember = {
+  project_id: string;
+  user_id: string;
+  name: string;
+  email: string;
+  joined_at: string;
+};

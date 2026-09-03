@@ -25,3 +25,13 @@ export const projectSummarySchema = z.object({
 });
 
 export const projectSummariesSchema = z.array(projectSummarySchema);
+
+export const projectMemberSchema = z.object({
+  project_id: z.uuid(),
+  user_id: z.uuid(),
+  name: z.string().min(1),
+  email: z.email(),
+  joined_at: z.string().min(1),
+});
+
+export const projectMembersSchema = z.array(projectMemberSchema);

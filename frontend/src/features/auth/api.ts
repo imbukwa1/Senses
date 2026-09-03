@@ -40,6 +40,10 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, token?
     throw new ApiError(await safeErrorMessage(response), response.status);
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return (await response.json()) as T;
 }
 

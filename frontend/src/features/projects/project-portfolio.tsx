@@ -1,4 +1,5 @@
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Edit, Users } from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ErrorState } from "@/components/common/error-state";
@@ -10,6 +11,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ApiError } from "@/features/auth/api";
 
 import { useProjectsQuery } from "./hooks";
+import { ProjectFormDialog } from "./project-form-dialog";
+import { ProjectMembersDialog } from "./project-members-dialog";
 import type { ProjectSummary } from "./types";
 
 export function ProjectPortfolio() {
@@ -35,6 +38,9 @@ export function ProjectPortfolio() {
 }
 
 function ProjectTable({ projects }: { projects: ProjectSummary[] }) {
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [membersProjectId, setMembersProjectId] = useState<string | null>(null);
+
   return (
     <Table>
       <TableHeader>
@@ -72,12 +78,35 @@ function ProjectTable({ projects }: { projects: ProjectSummary[] }) {
             <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatDate(project.end_date)}</TableCell>
             <TableCell>{project.priority ? <StatusBadge value={project.priority} /> : <span className="text-muted-foreground">-</span>}</TableCell>
             <TableCell className="text-right">
-              <Button asChild variant="ghost" size="sm">
-                <Link to={`/projects/${project.id}`} aria-label={`Open ${project.name}`}>
-                  Open
-                  <ArrowUpRight className="size-4" aria-hidden="true" />
-                </Link>
-              </Button>
+              <div className="flex justify-end gap-1">
+                <ProjectFormDialog
+                  mode="edit"
+                  project={project}
+                  open={editingProjectId === project.id}
+                  onOpenChange={(open) => setEditingProjectId(open ? project.id : null)}
+                >
+                  <Button type="button" variant="ghost" size="sm" aria-label={`Edit ${project.name}`}>
+                    <Edit className="size-4" aria-hidden="true" />
+                    Edit
+                  </Button>
+                </ProjectFormDialog>
+                <ProjectMembersDialog
+                  project={project}
+                  open={membersProjectId === project.id}
+                  onOpenChange={(open) => setMembersProjectId(open ? project.id : null)}
+                >
+                  <Button type="button" variant="ghost" size="sm" aria-label={`Manage members for ${project.name}`}>
+                    <Users className="size-4" aria-hidden="true" />
+                    Members
+                  </Button>
+                </ProjectMembersDialog>
+                <Button asChild variant="ghost" size="sm">
+                  <Link to={`/projects/${project.id}`} aria-label={`Open ${project.name}`}>
+                    Open
+                    <ArrowUpRight className="size-4" aria-hidden="true" />
+                  </Link>
+                </Button>
+              </div>
             </TableCell>
           </TableRow>
         ))}
