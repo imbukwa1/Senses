@@ -246,14 +246,15 @@ def test_missing_gcs_object_is_reported_safely() -> None:
         phase = _create_phase(database, project["id"], user["id"], "Missing Object Phase", 1)
         task = _create_task(database, phase["id"], user["id"], "Missing Object Task")
         _add_project_member(database, project["id"], user["id"])
+        missing_storage_key = f"tasks/missing-object-{uuid4()}.txt"
         with database.session() as session:
             file_metadata = session.fetch_one(
                 """
                 INSERT INTO task_files (task_id, uploaded_by, file_name, storage_key, file_type, file_size)
-                VALUES (%s, %s, 'missing.txt', 'tasks/missing-object.txt', 'text/plain', 7)
+                VALUES (%s, %s, 'missing.txt', %s, 'text/plain', 7)
                 RETURNING id
                 """,
-                (task["id"], user["id"]),
+                (task["id"], user["id"], missing_storage_key),
             )
         app = create_app(
             settings=_settings(database_url=os.getenv("DATABASE_URL")),
