@@ -1,8 +1,9 @@
-import { ArrowUpRight, Edit, Users } from "lucide-react";
+import { Archive, ArrowUpRight, Edit, Users } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { ErrorState } from "@/components/common/error-state";
+import { ConfirmAction } from "@/components/common/confirm-action";
+import { ErrorState, InlineErrorMessage } from "@/components/common/error-state";
 import { HealthBadge } from "@/components/common/health-badge";
 import { PageTable } from "@/components/common/page-table";
 import { StatusBadge } from "@/components/common/status-badge";
@@ -11,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ApiError } from "@/features/auth/api";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
-import { useProjectsQuery } from "./hooks";
+import { useArchiveProjectMutation, useProjectsQuery } from "./hooks";
 import { ProjectFormDialog } from "./project-form-dialog";
 import { ProjectMembersDialog } from "./project-members-dialog";
 import type { ProjectSummary } from "./types";
@@ -107,12 +108,41 @@ function ProjectTable({ projects }: { projects: ProjectSummary[] }) {
                     <ArrowUpRight className="size-4" aria-hidden="true" />
                   </Link>
                 </Button>
+                <ArchiveProjectAction project={project} />
               </div>
             </TableCell>
           </TableRow>
         ))}
       </TableBody>
     </Table>
+  );
+}
+
+function ArchiveProjectAction({ project }: { project: ProjectSummary }) {
+  const archiveProject = useArchiveProjectMutation(project.id);
+
+  return (
+    <div className="inline-flex flex-col items-end gap-1">
+      <ConfirmAction
+        title="Archive project?"
+        description="This uses the backend's history-preserving archive behaviour. It does not hard-delete the project."
+        confirmLabel="Archive Project"
+        onConfirm={() => archiveProject.mutate()}
+      >
+        <Button type="button" variant="ghost" size="sm" disabled={archiveProject.isPending} aria-label={`Archive ${project.name}`}>
+          <Archive className="size-4" aria-hidden="true" />
+          {archiveProject.isPending ? "Archiving..." : "Archive"}
+        </Button>
+      </ConfirmAction>
+      {archiveProject.error ? (
+        <InlineErrorMessage
+          message={userFacingErrorMessage(archiveProject.error, {
+            forbidden: "You do not have access to archive this project.",
+            notFound: "The project could not be found.",
+          })}
+        />
+      ) : null}
+    </div>
   );
 }
 

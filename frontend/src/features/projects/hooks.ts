@@ -6,7 +6,9 @@ import { ApiError } from "@/features/auth/api";
 import { useAuth } from "@/features/auth/hooks";
 
 import {
+  archiveProject,
   archivePhase,
+  addProjectMember,
   addTaskSupporter,
   completePhase,
   createChecklistItem,
@@ -139,6 +141,21 @@ export function useUpdateProjectMutation(projectId: string) {
         logout();
       }
     },
+  });
+}
+
+export function useArchiveProjectMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: () => archiveProject(requireToken(token), projectId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectsQueryKey });
+      void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+    },
+    onError: authFailureHandler(logout),
   });
 }
 
@@ -472,6 +489,22 @@ export function useProjectMembersQuery(projectId: string, enabled: boolean) {
   }, [logout, query.error]);
 
   return query;
+}
+
+export function useAddProjectMemberMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (userId: string) => addProjectMember(requireToken(token), projectId, userId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectMembersQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectsQueryKey });
+      void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+    },
+    onError: authFailureHandler(logout),
+  });
 }
 
 export function useRemoveProjectMemberMutation(projectId: string) {

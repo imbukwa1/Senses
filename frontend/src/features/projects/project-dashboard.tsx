@@ -1,7 +1,8 @@
-import { CalendarDays, CheckCircle2, Clock, Edit, ListChecks, Users } from "lucide-react";
+import { Archive, CalendarDays, CheckCircle2, Clock, Edit, ListChecks, Users } from "lucide-react";
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
+import { ConfirmAction } from "@/components/common/confirm-action";
 import { EmptyState } from "@/components/common/empty-state";
 import { ErrorState } from "@/components/common/error-state";
 import { HealthBadge } from "@/components/common/health-badge";
@@ -15,7 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import { ApiError } from "@/features/auth/api";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
-import { useProjectDashboardQuery, useProjectQuery } from "./hooks";
+import { useArchiveProjectMutation, useProjectDashboardQuery, useProjectQuery } from "./hooks";
 import { PhaseManagementDialog } from "./phase-management-dialog";
 import { PhaseTasks } from "./phase-tasks";
 import { ProjectFormDialog } from "./project-form-dialog";
@@ -33,8 +34,10 @@ export function ProjectDashboardPage() {
 }
 
 function ProjectDashboardContent({ projectId }: { projectId: string }) {
+  const navigate = useNavigate();
   const dashboardQuery = useProjectDashboardQuery(projectId);
   const projectQuery = useProjectQuery(projectId);
+  const archiveProject = useArchiveProjectMutation(projectId);
   const [editOpen, setEditOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
 
@@ -81,8 +84,31 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
                 Members
               </Button>
             </ProjectMembersDialog>
+            <ConfirmAction
+              title="Archive project?"
+              description="This uses the backend's history-preserving archive behaviour. It does not hard-delete the project."
+              confirmLabel="Archive Project"
+              onConfirm={async () => {
+                try {
+                  await archiveProject.mutateAsync();
+                  navigate("/projects");
+                } catch {
+                  return;
+                }
+              }}
+            >
+              <Button type="button" variant="outline" disabled={archiveProject.isPending}>
+                <Archive className="size-4" aria-hidden="true" />
+                {archiveProject.isPending ? "Archiving..." : "Archive Project"}
+              </Button>
+            </ConfirmAction>
           </div>
         </CardHeader>
+        {archiveProject.error ? (
+          <CardContent className="pt-0">
+            <ErrorState title="Project could not be archived" message={dashboardErrorMessage(archiveProject.error)} />
+          </CardContent>
+        ) : null}
         <CardContent>
           <dl className="grid gap-x-8 md:grid-cols-2">
             <MetadataRow label="Project Lead" value={`${dashboard.project.project_lead.name} (${dashboard.project.project_lead.email})`} />

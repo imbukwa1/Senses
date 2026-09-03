@@ -6,6 +6,7 @@ import {
   checklistItemSchema,
   checklistSchema,
   projectDashboardSchema,
+  projectMemberSchema,
   projectMembersSchema,
   projectSummariesSchema,
   projectSummarySchema,
@@ -86,9 +87,38 @@ export async function updateProject(token: string, projectId: string, payload: P
   return parseProject(data);
 }
 
+export async function archiveProject(token: string, projectId: string): Promise<ProjectSummary> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/archive`,
+    {
+      method: "PATCH",
+    },
+    token,
+  );
+  return parseProject(data);
+}
+
 export async function listProjectMembers(token: string, projectId: string): Promise<ProjectMember[]> {
   const data = await apiRequest<unknown>(`/projects/${projectId}/members`, {}, token);
   const result = projectMembersSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project member data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function addProjectMember(token: string, projectId: string, userId: string): Promise<ProjectMember> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/members`,
+    {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    },
+    token,
+  );
+  const result = projectMemberSchema.safeParse(data);
 
   if (!result.success) {
     throw new ApiError("Project member data could not be loaded.", 500);
