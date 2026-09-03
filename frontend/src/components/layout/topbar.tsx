@@ -1,4 +1,6 @@
 import { LogOut, Search } from "lucide-react";
+import { FormEvent, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -11,28 +13,50 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/features/auth/hooks";
+import { normalizeSearchQuery } from "@/features/search/hooks";
 
 export function Topbar() {
   const { logout, user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const queryParam = searchParams.get("q") ?? "";
+  const [searchText, setSearchText] = useState(queryParam);
   const initials = getInitials(user?.name ?? user?.email ?? "User");
+
+  useEffect(() => {
+    setSearchText(queryParam);
+  }, [queryParam]);
+
+  function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const normalizedQuery = normalizeSearchQuery(searchText);
+
+    if (!normalizedQuery) {
+      navigate("/search");
+      return;
+    }
+
+    navigate(`/search?q=${encodeURIComponent(normalizedQuery)}`);
+  }
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-surface/95 px-4 shadow-soft backdrop-blur sm:px-6 lg:px-8">
       <MobileNav />
       <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div className="relative hidden w-full max-w-md sm:block">
+        <form className="relative hidden w-full max-w-md sm:block" onSubmit={handleSearchSubmit}>
           <Search
             className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"
           />
           <input
             type="search"
-            readOnly
-            aria-label="Search placeholder"
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            aria-label="Search projects, phases, and tasks"
             placeholder="Search"
-            className="h-9 w-full rounded-md border bg-background pl-9 pr-3 text-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-9 w-full rounded-md border bg-background pl-9 pr-3 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
-        </div>
+        </form>
       </div>
       <div className="flex shrink-0 items-center gap-3">
         <div className="hidden text-right sm:block">

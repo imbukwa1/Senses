@@ -56,7 +56,7 @@ export const router = createBrowserRouter([
         element: <SearchPage />,
         handle: {
           title: "Search",
-          subtitle: "Placeholder for future backend-backed search.",
+          subtitle: "Find accessible projects, phases, and tasks.",
           breadcrumbs: [{ label: "Search" }],
         },
       },
