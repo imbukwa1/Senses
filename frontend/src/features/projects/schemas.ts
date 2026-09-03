@@ -1,7 +1,21 @@
 import { z } from "zod";
 
 import { projectHealthValues } from "@/components/common/health-badge";
-import { priorities, projectStatuses } from "@/components/common/status-badge";
+import { phaseStatuses, priorities, projectStatuses } from "@/components/common/status-badge";
+
+const backendNumberSchema = z.union([z.number(), z.string()]).transform((value, context) => {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) {
+    context.addIssue({
+      code: "custom",
+      message: "Expected a numeric backend value.",
+    });
+    return z.NEVER;
+  }
+
+  return numberValue;
+});
 
 export const projectSummarySchema = z.object({
   id: z.uuid(),
@@ -35,3 +49,76 @@ export const projectMemberSchema = z.object({
 });
 
 export const projectMembersSchema = z.array(projectMemberSchema);
+
+export const projectLeadSchema = z.object({
+  id: z.uuid(),
+  name: z.string().min(1),
+  email: z.email(),
+});
+
+export const dashboardProjectSchema = z.object({
+  id: z.uuid(),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string(),
+  project_lead: projectLeadSchema,
+  status: z.enum(projectStatuses),
+  health: z.enum(projectHealthValues),
+  health_color: z.string(),
+  overall_progress: backendNumberSchema,
+  current_phase_id: z.uuid().nullable(),
+  start_date: z.string().min(1),
+  end_date: z.string().min(1),
+  priority: z.enum(priorities).nullable(),
+  archived_at: z.string().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const dashboardPhaseSchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  owner_id: z.uuid().nullable(),
+  start_date: z.string().nullable(),
+  end_date: z.string().nullable(),
+  status: z.enum(phaseStatuses),
+  display_order: z.number(),
+  objectives: z.string().nullable(),
+  progress: backendNumberSchema,
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+  archived_at: z.string().nullable(),
+});
+
+export const upcomingDeadlineSchema = z.object({
+  entity_type: z.string().min(1),
+  entity_id: z.uuid(),
+  name: z.string().min(1),
+  deadline_date: z.string().min(1),
+  phase_id: z.uuid().nullable(),
+  project_id: z.uuid(),
+});
+
+export const dashboardDeliverableSchema = z.object({
+  id: z.uuid(),
+  task_id: z.uuid(),
+  task_name: z.string().min(1),
+  phase_id: z.uuid(),
+  phase_name: z.string().min(1),
+  description: z.string().min(1),
+  is_completed: z.boolean(),
+  display_order: z.number(),
+  completed_at: z.string().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const projectDashboardSchema = z.object({
+  project: dashboardProjectSchema,
+  current_phase: dashboardPhaseSchema.nullable(),
+  upcoming_deadlines: z.array(upcomingDeadlineSchema),
+  phases: z.array(dashboardPhaseSchema),
+  deliverables: z.array(dashboardDeliverableSchema),
+});

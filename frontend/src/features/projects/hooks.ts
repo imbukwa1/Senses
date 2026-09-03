@@ -5,10 +5,12 @@ import { useEffect } from "react";
 import { ApiError } from "@/features/auth/api";
 import { useAuth } from "@/features/auth/hooks";
 
-import { createProject, listProjectMembers, listProjects, removeProjectMember, updateProject } from "./api";
+import { createProject, getProject, getProjectDashboard, listProjectMembers, listProjects, removeProjectMember, updateProject } from "./api";
 import type { ProjectMutationPayload } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
+export const projectQueryKey = (projectId: string) => ["projects", projectId] as const;
+export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
 export const projectMembersQueryKey = (projectId: string) => ["projects", projectId, "members"] as const;
 
 export function useProjectsQuery() {
@@ -44,6 +46,42 @@ export function useCreateProjectMutation() {
       }
     },
   });
+}
+
+export function useProjectQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectQueryKey(projectId),
+    queryFn: () => getProject(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useProjectDashboardQuery(projectId: string) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectDashboardQueryKey(projectId),
+    queryFn: () => getProjectDashboard(requireToken(token), projectId),
+    enabled: status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
 }
 
 export function useUpdateProjectMutation(projectId: string) {

@@ -1,7 +1,7 @@
 import { ApiError, apiRequest } from "@/features/auth/api";
 
-import { projectMembersSchema, projectSummariesSchema, projectSummarySchema } from "./schemas";
-import type { ProjectMember, ProjectMutationPayload, ProjectSummary } from "./types";
+import { projectDashboardSchema, projectMembersSchema, projectSummariesSchema, projectSummarySchema } from "./schemas";
+import type { ProjectDashboard, ProjectMember, ProjectMutationPayload, ProjectSummary } from "./types";
 
 export async function listProjects(token: string): Promise<ProjectSummary[]> {
   const data = await apiRequest<unknown>("/projects", {}, token);
@@ -9,6 +9,22 @@ export async function listProjects(token: string): Promise<ProjectSummary[]> {
 
   if (!result.success) {
     throw new ApiError("Project data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function getProject(token: string, projectId: string): Promise<ProjectSummary> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}`, {}, token);
+  return parseProject(data);
+}
+
+export async function getProjectDashboard(token: string, projectId: string): Promise<ProjectDashboard> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/dashboard`, {}, token);
+  const result = projectDashboardSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project dashboard data could not be loaded.", 500);
   }
 
   return result.data;
