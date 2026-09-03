@@ -1,5 +1,5 @@
 import type { ProjectHealth } from "@/components/common/health-badge";
-import type { PhaseStatus, Priority, ProjectStatus } from "@/components/common/status-badge";
+import type { PhaseStatus, Priority, ProjectStatus, TaskStatus } from "@/components/common/status-badge";
 
 export type ProjectSummary = {
   id: string;
@@ -141,4 +141,38 @@ export type ProjectDashboard = {
   upcoming_deadlines: UpcomingDeadline[];
   phases: DashboardPhase[];
   deliverables: DashboardDeliverable[];
+};
+
+export type Task = {
+  id: string;
+  project_id: string;
+  phase_id: string;
+  name: string;
+  description: string | null;
+  owner_id: string;
+  priority: Priority;
+  status: TaskStatus;
+  start_date: string | null;
+  due_date: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TaskMutationPayload = {
+  name: string;
+  description: string | null;
+  owner_id: string;
+  priority: Priority;
+  status: TaskStatus;
+  start_date: string | null;
+  due_date: string | null;
+};
+
+export type TaskSupporter = {
+  task_id: string;
+  user_id: string;
+  name: string;
+  email: string;
+  added_at: string;
 };

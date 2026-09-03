@@ -1,7 +1,28 @@
 import { ApiError, apiRequest } from "@/features/auth/api";
 
-import { phaseResponseSchema, phaseResponsesSchema, projectDashboardSchema, projectMembersSchema, projectSummariesSchema, projectSummarySchema } from "./schemas";
-import type { PhaseMutationPayload, PhaseResponse, ProjectDashboard, ProjectMember, ProjectMutationPayload, ProjectSummary } from "./types";
+import {
+  phaseResponseSchema,
+  phaseResponsesSchema,
+  projectDashboardSchema,
+  projectMembersSchema,
+  projectSummariesSchema,
+  projectSummarySchema,
+  taskSchema,
+  taskSupporterSchema,
+  taskSupportersSchema,
+  tasksSchema,
+} from "./schemas";
+import type {
+  PhaseMutationPayload,
+  PhaseResponse,
+  ProjectDashboard,
+  ProjectMember,
+  ProjectMutationPayload,
+  ProjectSummary,
+  Task,
+  TaskMutationPayload,
+  TaskSupporter,
+} from "./types";
 
 export async function listProjects(token: string): Promise<ProjectSummary[]> {
   const data = await apiRequest<unknown>("/projects", {}, token);
@@ -151,6 +172,80 @@ export async function setCurrentPhase(token: string, projectId: string, phaseId:
   return parseProject(data);
 }
 
+export async function listTasks(token: string, projectId: string, phaseId: string): Promise<Task[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/phases/${phaseId}/tasks`, {}, token);
+  const result = tasksSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Task data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createTask(token: string, projectId: string, phaseId: string, payload: TaskMutationPayload): Promise<Task> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/phases/${phaseId}/tasks`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parseTask(data);
+}
+
+export async function updateTask(token: string, projectId: string, phaseId: string, taskId: string, payload: TaskMutationPayload): Promise<Task> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parseTask(data);
+}
+
+export async function listTaskSupporters(token: string, projectId: string, phaseId: string, taskId: string): Promise<TaskSupporter[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/supporters`, {}, token);
+  const result = taskSupportersSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Task supporter data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function addTaskSupporter(token: string, projectId: string, phaseId: string, taskId: string, userId: string): Promise<TaskSupporter> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/supporters`,
+    {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    },
+    token,
+  );
+  const result = taskSupporterSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Task supporter data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function removeTaskSupporter(token: string, projectId: string, phaseId: string, taskId: string, userId: string): Promise<void> {
+  await apiRequest<void>(
+    `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/supporters/${userId}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
+}
+
 function parseProject(data: unknown) {
   const result = projectSummarySchema.safeParse(data);
 
@@ -166,6 +261,16 @@ function parsePhase(data: unknown) {
 
   if (!result.success) {
     throw new ApiError("Phase data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+function parseTask(data: unknown) {
+  const result = taskSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Task data could not be loaded.", 500);
   }
 
   return result.data;

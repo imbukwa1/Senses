@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { projectHealthValues } from "@/components/common/health-badge";
-import { phaseStatuses, priorities, projectStatuses } from "@/components/common/status-badge";
+import { phaseStatuses, priorities, projectStatuses, taskStatuses } from "@/components/common/status-badge";
 
 const backendNumberSchema = z.union([z.number(), z.string()]).transform((value, context) => {
   const numberValue = Number(value);
@@ -125,3 +125,31 @@ export const projectDashboardSchema = z.object({
   phases: z.array(dashboardPhaseSchema),
   deliverables: z.array(dashboardDeliverableSchema),
 });
+
+export const taskSchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  phase_id: z.uuid(),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  owner_id: z.uuid(),
+  priority: z.enum(priorities),
+  status: z.enum(taskStatuses),
+  start_date: z.string().nullable(),
+  due_date: z.string().nullable(),
+  completed_at: z.string().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const tasksSchema = z.array(taskSchema);
+
+export const taskSupporterSchema = z.object({
+  task_id: z.uuid(),
+  user_id: z.uuid(),
+  name: z.string().min(1),
+  email: z.email(),
+  added_at: z.string().min(1),
+});
+
+export const taskSupportersSchema = z.array(taskSupporterSchema);

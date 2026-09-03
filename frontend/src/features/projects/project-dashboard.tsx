@@ -16,6 +16,7 @@ import { ApiError } from "@/features/auth/api";
 
 import { useProjectDashboardQuery, useProjectQuery } from "./hooks";
 import { PhaseManagementDialog } from "./phase-management-dialog";
+import { PhaseTasks } from "./phase-tasks";
 import { ProjectFormDialog } from "./project-form-dialog";
 import { ProjectMembersDialog } from "./project-members-dialog";
 import type { DashboardDeliverable, DashboardPhase, ProjectDashboard, UpcomingDeadline } from "./types";
@@ -173,6 +174,7 @@ function PhasesSection({ currentPhaseId, phases, projectId }: { projectId: strin
                     <ProgressValue value={phase.progress} label={`${phase.name} progress`} compact />
                   </div>
                 </div>
+                <PhaseTasks projectId={projectId} phase={phase} />
               </div>
             ))}
           </div>

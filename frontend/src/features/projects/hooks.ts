@@ -7,25 +7,34 @@ import { useAuth } from "@/features/auth/hooks";
 
 import {
   archivePhase,
+  addTaskSupporter,
   completePhase,
   createPhase,
   createProject,
+  createTask,
   getProject,
   getProjectDashboard,
   listProjectMembers,
   listProjects,
+  listTasks,
+  listTaskSupporters,
   removeProjectMember,
+  removeTaskSupporter,
   reorderPhases,
   setCurrentPhase,
   updatePhase,
   updateProject,
+  updateTask,
 } from "./api";
-import type { PhaseMutationPayload, ProjectMutationPayload } from "./types";
+import type { PhaseMutationPayload, ProjectMutationPayload, TaskMutationPayload } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
 export const projectQueryKey = (projectId: string) => ["projects", projectId] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
 export const projectMembersQueryKey = (projectId: string) => ["projects", projectId, "members"] as const;
+export const tasksQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "tasks"] as const;
+export const taskSupportersQueryKey = (projectId: string, phaseId: string, taskId: string) =>
+  ["projects", projectId, "phases", phaseId, "tasks", taskId, "supporters"] as const;
 
 export function useProjectsQuery() {
   const { logout, status, token } = useAuth();
@@ -186,9 +195,99 @@ export function useSetCurrentPhaseMutation(projectId: string) {
   });
 }
 
+export function useTasksQuery(projectId: string, phaseId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: tasksQueryKey(projectId, phaseId),
+    queryFn: () => listTasks(requireToken(token), projectId, phaseId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useTaskSupportersQuery(projectId: string, phaseId: string, taskId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: taskSupportersQueryKey(projectId, phaseId, taskId),
+    queryFn: () => listTaskSupporters(requireToken(token), projectId, phaseId, taskId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useCreateTaskMutation(projectId: string, phaseId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({ payload, supporterIds }: { payload: TaskMutationPayload; supporterIds: string[] }) => {
+      const authToken = requireToken(token);
+      const task = await createTask(authToken, projectId, phaseId, payload);
+      await Promise.all(uniqueIds(supporterIds).map((userId) => addTaskSupporter(authToken, projectId, phaseId, task.id, userId)));
+      return task;
+    },
+    onSuccess: () => invalidateTaskQueries(queryClient, projectId, phaseId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateTaskMutation(projectId: string, phaseId: string, taskId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: async ({
+      currentSupporterIds,
+      payload,
+      supporterIds,
+    }: {
+      payload: TaskMutationPayload;
+      supporterIds: string[];
+      currentSupporterIds: string[];
+    }) => {
+      const authToken = requireToken(token);
+      const task = await updateTask(authToken, projectId, phaseId, taskId, payload);
+      const desiredIds = uniqueIds(supporterIds);
+      const currentIds = uniqueIds(currentSupporterIds);
+      const toAdd = desiredIds.filter((userId) => !currentIds.includes(userId));
+      const toRemove = currentIds.filter((userId) => !desiredIds.includes(userId));
+
+      await Promise.all(toAdd.map((userId) => addTaskSupporter(authToken, projectId, phaseId, taskId, userId)));
+      await Promise.all(toRemove.map((userId) => removeTaskSupporter(authToken, projectId, phaseId, taskId, userId)));
+      return task;
+    },
+    onSuccess: () => {
+      invalidateTaskQueries(queryClient, projectId, phaseId);
+      void queryClient.invalidateQueries({ queryKey: taskSupportersQueryKey(projectId, phaseId, taskId) });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
 function invalidateProjectDashboardQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string) {
   void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
   void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
+}
+
+function invalidateTaskQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string, phaseId: string) {
+  void queryClient.invalidateQueries({ queryKey: tasksQueryKey(projectId, phaseId) });
+  void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
 }
 
 function authFailureHandler(logout: () => void) {
@@ -241,4 +340,8 @@ function requireToken(token: string | null) {
   }
 
   return token;
+}
+
+function uniqueIds(ids: string[]) {
+  return [...new Set(ids.filter(Boolean))];
 }
