@@ -10,7 +10,7 @@ import { ApiError } from "@/features/auth/api";
 
 import { useTasksQuery } from "./hooks";
 import { TaskFormDialog } from "./task-form-dialog";
-import { TaskSummaryDialog } from "./task-summary-dialog";
+import { TaskDetailDrawer } from "./task-detail-drawer";
 import type { DashboardPhase, Task } from "./types";
 
 export function PhaseTasks({ phase, projectId }: { projectId: string; phase: DashboardPhase }) {
@@ -74,11 +74,11 @@ function TaskTable({ phase, projectId, tasks }: { projectId: string; phase: Dash
             </TableCell>
             <TableCell className="text-right">
               <div className="flex justify-end gap-1">
-                <TaskSummaryDialog phase={phase} task={task}>
+                <TaskDetailDrawer phase={phase} projectId={projectId} task={task}>
                   <Button type="button" variant="ghost" size="sm">
                     View
                   </Button>
-                </TaskSummaryDialog>
+                </TaskDetailDrawer>
                 <TaskFormDialog mode="edit" projectId={projectId} phase={phase} task={task}>
                   <Button type="button" variant="ghost" size="sm">
                     <Edit className="size-4" aria-hidden="true" />

@@ -153,3 +153,26 @@ export const taskSupporterSchema = z.object({
 });
 
 export const taskSupportersSchema = z.array(taskSupporterSchema);
+
+export const checklistSummarySchema = z.object({
+  completed_items: z.number(),
+  total_items: z.number(),
+  progress: backendNumberSchema,
+});
+
+export const checklistItemSchema = z.object({
+  id: z.uuid(),
+  task_id: z.uuid(),
+  description: z.string().min(1),
+  is_completed: z.boolean(),
+  display_order: z.number(),
+  completed_at: z.string().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const checklistSchema = z.object({
+  task_id: z.uuid(),
+  summary: checklistSummarySchema,
+  items: z.array(checklistItemSchema),
+});

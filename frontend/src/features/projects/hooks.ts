@@ -9,9 +9,11 @@ import {
   archivePhase,
   addTaskSupporter,
   completePhase,
+  createChecklistItem,
   createPhase,
   createProject,
   createTask,
+  getChecklist,
   getProject,
   getProjectDashboard,
   listProjectMembers,
@@ -19,9 +21,12 @@ import {
   listTasks,
   listTaskSupporters,
   removeProjectMember,
+  removeChecklistItem,
   removeTaskSupporter,
   reorderPhases,
+  setChecklistItemCompletion,
   setCurrentPhase,
+  updateChecklistItem,
   updatePhase,
   updateProject,
   updateTask,
@@ -35,6 +40,8 @@ export const projectMembersQueryKey = (projectId: string) => ["projects", projec
 export const tasksQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "tasks"] as const;
 export const taskSupportersQueryKey = (projectId: string, phaseId: string, taskId: string) =>
   ["projects", projectId, "phases", phaseId, "tasks", taskId, "supporters"] as const;
+export const checklistQueryKey = (projectId: string, phaseId: string, taskId: string) =>
+  ["projects", projectId, "phases", phaseId, "tasks", taskId, "checklist"] as const;
 
 export function useProjectsQuery() {
   const { logout, status, token } = useAuth();
@@ -280,12 +287,83 @@ export function useUpdateTaskMutation(projectId: string, phaseId: string, taskId
   });
 }
 
+export function useChecklistQuery(projectId: string, phaseId: string, taskId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: checklistQueryKey(projectId, phaseId, taskId),
+    queryFn: () => getChecklist(requireToken(token), projectId, phaseId, taskId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useCreateChecklistItemMutation(projectId: string, phaseId: string, taskId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: { description: string; is_completed: boolean; display_order: number }) =>
+      createChecklistItem(requireToken(token), projectId, phaseId, taskId, payload),
+    onSuccess: () => invalidateChecklistQueries(queryClient, projectId, phaseId, taskId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateChecklistItemMutation(projectId: string, phaseId: string, taskId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ itemId, description }: { itemId: string; description: string }) =>
+      updateChecklistItem(requireToken(token), projectId, phaseId, taskId, itemId, { description }),
+    onSuccess: () => invalidateChecklistQueries(queryClient, projectId, phaseId, taskId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useSetChecklistItemCompletionMutation(projectId: string, phaseId: string, taskId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ itemId, isCompleted }: { itemId: string; isCompleted: boolean }) =>
+      setChecklistItemCompletion(requireToken(token), projectId, phaseId, taskId, itemId, isCompleted),
+    onSuccess: () => invalidateChecklistQueries(queryClient, projectId, phaseId, taskId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useRemoveChecklistItemMutation(projectId: string, phaseId: string, taskId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (itemId: string) => removeChecklistItem(requireToken(token), projectId, phaseId, taskId, itemId),
+    onSuccess: () => invalidateChecklistQueries(queryClient, projectId, phaseId, taskId),
+    onError: authFailureHandler(logout),
+  });
+}
+
 function invalidateProjectDashboardQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string) {
   void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
   void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
 }
 
 function invalidateTaskQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string, phaseId: string) {
+  void queryClient.invalidateQueries({ queryKey: tasksQueryKey(projectId, phaseId) });
+  void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+}
+
+function invalidateChecklistQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string, phaseId: string, taskId: string) {
+  void queryClient.invalidateQueries({ queryKey: checklistQueryKey(projectId, phaseId, taskId) });
   void queryClient.invalidateQueries({ queryKey: tasksQueryKey(projectId, phaseId) });
   void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
 }

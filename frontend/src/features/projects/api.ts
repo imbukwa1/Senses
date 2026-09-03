@@ -3,6 +3,8 @@ import { ApiError, apiRequest } from "@/features/auth/api";
 import {
   phaseResponseSchema,
   phaseResponsesSchema,
+  checklistItemSchema,
+  checklistSchema,
   projectDashboardSchema,
   projectMembersSchema,
   projectSummariesSchema,
@@ -20,6 +22,8 @@ import type {
   ProjectMutationPayload,
   ProjectSummary,
   Task,
+  Checklist,
+  ChecklistItem,
   TaskMutationPayload,
   TaskSupporter,
 } from "./types";
@@ -246,6 +250,83 @@ export async function removeTaskSupporter(token: string, projectId: string, phas
   );
 }
 
+export async function getChecklist(token: string, projectId: string, phaseId: string, taskId: string): Promise<Checklist> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/checklist`, {}, token);
+  const result = checklistSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Checklist data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createChecklistItem(
+  token: string,
+  projectId: string,
+  phaseId: string,
+  taskId: string,
+  payload: { description: string; is_completed: boolean; display_order: number },
+): Promise<ChecklistItem> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/checklist`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parseChecklistItem(data);
+}
+
+export async function updateChecklistItem(
+  token: string,
+  projectId: string,
+  phaseId: string,
+  taskId: string,
+  itemId: string,
+  payload: { description?: string; is_completed?: boolean; display_order?: number },
+): Promise<ChecklistItem> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/checklist/${itemId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parseChecklistItem(data);
+}
+
+export async function setChecklistItemCompletion(
+  token: string,
+  projectId: string,
+  phaseId: string,
+  taskId: string,
+  itemId: string,
+  isCompleted: boolean,
+): Promise<ChecklistItem> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/checklist/${itemId}/completion`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ is_completed: isCompleted }),
+    },
+    token,
+  );
+  return parseChecklistItem(data);
+}
+
+export async function removeChecklistItem(token: string, projectId: string, phaseId: string, taskId: string, itemId: string): Promise<void> {
+  await apiRequest<void>(
+    `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/checklist/${itemId}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
+}
+
 function parseProject(data: unknown) {
   const result = projectSummarySchema.safeParse(data);
 
@@ -271,6 +352,16 @@ function parseTask(data: unknown) {
 
   if (!result.success) {
     throw new ApiError("Task data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+function parseChecklistItem(data: unknown) {
+  const result = checklistItemSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Checklist item data could not be loaded.", 500);
   }
 
   return result.data;

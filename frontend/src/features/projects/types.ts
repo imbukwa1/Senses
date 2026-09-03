@@ -176,3 +176,26 @@ export type TaskSupporter = {
   email: string;
   added_at: string;
 };
+
+export type ChecklistSummary = {
+  completed_items: number;
+  total_items: number;
+  progress: number;
+};
+
+export type ChecklistItem = {
+  id: string;
+  task_id: string;
+  description: string;
+  is_completed: boolean;
+  display_order: number;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Checklist = {
+  task_id: string;
+  summary: ChecklistSummary;
+  items: ChecklistItem[];
+};
