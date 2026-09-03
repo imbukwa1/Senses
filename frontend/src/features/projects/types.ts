@@ -85,6 +85,33 @@ export type DashboardPhase = {
   archived_at: string | null;
 };
 
+export type PhaseMutationPayload = {
+  name: string;
+  description: string | null;
+  owner_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: PhaseStatus;
+  display_order: number;
+  objectives: string | null;
+};
+
+export type PhaseResponse = {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  owner_id: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  status: PhaseStatus;
+  display_order: number;
+  objectives: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
 export type UpcomingDeadline = {
   entity_type: string;
   entity_id: string;

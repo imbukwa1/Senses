@@ -5,8 +5,22 @@ import { useEffect } from "react";
 import { ApiError } from "@/features/auth/api";
 import { useAuth } from "@/features/auth/hooks";
 
-import { createProject, getProject, getProjectDashboard, listProjectMembers, listProjects, removeProjectMember, updateProject } from "./api";
-import type { ProjectMutationPayload } from "./types";
+import {
+  archivePhase,
+  completePhase,
+  createPhase,
+  createProject,
+  getProject,
+  getProjectDashboard,
+  listProjectMembers,
+  listProjects,
+  removeProjectMember,
+  reorderPhases,
+  setCurrentPhase,
+  updatePhase,
+  updateProject,
+} from "./api";
+import type { PhaseMutationPayload, ProjectMutationPayload } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
 export const projectQueryKey = (projectId: string) => ["projects", projectId] as const;
@@ -93,6 +107,7 @@ export function useUpdateProjectMutation(projectId: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: projectsQueryKey });
       void queryClient.invalidateQueries({ queryKey: ["projects", projectId] });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 401) {
@@ -100,6 +115,88 @@ export function useUpdateProjectMutation(projectId: string) {
       }
     },
   });
+}
+
+export function useCreatePhaseMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: PhaseMutationPayload) => createPhase(requireToken(token), projectId, payload),
+    onSuccess: () => invalidateProjectDashboardQueries(queryClient, projectId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdatePhaseMutation(projectId: string, phaseId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: PhaseMutationPayload) => updatePhase(requireToken(token), projectId, phaseId, payload),
+    onSuccess: () => invalidateProjectDashboardQueries(queryClient, projectId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useReorderPhasesMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (phaseIds: string[]) => reorderPhases(requireToken(token), projectId, phaseIds),
+    onSuccess: () => invalidateProjectDashboardQueries(queryClient, projectId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useArchivePhaseMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (phaseId: string) => archivePhase(requireToken(token), projectId, phaseId),
+    onSuccess: () => invalidateProjectDashboardQueries(queryClient, projectId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useCompletePhaseMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (phaseId: string) => completePhase(requireToken(token), projectId, phaseId),
+    onSuccess: () => invalidateProjectDashboardQueries(queryClient, projectId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useSetCurrentPhaseMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (phaseId: string | null) => setCurrentPhase(requireToken(token), projectId, phaseId),
+    onSuccess: () => {
+      invalidateProjectDashboardQueries(queryClient, projectId);
+      void queryClient.invalidateQueries({ queryKey: projectsQueryKey });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+function invalidateProjectDashboardQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string) {
+  void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+  void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
+}
+
+function authFailureHandler(logout: () => void) {
+  return (error: Error) => {
+    if (error instanceof ApiError && error.status === 401) {
+      logout();
+    }
+  };
 }
 
 export function useProjectMembersQuery(projectId: string, enabled: boolean) {

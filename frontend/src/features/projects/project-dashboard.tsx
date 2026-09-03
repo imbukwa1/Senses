@@ -1,4 +1,4 @@
-import { CalendarDays, CheckCircle2, Clock, Edit, Users } from "lucide-react";
+import { CalendarDays, CheckCircle2, Clock, Edit, ListChecks, Users } from "lucide-react";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 
@@ -15,6 +15,7 @@ import { Progress } from "@/components/ui/progress";
 import { ApiError } from "@/features/auth/api";
 
 import { useProjectDashboardQuery, useProjectQuery } from "./hooks";
+import { PhaseManagementDialog } from "./phase-management-dialog";
 import { ProjectFormDialog } from "./project-form-dialog";
 import { ProjectMembersDialog } from "./project-members-dialog";
 import type { DashboardDeliverable, DashboardPhase, ProjectDashboard, UpcomingDeadline } from "./types";
@@ -114,7 +115,7 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.45fr)]">
-        <PhasesSection phases={dashboard.phases} currentPhaseId={dashboard.project.current_phase_id} />
+        <PhasesSection projectId={projectId} phases={dashboard.phases} currentPhaseId={dashboard.project.current_phase_id} />
         <DeadlinesSection deadlines={dashboard.upcoming_deadlines} />
       </div>
 
@@ -134,12 +135,20 @@ function SummaryCard({ children, title }: { title: string; children: React.React
   );
 }
 
-function PhasesSection({ currentPhaseId, phases }: { phases: DashboardPhase[]; currentPhaseId: string | null }) {
+function PhasesSection({ currentPhaseId, phases, projectId }: { projectId: string; phases: DashboardPhase[]; currentPhaseId: string | null }) {
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Phases</CardTitle>
-        <CardDescription>Current Phase is a dashboard focus marker only.</CardDescription>
+      <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+        <div>
+          <CardTitle>Phases</CardTitle>
+          <CardDescription>Current Phase is a dashboard focus marker only.</CardDescription>
+        </div>
+        <PhaseManagementDialog projectId={projectId} phases={phases} currentPhaseId={currentPhaseId}>
+          <Button type="button" variant="outline">
+            <ListChecks className="size-4" aria-hidden="true" />
+            Manage Phases
+          </Button>
+        </PhaseManagementDialog>
       </CardHeader>
       <CardContent>
         {phases.length === 0 ? (

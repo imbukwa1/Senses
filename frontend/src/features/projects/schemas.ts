@@ -92,6 +92,9 @@ export const dashboardPhaseSchema = z.object({
   archived_at: z.string().nullable(),
 });
 
+export const phaseResponseSchema = dashboardPhaseSchema.omit({ progress: true });
+export const phaseResponsesSchema = z.array(phaseResponseSchema);
+
 export const upcomingDeadlineSchema = z.object({
   entity_type: z.string().min(1),
   entity_id: z.uuid(),
