@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, 
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
-from app.access import ensure_project_access, fetch_accessible_project, fetch_accessible_projects
+from app.access import ensure_project_access, ensure_project_pm, fetch_accessible_project, fetch_accessible_projects
 from app.auth import AuthenticatedUser, get_current_user
 from app.db import DatabaseSession, Row
 from app.dependencies import get_authenticated_db_session
@@ -24,6 +24,7 @@ ProjectStatus = Literal["Planning", "Not Started", "Active", "On Hold", "Complet
 PhaseStatus = Literal["Not Started", "In Progress", "Completed"]
 TaskStatus = Literal["Not Started", "In Progress", "Blocked", "Completed"]
 PriorityLevel = Literal["Low", "Medium", "High"]
+ProjectMemberRole = Literal["PM", "Team Member", "Finance"]
 
 PROJECT_NOT_FOUND_DETAIL = "Project not found"
 PHASE_NOT_FOUND_DETAIL = "Phase not found"
@@ -34,6 +35,8 @@ FILE_STORAGE_NOT_CONFIGURED_DETAIL = "File storage is not configured"
 TASK_SUPPORTER_EXISTS_DETAIL = "Task supporter already exists"
 USER_NOT_FOUND_DETAIL = "User not found"
 PROJECT_LEAD_REQUIRED_DETAIL = "Project lead is required to change project status"
+PROJECT_LEAD_MEMBER_REMOVE_DETAIL = "Project lead cannot be removed from project members"
+LAST_PROJECT_PM_REMOVE_DETAIL = "The last project PM cannot be removed"
 REQUIRED_PROJECT_FIELDS = {
     "name",
     "description",
@@ -121,6 +124,13 @@ class ProjectMemberCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: UUID
+    role: ProjectMemberRole = "Team Member"
+
+
+class ProjectMemberUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    role: ProjectMemberRole
 
 
 class PhaseCreateRequest(BaseModel):
@@ -317,6 +327,7 @@ class ProjectMemberResponse(BaseModel):
     user_id: UUID
     name: str
     email: str
+    role: str
     joined_at: datetime
 
 
@@ -445,12 +456,13 @@ def create_project(
     )
     session.execute(
         """
-        INSERT INTO project_members (project_id, user_id)
-        VALUES (%s, %s)
+        INSERT INTO project_members (project_id, user_id, role)
+        VALUES (%s, %s, %s)
         ON CONFLICT DO NOTHING
         """,
-        (project["id"], current_user.id),
+        (project["id"], current_user.id, "Team Member"),
     )
+    ensure_project_lead_membership(session, project["id"], payload.project_lead_id)
     return project_to_response(fetch_project_health_by_id(session, project["id"]))
 
 
@@ -1252,6 +1264,7 @@ def update_project(
         )
 
     if "project_lead_id" in values:
+        ensure_project_pm(session, current_user.id, project_id)
         ensure_user_exists(session, values["project_lead_id"])
     if "status" in values:
         ensure_project_lead(session, current_user.id, project_id)
@@ -1270,6 +1283,9 @@ def update_project(
     )
     if project is None:
         raise_project_not_found()
+
+    if "project_lead_id" in values:
+        ensure_project_lead_membership(session, project["id"], values["project_lead_id"])
 
     return project_to_response(fetch_project_health_by_id(session, project["id"]))
 
@@ -1335,6 +1351,7 @@ def list_project_members(
           users.id AS user_id,
           users.name,
           users.email,
+          project_members.role,
           project_members.joined_at
         FROM project_members
         JOIN users ON users.id = project_members.user_id
@@ -1358,17 +1375,47 @@ def add_project_member(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> ProjectMemberResponse:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     ensure_user_exists(session, payload.user_id)
+    ensure_project_member_role_assignment_allowed(session, project_id, payload.user_id, payload.role)
     session.execute(
         """
-        INSERT INTO project_members (project_id, user_id)
-        VALUES (%s, %s)
-        ON CONFLICT DO NOTHING
+        INSERT INTO project_members (project_id, user_id, role)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (project_id, user_id)
+        DO UPDATE SET role = EXCLUDED.role
         """,
-        (project_id, payload.user_id),
+        (project_id, payload.user_id, payload.role),
     )
     member = fetch_project_member(session, project_id, payload.user_id)
     return project_member_to_response(member)
+
+
+@router.patch("/{project_id}/members/{user_id}", response_model=ProjectMemberResponse)
+def update_project_member(
+    project_id: UUID,
+    user_id: UUID,
+    payload: ProjectMemberUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectMemberResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    ensure_member_role_change_allowed(session, project_id, user_id, payload.role)
+    row = session.fetch_one(
+        """
+        UPDATE project_members
+        SET role = %s
+        WHERE project_id = %s
+          AND user_id = %s
+        RETURNING project_id
+        """,
+        (payload.role, project_id, user_id),
+    )
+    if row is None:
+        raise_project_not_found()
+
+    return project_member_to_response(fetch_project_member(session, project_id, user_id))
 
 
 @router.delete("/{project_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1379,6 +1426,8 @@ def remove_project_member(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> Response:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    ensure_project_member_removal_allowed(session, project_id, user_id)
     session.execute(
         "DELETE FROM project_members WHERE project_id = %s AND user_id = %s",
         (project_id, user_id),
@@ -1390,6 +1439,125 @@ def ensure_user_exists(session: DatabaseSession, user_id: UUID) -> None:
     row = session.fetch_one("SELECT id FROM users WHERE id = %s", (user_id,))
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=USER_NOT_FOUND_DETAIL)
+
+
+def ensure_project_lead_membership(
+    session: DatabaseSession,
+    project_id: UUID,
+    lead_user_id: UUID,
+) -> None:
+    session.execute(
+        """
+        INSERT INTO project_members (project_id, user_id, role)
+        VALUES (%s, %s, 'PM')
+        ON CONFLICT (project_id, user_id)
+        DO UPDATE SET role = 'PM'
+        """,
+        (project_id, lead_user_id),
+    )
+
+
+def ensure_project_member_removal_allowed(
+    session: DatabaseSession,
+    project_id: UUID,
+    user_id: UUID,
+) -> None:
+    project = session.fetch_one(
+        """
+        SELECT project_lead_id
+        FROM projects
+        WHERE id = %s
+          AND archived_at IS NULL
+        """,
+        (project_id,),
+    )
+    if project is None:
+        raise_project_not_found()
+    if project["project_lead_id"] == user_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=PROJECT_LEAD_MEMBER_REMOVE_DETAIL,
+        )
+
+    member = fetch_project_member(session, project_id, user_id)
+    if member["role"] == "PM" and count_project_pms(session, project_id) <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=LAST_PROJECT_PM_REMOVE_DETAIL,
+        )
+
+
+def ensure_member_role_change_allowed(
+    session: DatabaseSession,
+    project_id: UUID,
+    user_id: UUID,
+    next_role: ProjectMemberRole,
+) -> None:
+    project = session.fetch_one(
+        """
+        SELECT project_lead_id
+        FROM projects
+        WHERE id = %s
+          AND archived_at IS NULL
+        """,
+        (project_id,),
+    )
+    if project is None:
+        raise_project_not_found()
+    if project["project_lead_id"] == user_id and next_role != "PM":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Project lead must remain a PM",
+        )
+
+    member = fetch_project_member(session, project_id, user_id)
+    if member["role"] == "PM" and next_role != "PM" and count_project_pms(session, project_id) <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=LAST_PROJECT_PM_REMOVE_DETAIL,
+        )
+
+
+def ensure_project_member_role_assignment_allowed(
+    session: DatabaseSession,
+    project_id: UUID,
+    user_id: UUID,
+    next_role: ProjectMemberRole,
+) -> None:
+    existing_member = fetch_optional_project_member(session, project_id, user_id)
+    if existing_member is not None:
+        ensure_member_role_change_allowed(session, project_id, user_id, next_role)
+        return
+
+    project = session.fetch_one(
+        """
+        SELECT project_lead_id
+        FROM projects
+        WHERE id = %s
+          AND archived_at IS NULL
+        """,
+        (project_id,),
+    )
+    if project is None:
+        raise_project_not_found()
+    if project["project_lead_id"] == user_id and next_role != "PM":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Project lead must remain a PM",
+        )
+
+
+def count_project_pms(session: DatabaseSession, project_id: UUID) -> int:
+    row = session.fetch_one(
+        """
+        SELECT COUNT(*) AS pm_count
+        FROM project_members
+        WHERE project_id = %s
+          AND role = 'PM'
+        """,
+        (project_id,),
+    )
+    return int(row["pm_count"])
 
 
 def fetch_project_member(
@@ -1404,6 +1572,7 @@ def fetch_project_member(
           users.id AS user_id,
           users.name,
           users.email,
+          project_members.role,
           project_members.joined_at
         FROM project_members
         JOIN users ON users.id = project_members.user_id
@@ -1415,6 +1584,29 @@ def fetch_project_member(
     if row is None:
         raise_project_not_found()
     return row
+
+
+def fetch_optional_project_member(
+    session: DatabaseSession,
+    project_id: UUID,
+    user_id: UUID,
+) -> Row | None:
+    return session.fetch_one(
+        """
+        SELECT
+          project_members.project_id,
+          users.id AS user_id,
+          users.name,
+          users.email,
+          project_members.role,
+          project_members.joined_at
+        FROM project_members
+        JOIN users ON users.id = project_members.user_id
+        WHERE project_members.project_id = %s
+          AND project_members.user_id = %s
+        """,
+        (project_id, user_id),
+    )
 
 
 def fetch_project_health_by_id(session: DatabaseSession, project_id: UUID) -> Row:

@@ -8,6 +8,7 @@ from app.dependencies import get_authenticated_db_session
 
 
 PROJECT_ACCESS_DENIED_DETAIL = "Project access denied"
+PROJECT_PM_REQUIRED_DETAIL = "Project PM role is required"
 
 
 def user_can_access_project(
@@ -78,6 +79,38 @@ def ensure_project_access(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=PROJECT_ACCESS_DENIED_DETAIL,
+        )
+
+
+def fetch_project_member_role(
+    session: DatabaseSession,
+    user_id: UUID,
+    project_id: UUID,
+) -> str | None:
+    row = session.fetch_one(
+        """
+        SELECT project_members.role
+        FROM project_members
+        JOIN projects
+          ON projects.id = project_members.project_id
+        WHERE project_members.project_id = %s
+          AND project_members.user_id = %s
+          AND projects.archived_at IS NULL
+        """,
+        (project_id, user_id),
+    )
+    return None if row is None else row["role"]
+
+
+def ensure_project_pm(
+    session: DatabaseSession,
+    user_id: UUID,
+    project_id: UUID,
+) -> None:
+    if fetch_project_member_role(session, user_id, project_id) != "PM":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PROJECT_PM_REQUIRED_DETAIL,
         )
 
 

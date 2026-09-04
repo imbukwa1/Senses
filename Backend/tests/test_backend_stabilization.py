@@ -52,7 +52,7 @@ def test_duplicate_project_membership_does_not_create_duplicate_rows() -> None:
         actor = _create_auth_user(database, "Membership Actor", _unique_email("stabilization.actor"))
         member = _create_auth_user(database, "Membership Member", _unique_email("stabilization.member"))
         project = _create_project(database, actor["id"], "Duplicate Membership Project")
-        _add_project_member(database, project["id"], actor["id"])
+        _add_project_member(database, project["id"], actor["id"], role="PM")
         app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
 
         with TestClient(app) as client:
@@ -121,11 +121,11 @@ def _create_project(database: Database, lead_id, name: str) -> dict:
         )
 
 
-def _add_project_member(database: Database, project_id, user_id) -> None:
+def _add_project_member(database: Database, project_id, user_id, role: str = "Team Member") -> None:
     with database.session() as session:
         session.execute(
-            "INSERT INTO project_members (project_id, user_id) VALUES (%s, %s)",
-            (project_id, user_id),
+            "INSERT INTO project_members (project_id, user_id, role) VALUES (%s, %s, %s)",
+            (project_id, user_id, role),
         )
 
 

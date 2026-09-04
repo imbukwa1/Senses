@@ -42,7 +42,16 @@ def test_project_create_generates_code_and_sets_audit_actor() -> None:
             with database.session() as session:
                 membership = session.fetch_one(
                     """
-                    SELECT 1 AS ok
+                    SELECT role
+                    FROM project_members
+                    WHERE project_id = %s
+                      AND user_id = %s
+                    """,
+                    (body["id"], lead["id"]),
+                )
+                creator_membership = session.fetch_one(
+                    """
+                    SELECT role
                     FROM project_members
                     WHERE project_id = %s
                       AND user_id = %s
@@ -62,7 +71,8 @@ def test_project_create_generates_code_and_sets_audit_actor() -> None:
                     (body["id"],),
                 )
 
-        assert membership == {"ok": 1}
+        assert membership == {"role": "PM"}
+        assert creator_membership == {"role": "Team Member"}
         assert audit["user_id"] == creator["id"]
         assert audit["new_values"]["name"] == "Section Five Project"
     finally:
@@ -152,7 +162,7 @@ def test_project_members_can_be_added_listed_and_removed() -> None:
         actor = _create_auth_user(database, "Member Actor", _unique_email("projects.memberactor"))
         added = _create_auth_user(database, "Added Member", _unique_email("projects.added"))
         project = _create_project(database, actor["id"], "Membership API Project")
-        _add_project_member(database, project["id"], actor["id"])
+        _add_project_member(database, project["id"], actor["id"], role="PM")
 
         app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
 
@@ -178,6 +188,7 @@ def test_project_members_can_be_added_listed_and_removed() -> None:
 
         assert add_response.status_code == 201
         assert add_response.json()["user_id"] == str(added["id"])
+        assert add_response.json()["role"] == "Team Member"
 
         listed_member_ids = {row["user_id"] for row in list_response.json()}
         assert str(actor["id"]) in listed_member_ids
@@ -187,6 +198,159 @@ def test_project_members_can_be_added_listed_and_removed() -> None:
         listed_after_remove_ids = {row["user_id"] for row in list_after_remove_response.json()}
         assert str(actor["id"]) in listed_after_remove_ids
         assert str(added["id"]) not in listed_after_remove_ids
+    finally:
+        database.close()
+
+
+def test_project_member_roles_are_valid_after_migration() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        with database.session() as session:
+            invalid_membership = session.fetch_one(
+                """
+                SELECT COUNT(*) AS count
+                FROM project_members
+                WHERE role IS NULL
+                   OR role::TEXT NOT IN ('PM', 'Team Member', 'Finance')
+                """
+            )
+
+        assert invalid_membership == {"count": 0}
+    finally:
+        database.close()
+
+
+def test_project_lead_change_adds_new_lead_as_pm_member_without_demoting_previous_lead() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        current_lead = _create_auth_user(database, "Current Lead", _unique_email("projects.currentlead"))
+        new_lead = _create_auth_user(database, "New Lead", _unique_email("projects.newlead"))
+        project = _create_project(database, current_lead["id"], "Lead Change Project")
+        _add_project_member(database, project["id"], current_lead["id"], role="PM")
+
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            token = _login(client, current_lead["email"])
+            response = client.patch(
+                f"/projects/{project['id']}",
+                headers=_auth_header(token),
+                json={"project_lead_id": str(new_lead["id"])},
+            )
+            with database.session() as session:
+                previous_membership = session.fetch_one(
+                    "SELECT role FROM project_members WHERE project_id = %s AND user_id = %s",
+                    (project["id"], current_lead["id"]),
+                )
+                new_membership = session.fetch_one(
+                    "SELECT role FROM project_members WHERE project_id = %s AND user_id = %s",
+                    (project["id"], new_lead["id"]),
+                )
+
+            assert response.status_code == 200
+            assert response.json()["project_lead_id"] == str(new_lead["id"])
+
+        assert previous_membership == {"role": "PM"}
+        assert new_membership == {"role": "PM"}
+    finally:
+        database.close()
+
+
+def test_only_pm_members_can_manage_project_members() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Membership PM", _unique_email("projects.membershippm"))
+        team_member = _create_auth_user(database, "Membership Team", _unique_email("projects.membershipteam"))
+        finance = _create_auth_user(database, "Membership Finance", _unique_email("projects.membershipfinance"))
+        added = _create_auth_user(database, "Membership Added", _unique_email("projects.membershipadded"))
+        project = _create_project(database, pm["id"], "Role Managed Project")
+        _add_project_member(database, project["id"], pm["id"], role="PM")
+        _add_project_member(database, project["id"], team_member["id"], role="Team Member")
+        _add_project_member(database, project["id"], finance["id"], role="Finance")
+
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            pm_token = _login(client, pm["email"])
+            team_token = _login(client, team_member["email"])
+            finance_token = _login(client, finance["email"])
+            team_add = client.post(
+                f"/projects/{project['id']}/members",
+                headers=_auth_header(team_token),
+                json={"user_id": str(added["id"])},
+            )
+            finance_add = client.post(
+                f"/projects/{project['id']}/members",
+                headers=_auth_header(finance_token),
+                json={"user_id": str(added["id"])},
+            )
+            pm_add = client.post(
+                f"/projects/{project['id']}/members",
+                headers=_auth_header(pm_token),
+                json={"user_id": str(added["id"]), "role": "Finance"},
+            )
+            pm_update = client.patch(
+                f"/projects/{project['id']}/members/{added['id']}",
+                headers=_auth_header(pm_token),
+                json={"role": "Team Member"},
+            )
+            pm_remove = client.delete(
+                f"/projects/{project['id']}/members/{added['id']}",
+                headers=_auth_header(pm_token),
+            )
+
+        assert team_add.status_code == 403
+        assert finance_add.status_code == 403
+        assert pm_add.status_code == 201
+        assert pm_add.json()["role"] == "Finance"
+        assert pm_update.status_code == 200
+        assert pm_update.json()["role"] == "Team Member"
+        assert pm_remove.status_code == 204
+    finally:
+        database.close()
+
+
+def test_project_lead_and_last_pm_cannot_be_removed() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        lead = _create_auth_user(database, "Protected Lead", _unique_email("projects.protectedlead"))
+        other_pm = _create_auth_user(database, "Other PM", _unique_email("projects.otherpm"))
+        normal_member = _create_auth_user(database, "Normal Member", _unique_email("projects.normalmember"))
+        project = _create_project(database, lead["id"], "Protected Membership Project")
+        _add_project_member(database, project["id"], lead["id"], role="PM")
+        _add_project_member(database, project["id"], other_pm["id"], role="PM")
+        _add_project_member(database, project["id"], normal_member["id"], role="Team Member")
+
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            token = _login(client, lead["email"])
+            lead_remove = client.delete(
+                f"/projects/{project['id']}/members/{lead['id']}",
+                headers=_auth_header(token),
+            )
+            other_pm_remove = client.delete(
+                f"/projects/{project['id']}/members/{other_pm['id']}",
+                headers=_auth_header(token),
+            )
+            last_pm_demotion = client.patch(
+                f"/projects/{project['id']}/members/{lead['id']}",
+                headers=_auth_header(token),
+                json={"role": "Team Member"},
+            )
+            normal_remove = client.delete(
+                f"/projects/{project['id']}/members/{normal_member['id']}",
+                headers=_auth_header(token),
+            )
+
+        assert lead_remove.status_code == 409
+        assert other_pm_remove.status_code == 204
+        assert last_pm_demotion.status_code == 409
+        assert normal_remove.status_code == 204
     finally:
         database.close()
 
@@ -248,11 +412,11 @@ def _create_project(database: Database, lead_id, name: str) -> dict:
         )
 
 
-def _add_project_member(database: Database, project_id, user_id) -> None:
+def _add_project_member(database: Database, project_id, user_id, role: str = "Team Member") -> None:
     with database.session() as session:
         session.execute(
-            "INSERT INTO project_members (project_id, user_id) VALUES (%s, %s)",
-            (project_id, user_id),
+            "INSERT INTO project_members (project_id, user_id, role) VALUES (%s, %s, %s)",
+            (project_id, user_id, role),
         )
 
 
