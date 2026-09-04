@@ -358,7 +358,7 @@ function TaskMetadata({
       <h3 className="text-sm font-semibold text-foreground">Task Information</h3>
       <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
         <MetadataItem label="Phase" value={phase.name} />
-        <MetadataItem label="Owner" value={task.owner_id} />
+        <MetadataItem label="Owner" value={`${task.owner.name} (${task.owner.email})`} />
         <MetadataItem label="Start Date" value={formatOptionalDate(task.start_date)} />
         <MetadataItem label="Due Date" value={formatOptionalDate(task.due_date)} />
       </dl>

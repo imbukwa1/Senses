@@ -8,6 +8,11 @@ const project = {
   name: "Inclusive Speech Tech",
   description: "Project description",
   project_lead_id: "22222222-2222-4222-8222-222222222222",
+  project_lead: {
+    id: "22222222-2222-4222-8222-222222222222",
+    name: "Project Lead",
+    email: "lead@senseshub.com",
+  },
   current_phase_id: null,
   start_date: "2026-01-01",
   end_date: "2026-12-31",
@@ -28,6 +33,7 @@ const member = {
   user_id: "33333333-3333-4333-8333-333333333333",
   name: "A. Member",
   email: "member@senseshub.com",
+  role: "Team Member",
   joined_at: "2026-01-01T00:00:00Z",
 };
 
@@ -60,7 +66,7 @@ describe("project API mutations", () => {
       `http://localhost:8000/projects/${project.id}/members`,
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ user_id: member.user_id }),
+        body: JSON.stringify({ user_id: member.user_id, role: "Team Member" }),
         headers: expect.objectContaining({ Authorization: "Bearer token" }),
       }),
     );

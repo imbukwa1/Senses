@@ -322,6 +322,7 @@ function projectForMembers(dashboard: ProjectDashboard) {
     name: dashboard.project.name,
     description: dashboard.project.description,
     project_lead_id: dashboard.project.project_lead.id,
+    project_lead: dashboard.project.project_lead,
     current_phase_id: dashboard.project.current_phase_id,
     start_date: dashboard.project.start_date,
     end_date: dashboard.project.end_date,

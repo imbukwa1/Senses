@@ -38,6 +38,11 @@ def test_project_create_generates_code_and_sets_audit_actor() -> None:
             assert body["code"].startswith("PRJ-")
             assert body["code"] != "PRJ-0000-000"
             assert body["project_lead_id"] == str(lead["id"])
+            assert body["project_lead"] == {
+                "id": str(lead["id"]),
+                "name": lead["name"],
+                "email": lead["email"],
+            }
 
             with database.session() as session:
                 membership = session.fetch_one(
@@ -188,6 +193,8 @@ def test_project_members_can_be_added_listed_and_removed() -> None:
 
         assert add_response.status_code == 201
         assert add_response.json()["user_id"] == str(added["id"])
+        assert add_response.json()["name"] == "Added Member"
+        assert add_response.json()["email"] == added["email"]
         assert add_response.json()["role"] == "Team Member"
 
         listed_member_ids = {row["user_id"] for row in list_response.json()}

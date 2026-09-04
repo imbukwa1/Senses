@@ -99,12 +99,19 @@ class ProjectStatusUpdateRequest(BaseModel):
     status: ProjectStatus
 
 
+class UserSummaryResponse(BaseModel):
+    id: UUID
+    name: str
+    email: str
+
+
 class ProjectResponse(BaseModel):
     id: UUID
     code: str
     name: str
     description: str
     project_lead_id: UUID
+    project_lead: UserSummaryResponse
     current_phase_id: UUID | None
     start_date: date
     end_date: date
@@ -177,6 +184,7 @@ class PhaseResponse(BaseModel):
     name: str
     description: str | None
     owner_id: UUID | None
+    owner: UserSummaryResponse | None
     start_date: date | None
     end_date: date | None
     status: str
@@ -230,6 +238,7 @@ class TaskResponse(BaseModel):
     name: str
     description: str | None
     owner_id: UUID
+    owner: UserSummaryResponse
     priority: str
     status: str
     start_date: date | None
@@ -362,6 +371,7 @@ class DashboardPhaseResponse(BaseModel):
     name: str
     description: str | None
     owner_id: UUID | None
+    owner: UserSummaryResponse | None
     start_date: date | None
     end_date: date | None
     status: str
@@ -559,7 +569,7 @@ def create_phase(
             payload.objectives,
         ),
     )
-    return phase_to_response(phase)
+    return phase_to_response(fetch_project_phase_or_404(session, project_id, phase["id"]))
 
 
 @router.get("/{project_id}/phases", response_model=list[PhaseResponse])
@@ -647,7 +657,7 @@ def get_phase(
     phase = fetch_project_phase(session, project_id, phase_id)
     if phase is None:
         raise_phase_not_found()
-    return phase_to_response(phase)
+    return phase_to_response(fetch_project_phase_or_404(session, project_id, phase["id"]))
 
 
 @router.patch("/{project_id}/phases/{phase_id}", response_model=PhaseResponse)
@@ -691,7 +701,7 @@ def update_phase(
     if phase is None:
         raise_phase_not_found()
 
-    return phase_to_response(phase)
+    return phase_to_response(fetch_project_phase_or_404(session, project_id, phase["id"]))
 
 
 @router.patch("/{project_id}/phases/{phase_id}/complete", response_model=PhaseResponse)
@@ -716,7 +726,7 @@ def mark_phase_complete(
     if phase is None:
         raise_phase_not_found()
 
-    return phase_to_response(phase)
+    return phase_to_response(fetch_project_phase_or_404(session, project_id, phase["id"]))
 
 
 @router.patch("/{project_id}/phases/{phase_id}/archive", response_model=PhaseResponse)
@@ -729,12 +739,20 @@ def archive_phase(
     ensure_project_access(session, current_user.id, project_id)
     phase = session.fetch_one(
         """
-        UPDATE phases
-        SET archived_at = COALESCE(archived_at, NOW())
-        WHERE id = %s
-          AND project_id = %s
-          AND archived_at IS NULL
-        RETURNING *
+        WITH archived_phase AS (
+          UPDATE phases
+          SET archived_at = COALESCE(archived_at, NOW())
+          WHERE id = %s
+            AND project_id = %s
+            AND archived_at IS NULL
+          RETURNING *
+        )
+        SELECT
+          archived_phase.*,
+          users.name AS owner_name,
+          users.email AS owner_email
+        FROM archived_phase
+        LEFT JOIN users ON users.id = archived_phase.owner_id
         """,
         (phase_id, project_id),
     )
@@ -1610,7 +1628,18 @@ def fetch_optional_project_member(
 
 
 def fetch_project_health_by_id(session: DatabaseSession, project_id: UUID) -> Row:
-    row = session.fetch_one("SELECT * FROM project_health WHERE id = %s", (project_id,))
+    row = session.fetch_one(
+        """
+        SELECT
+          project_health.*,
+          users.name AS project_lead_name,
+          users.email AS project_lead_email
+        FROM project_health
+        JOIN users ON users.id = project_health.project_lead_id
+        WHERE project_health.id = %s
+        """,
+        (project_id,),
+    )
     if row is None:
         raise_project_not_found()
     return row
@@ -1680,6 +1709,8 @@ def fetch_dashboard_phases(session: DatabaseSession, project_id: UUID) -> list[R
           phases.name,
           phases.description,
           phases.owner_id,
+          users.name AS owner_name,
+          users.email AS owner_email,
           phases.start_date,
           phases.end_date,
           phases.status,
@@ -1690,13 +1721,14 @@ def fetch_dashboard_phases(session: DatabaseSession, project_id: UUID) -> list[R
           phases.updated_at,
           phases.archived_at
         FROM phases
+        LEFT JOIN users ON users.id = phases.owner_id
         LEFT JOIN tasks
           ON tasks.phase_id = phases.id
         LEFT JOIN task_progress
           ON task_progress.task_id = tasks.id
         WHERE phases.project_id = %s
           AND phases.archived_at IS NULL
-        GROUP BY phases.id
+        GROUP BY phases.id, users.name, users.email
         ORDER BY phases.display_order, phases.created_at, phases.id
         """,
         (project_id,),
@@ -1779,11 +1811,15 @@ def fetch_dashboard_deliverables(session: DatabaseSession, project_id: UUID) -> 
 def fetch_project_phases(session: DatabaseSession, project_id: UUID) -> list[Row]:
     return session.fetch_all(
         """
-        SELECT *
+        SELECT
+          phases.*,
+          users.name AS owner_name,
+          users.email AS owner_email
         FROM phases
-        WHERE project_id = %s
-          AND archived_at IS NULL
-        ORDER BY display_order, created_at, id
+        LEFT JOIN users ON users.id = phases.owner_id
+        WHERE phases.project_id = %s
+          AND phases.archived_at IS NULL
+        ORDER BY phases.display_order, phases.created_at, phases.id
         """,
         (project_id,),
     )
@@ -1792,11 +1828,15 @@ def fetch_project_phases(session: DatabaseSession, project_id: UUID) -> list[Row
 def fetch_project_phase(session: DatabaseSession, project_id: UUID, phase_id: UUID) -> Row | None:
     return session.fetch_one(
         """
-        SELECT *
+        SELECT
+          phases.*,
+          users.name AS owner_name,
+          users.email AS owner_email
         FROM phases
-        WHERE id = %s
-          AND project_id = %s
-          AND archived_at IS NULL
+        LEFT JOIN users ON users.id = phases.owner_id
+        WHERE phases.id = %s
+          AND phases.project_id = %s
+          AND phases.archived_at IS NULL
         """,
         (phase_id, project_id),
     )
@@ -1819,6 +1859,8 @@ def fetch_project_phase_tasks(session: DatabaseSession, project_id: UUID, phase_
           tasks.name,
           tasks.description,
           tasks.owner_id,
+          users.name AS owner_name,
+          users.email AS owner_email,
           tasks.priority,
           tasks.status,
           tasks.start_date,
@@ -1828,6 +1870,7 @@ def fetch_project_phase_tasks(session: DatabaseSession, project_id: UUID, phase_
           tasks.updated_at
         FROM tasks
         JOIN phases ON phases.id = tasks.phase_id
+        JOIN users ON users.id = tasks.owner_id
         WHERE phases.project_id = %s
           AND phases.id = %s
           AND phases.archived_at IS NULL
@@ -1852,6 +1895,8 @@ def fetch_project_task(
           tasks.name,
           tasks.description,
           tasks.owner_id,
+          users.name AS owner_name,
+          users.email AS owner_email,
           tasks.priority,
           tasks.status,
           tasks.start_date,
@@ -1861,6 +1906,7 @@ def fetch_project_task(
           tasks.updated_at
         FROM tasks
         JOIN phases ON phases.id = tasks.phase_id
+        JOIN users ON users.id = tasks.owner_id
         WHERE tasks.id = %s
           AND tasks.phase_id = %s
           AND phases.project_id = %s
@@ -2102,7 +2148,14 @@ def ensure_project_lead(session: DatabaseSession, user_id: UUID, project_id: UUI
 
 
 def project_to_response(row: Row) -> ProjectResponse:
-    return ProjectResponse(**row)
+    return ProjectResponse(
+        **row,
+        project_lead=UserSummaryResponse(
+            id=row["project_lead_id"],
+            name=row["project_lead_name"],
+            email=row["project_lead_email"],
+        ),
+    )
 
 
 def project_member_to_response(row: Row) -> ProjectMemberResponse:
@@ -2110,11 +2163,17 @@ def project_member_to_response(row: Row) -> ProjectMemberResponse:
 
 
 def phase_to_response(row: Row) -> PhaseResponse:
-    return PhaseResponse(**row)
+    return PhaseResponse(
+        **row,
+        owner=user_summary_from_row(row, "owner"),
+    )
 
 
 def task_to_response(row: Row) -> TaskResponse:
-    return TaskResponse(**row)
+    return TaskResponse(
+        **row,
+        owner=user_summary_from_row(row, "owner"),
+    )
 
 
 def task_supporter_to_response(row: Row) -> TaskSupporterResponse:
@@ -2172,7 +2231,22 @@ def dashboard_project_to_response(row: Row) -> DashboardProjectResponse:
 
 
 def dashboard_phase_to_response(row: Row) -> DashboardPhaseResponse:
-    return DashboardPhaseResponse(**row)
+    return DashboardPhaseResponse(
+        **row,
+        owner=user_summary_from_row(row, "owner"),
+    )
+
+
+def user_summary_from_row(row: Row, prefix: str) -> UserSummaryResponse | None:
+    user_id = row.get(f"{prefix}_id")
+    if user_id is None:
+        return None
+
+    return UserSummaryResponse(
+        id=user_id,
+        name=row[f"{prefix}_name"],
+        email=row[f"{prefix}_email"],
+    )
 
 
 def raise_project_not_found() -> None:

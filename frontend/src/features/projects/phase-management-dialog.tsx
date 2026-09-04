@@ -94,7 +94,7 @@ export function PhaseManagementDialog({ children, currentPhaseId, phases, projec
                     </div>
                     {phase.description ? <p className="mt-2 text-sm text-muted-foreground">{phase.description}</p> : null}
                     <p className="mt-2 text-xs text-muted-foreground">
-                      Owner: {phase.owner_id ?? "No owner"} - {formatOptionalDate(phase.start_date)} - {formatOptionalDate(phase.end_date)}
+                      Owner: {phase.owner?.name ?? "No owner"} - {formatOptionalDate(phase.start_date)} - {formatOptionalDate(phase.end_date)}
                     </p>
                     <div className="mt-3 max-w-xs">
                       <div className="mb-1 flex items-center justify-between gap-2 text-xs">

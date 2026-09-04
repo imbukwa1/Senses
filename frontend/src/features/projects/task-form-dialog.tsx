@@ -135,12 +135,7 @@ export function TaskFormDialog({ children, mode, phase, projectId, task }: TaskF
                 <Textarea id={id} aria-describedby={describedBy} aria-invalid={invalid} {...register("description")} />
               )}
             </FormField>
-            <FormField
-              label="Owner"
-              error={errors.owner_id?.message}
-              description="Owner choices use existing project members because no general user lookup endpoint exists."
-              required
-            >
+            <FormField label="Owner" error={errors.owner_id?.message} required>
               {() => (
                 <Controller
                   control={control}
@@ -305,8 +300,9 @@ function buildUserOptions(members: ProjectMember[], task: Task | undefined, supp
   if (task?.owner_id && !options.some((option) => option.value === task.owner_id)) {
     options.push({
       value: task.owner_id,
-      label: `Current owner (${task.owner_id})`,
-      name: "Current owner",
+      label: `${task.owner.name} (${task.owner.email})`,
+      name: task.owner.name,
+      email: task.owner.email,
     });
   }
 

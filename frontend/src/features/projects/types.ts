@@ -7,6 +7,7 @@ export type ProjectSummary = {
   name: string;
   description: string;
   project_lead_id: string;
+  project_lead: ProjectLead;
   current_phase_id: string | null;
   start_date: string;
   end_date: string;
@@ -40,6 +41,7 @@ export type ProjectMember = {
   user_id: string;
   name: string;
   email: string;
+  role: "PM" | "Team Member" | "Finance";
   joined_at: string;
 };
 
@@ -74,6 +76,7 @@ export type DashboardPhase = {
   name: string;
   description: string | null;
   owner_id: string | null;
+  owner: ProjectLead | null;
   start_date: string | null;
   end_date: string | null;
   status: PhaseStatus;
@@ -102,6 +105,7 @@ export type PhaseResponse = {
   name: string;
   description: string | null;
   owner_id: string | null;
+  owner: ProjectLead | null;
   start_date: string | null;
   end_date: string | null;
   status: PhaseStatus;
@@ -150,6 +154,7 @@ export type Task = {
   name: string;
   description: string | null;
   owner_id: string;
+  owner: ProjectLead;
   priority: Priority;
   status: TaskStatus;
   start_date: string | null;

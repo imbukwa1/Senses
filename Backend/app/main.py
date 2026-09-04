@@ -12,6 +12,7 @@ from app.exceptions import register_exception_handlers
 from app.projects import router as projects_router
 from app.search import router as search_router
 from app.storage import FileStorage, GCSFileStorage
+from app.users import router as users_router
 
 
 def configure_logging(level: str) -> None:
@@ -64,6 +65,7 @@ def create_app(
 
     register_exception_handlers(app)
     app.include_router(auth_router)
+    app.include_router(users_router)
     app.include_router(projects_router)
     app.include_router(search_router)
 

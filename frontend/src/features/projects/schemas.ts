@@ -17,12 +17,19 @@ const backendNumberSchema = z.union([z.number(), z.string()]).transform((value, 
   return numberValue;
 });
 
+export const userSummarySchema = z.object({
+  id: z.uuid(),
+  name: z.string().min(1),
+  email: z.email(),
+});
+
 export const projectSummarySchema = z.object({
   id: z.uuid(),
   code: z.string().min(1),
   name: z.string().min(1),
   description: z.string(),
   project_lead_id: z.uuid(),
+  project_lead: userSummarySchema,
   current_phase_id: z.uuid().nullable(),
   start_date: z.string().min(1),
   end_date: z.string().min(1),
@@ -45,16 +52,13 @@ export const projectMemberSchema = z.object({
   user_id: z.uuid(),
   name: z.string().min(1),
   email: z.email(),
+  role: z.enum(["PM", "Team Member", "Finance"]),
   joined_at: z.string().min(1),
 });
 
 export const projectMembersSchema = z.array(projectMemberSchema);
 
-export const projectLeadSchema = z.object({
-  id: z.uuid(),
-  name: z.string().min(1),
-  email: z.email(),
-});
+export const projectLeadSchema = userSummarySchema;
 
 export const dashboardProjectSchema = z.object({
   id: z.uuid(),
@@ -81,6 +85,7 @@ export const dashboardPhaseSchema = z.object({
   name: z.string().min(1),
   description: z.string().nullable(),
   owner_id: z.uuid().nullable(),
+  owner: userSummarySchema.nullable(),
   start_date: z.string().nullable(),
   end_date: z.string().nullable(),
   status: z.enum(phaseStatuses),
@@ -133,6 +138,7 @@ export const taskSchema = z.object({
   name: z.string().min(1),
   description: z.string().nullable(),
   owner_id: z.uuid(),
+  owner: userSummarySchema,
   priority: z.enum(priorities),
   status: z.enum(taskStatuses),
   start_date: z.string().nullable(),

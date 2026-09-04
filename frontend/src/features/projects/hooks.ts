@@ -496,7 +496,8 @@ export function useAddProjectMemberMutation(projectId: string) {
   const { logout, token } = useAuth();
 
   return useMutation({
-    mutationFn: (userId: string) => addProjectMember(requireToken(token), projectId, userId),
+    mutationFn: ({ role, userId }: { userId: string; role?: "PM" | "Team Member" | "Finance" }) =>
+      addProjectMember(requireToken(token), projectId, userId, role),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: projectMembersQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: projectsQueryKey });

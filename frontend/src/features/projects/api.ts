@@ -109,12 +109,12 @@ export async function listProjectMembers(token: string, projectId: string): Prom
   return result.data;
 }
 
-export async function addProjectMember(token: string, projectId: string, userId: string): Promise<ProjectMember> {
+export async function addProjectMember(token: string, projectId: string, userId: string, role = "Team Member"): Promise<ProjectMember> {
   const data = await apiRequest<unknown>(
     `/projects/${projectId}/members`,
     {
       method: "POST",
-      body: JSON.stringify({ user_id: userId }),
+      body: JSON.stringify({ user_id: userId, role }),
     },
     token,
   );

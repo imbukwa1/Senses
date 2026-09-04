@@ -6,7 +6,6 @@ import { z } from "zod";
 import { DateInput } from "@/components/common/date-input";
 import { InlineErrorMessage } from "@/components/common/error-state";
 import { FormField } from "@/components/common/form-field";
-import { SearchableSelect } from "@/components/common/searchable-select";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/features/auth/hooks";
+import { UserSearchSelect } from "@/features/users/user-search-select";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import { useCreateProjectMutation, useUpdateProjectMutation } from "./hooks";
@@ -123,7 +123,6 @@ export function ProjectFormDialog({ children, mode, onOpenChange, open, project 
             <FormField
               label="Project Lead"
               error={errors.project_lead_id?.message}
-              description="User lookup is not available from the backend yet; selectable lead options are limited to users already known to this screen."
               required
             >
               {() => (
@@ -131,12 +130,12 @@ export function ProjectFormDialog({ children, mode, onOpenChange, open, project 
                   control={control}
                   name="project_lead_id"
                   render={({ field }) => (
-                    <SearchableSelect
+                    <UserSearchSelect
                       label="Project Lead"
-                      options={leadOptions}
+                      knownUsers={leadOptions}
                       value={field.value}
                       onValueChange={field.onChange}
-                      placeholder="Select project lead"
+                      placeholder="Search and select project lead"
                     />
                   )}
                 />
@@ -269,11 +268,11 @@ function buildLeadOptions(user: ReturnType<typeof useAuth>["user"], project: Pro
   const options = [];
 
   if (user) {
-    options.push({ label: `${user.name} (${user.email})`, value: user.id });
+    options.push({ id: user.id, name: user.name, email: user.email });
   }
 
-  if (project?.project_lead_id && !options.some((option) => option.value === project.project_lead_id)) {
-    options.push({ label: `Current project lead (${project.project_lead_id})`, value: project.project_lead_id });
+  if (project?.project_lead && !options.some((option) => option.id === project.project_lead.id)) {
+    options.push(project.project_lead);
   }
 
   return options;

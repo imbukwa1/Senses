@@ -1,5 +1,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Trash2, UserPlus } from "lucide-react";
+import { useState } from "react";
+import { Controller } from "react-hook-form";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -18,7 +20,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { UserSearchSelect } from "@/features/users/user-search-select";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import { useAddProjectMemberMutation, useProjectMembersQuery, useRemoveProjectMemberMutation } from "./hooks";
@@ -26,6 +29,7 @@ import type { ProjectMember, ProjectSummary } from "./types";
 
 const addMemberSchema = z.object({
   user_id: z.uuid("Enter a valid registered user ID."),
+  role: z.enum(["PM", "Team Member", "Finance"]),
 });
 
 type AddMemberValues = z.infer<typeof addMemberSchema>;
@@ -41,16 +45,18 @@ export function ProjectMembersDialog({ children, onOpenChange, open, project }: 
   const membersQuery = useProjectMembersQuery(project.id, open);
   const addMember = useAddProjectMemberMutation(project.id);
   const removeMember = useRemoveProjectMemberMutation(project.id);
+  const [selectedUser, setSelectedUser] = useState<{ id: string; name: string; email: string } | null>(null);
   const {
+    control,
     formState: { errors, isSubmitting },
     handleSubmit,
-    register,
     reset,
     watch,
   } = useForm<AddMemberValues>({
     resolver: zodResolver(addMemberSchema),
     defaultValues: {
       user_id: "",
+      role: "Team Member",
     },
   });
   const userIdValue = watch("user_id");
@@ -62,6 +68,7 @@ export function ProjectMembersDialog({ children, onOpenChange, open, project }: 
       addMember.reset();
       removeMember.reset();
       reset();
+      setSelectedUser(null);
     }
     onOpenChange(nextOpen);
   }
@@ -72,8 +79,9 @@ export function ProjectMembersDialog({ children, onOpenChange, open, project }: 
     }
 
     try {
-      await addMember.mutateAsync(values.user_id);
+      await addMember.mutateAsync({ userId: values.user_id, role: values.role });
       reset();
+      setSelectedUser(null);
     } catch {
       return;
     }
@@ -95,29 +103,51 @@ export function ProjectMembersDialog({ children, onOpenChange, open, project }: 
             </div>
             <form className="mt-3 space-y-2" noValidate onSubmit={handleSubmit(onSubmit)}>
               {addMember.error ? <InlineErrorMessage message={memberErrorMessage(addMember.error)} /> : null}
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <div className="min-w-0 flex-1">
-                  <label className="sr-only" htmlFor={`add-member-${project.id}`}>
-                    Registered User ID
-                  </label>
-                  <Input
-                    id={`add-member-${project.id}`}
-                    aria-invalid={Boolean(errors.user_id) || Boolean(existingMember)}
-                    placeholder="Registered User ID"
-                    disabled={isAdding || membersQuery.isLoading}
-                    {...register("user_id")}
-                  />
-                </div>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem_auto]">
+                <Controller
+                  control={control}
+                  name="user_id"
+                  render={({ field }) => (
+                    <UserSearchSelect
+                      label="Project member"
+                      value={field.value}
+                      knownUsers={selectedUser ? [selectedUser] : []}
+                      disabled={isAdding || membersQuery.isLoading}
+                      placeholder="Search user"
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        const existing = membersQuery.data?.find((member) => member.user_id === value);
+                        setSelectedUser(existing ? { id: existing.user_id, name: existing.name, email: existing.email } : null);
+                      }}
+                    />
+                  )}
+                />
+                <Controller
+                  control={control}
+                  name="role"
+                  render={({ field }) => (
+                    <Select value={field.value} onValueChange={field.onChange} disabled={isAdding || membersQuery.isLoading}>
+                      <SelectTrigger aria-label="Role">
+                        <SelectValue placeholder="Role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["Team Member", "PM", "Finance"].map((role) => (
+                          <SelectItem key={role} value={role}>
+                            {role}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
                 <Button type="submit" disabled={isAdding || membersQuery.isLoading || Boolean(existingMember)}>
                   {isAdding ? "Adding..." : "Add"}
                 </Button>
               </div>
               {errors.user_id?.message ? <p className="text-sm font-medium text-error">{errors.user_id.message}</p> : null}
+              {errors.role?.message ? <p className="text-sm font-medium text-error">{errors.role.message}</p> : null}
               {existingMember ? <p className="text-sm font-medium text-muted-foreground">This user is already a project member.</p> : null}
             </form>
-            <p className="mt-2 text-xs text-muted-foreground">
-              User lookup is not available yet, so adding a member requires the registered user's backend ID.
-            </p>
           </div>
           {membersQuery.isLoading ? <LoadingState label="Loading project members" /> : null}
           {membersQuery.isError ? <ErrorState title="Members could not be loaded" message={memberErrorMessage(membersQuery.error)} /> : null}
@@ -159,7 +189,9 @@ function MemberRow({ isRemoving, member, onRemove }: { member: ProjectMember; is
       </Avatar>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-foreground">{member.name}</p>
-        <p className="truncate text-xs text-muted-foreground">{member.email}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {member.email} - {member.role}
+        </p>
       </div>
       <ConfirmAction
         title="Remove project member?"

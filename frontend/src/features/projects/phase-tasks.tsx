@@ -62,7 +62,7 @@ function TaskTable({ phase, projectId, tasks }: { projectId: string; phase: Dash
               <p className="font-medium text-foreground">{task.name}</p>
               {task.description ? <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.description}</p> : null}
             </TableCell>
-            <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{task.owner_id}</TableCell>
+            <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{task.owner.name}</TableCell>
             <TableCell>
               <StatusBadge value={task.priority} />
             </TableCell>

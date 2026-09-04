@@ -230,7 +230,10 @@ function buildOwnerOptions(user: ReturnType<typeof useAuth>["user"], phase: Dash
   }
 
   if (phase?.owner_id && !options.some((option) => option.value === phase.owner_id)) {
-    options.push({ label: `Current owner (${phase.owner_id})`, value: phase.owner_id });
+    options.push({
+      label: phase.owner ? `${phase.owner.name} (${phase.owner.email})` : "Current owner",
+      value: phase.owner_id,
+    });
   }
 
   return options;

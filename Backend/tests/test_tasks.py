@@ -58,6 +58,11 @@ def test_task_can_be_created_retrieved_and_project_context_derives_through_phase
         assert body["project_id"] == str(project["id"])
         assert body["description"] == "Task created through the Section 9 API."
         assert body["owner_id"] == str(owner["id"])
+        assert body["owner"] == {
+            "id": str(owner["id"]),
+            "name": owner["name"],
+            "email": owner["email"],
+        }
         assert body["priority"] == "Medium"
         assert body["status"] == "Not Started"
         assert fetched.status_code == 200
@@ -126,6 +131,7 @@ def test_task_update_owner_priority_dates_and_status() -> None:
         assert updated.status_code == 200
         assert updated.json()["name"] == "Updated Task"
         assert updated.json()["owner_id"] == str(new_owner["id"])
+        assert updated.json()["owner"]["name"] == "New Task Owner"
         assert updated.json()["priority"] == "High"
         assert updated.json()["start_date"] == str(today)
         assert updated.json()["due_date"] == str(today + timedelta(days=5))
@@ -179,6 +185,8 @@ def test_task_supporters_can_be_added_listed_removed_and_duplicates_are_rejected
 
         assert added.status_code == 201
         assert added.json()["user_id"] == str(supporter["id"])
+        assert added.json()["name"] == "Task Supporter"
+        assert added.json()["email"] == supporter["email"]
         assert duplicate.status_code == 409
         assert duplicate.json() == {"error": {"message": "Task supporter already exists"}}
         assert [row["user_id"] for row in listed.json()] == [str(supporter["id"])]

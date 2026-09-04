@@ -39,10 +39,15 @@ def fetch_accessible_projects(
 ) -> list:
     return session.fetch_all(
         """
-        SELECT project_health.*
+        SELECT
+          project_health.*,
+          users.name AS project_lead_name,
+          users.email AS project_lead_email
         FROM project_health
         JOIN project_members
           ON project_members.project_id = project_health.id
+        JOIN users
+          ON users.id = project_health.project_lead_id
         WHERE project_members.user_id = %s
           AND project_health.archived_at IS NULL
         ORDER BY project_health.created_at DESC, project_health.id
@@ -58,10 +63,15 @@ def fetch_accessible_project(
 ):
     return session.fetch_one(
         """
-        SELECT project_health.*
+        SELECT
+          project_health.*,
+          users.name AS project_lead_name,
+          users.email AS project_lead_email
         FROM project_health
         JOIN project_members
           ON project_members.project_id = project_health.id
+        JOIN users
+          ON users.id = project_health.project_lead_id
         WHERE project_health.id = %s
           AND project_members.user_id = %s
           AND project_health.archived_at IS NULL
