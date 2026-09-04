@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import logging
 
 from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.auth import router as auth_router
@@ -29,6 +30,7 @@ def create_app(
     configure_logging(resolved_settings.log_level)
     resolved_database = database or Database(resolved_settings)
     resolved_file_storage = file_storage
+
     if resolved_file_storage is None and resolved_settings.gcs_bucket_name:
         resolved_file_storage = GCSFileStorage(resolved_settings)
 
@@ -38,12 +40,28 @@ def create_app(
         app.state.database = resolved_database
         app.state.file_storage = resolved_file_storage
         resolved_database.connect()
+
         try:
             yield
         finally:
             resolved_database.close()
 
-    app = FastAPI(title=resolved_settings.app_name, lifespan=lifespan)
+    app = FastAPI(
+        title=resolved_settings.app_name,
+        lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     register_exception_handlers(app)
     app.include_router(auth_router)
     app.include_router(projects_router)
@@ -52,7 +70,11 @@ def create_app(
     @app.get("/health")
     def health(request: Request) -> JSONResponse:
         db_ready = request.app.state.database.ping()
-        http_status = status.HTTP_200_OK if db_ready else status.HTTP_503_SERVICE_UNAVAILABLE
+        http_status = (
+            status.HTTP_200_OK
+            if db_ready
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
 
         return JSONResponse(
             status_code=http_status,
