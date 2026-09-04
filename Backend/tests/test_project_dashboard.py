@@ -305,7 +305,7 @@ def _set_current_phase(database: Database, project_id, phase_id) -> None:
 def _add_project_member(database: Database, project_id, user_id) -> None:
     with database.session() as session:
         session.execute(
-            "INSERT INTO project_members (project_id, user_id) VALUES (%s, %s)",
+            "INSERT INTO project_members (project_id, user_id, role) VALUES (%s, %s, 'PM')",
             (project_id, user_id),
         )
 

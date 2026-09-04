@@ -51,6 +51,14 @@ export type ProjectLead = {
   email: string;
 };
 
+export type PhaseMember = {
+  phase_id: string;
+  user_id: string;
+  name: string;
+  email: string;
+  added_at: string;
+};
+
 export type DashboardProject = {
   id: string;
   code: string;

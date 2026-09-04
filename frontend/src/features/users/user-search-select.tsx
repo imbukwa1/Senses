@@ -17,10 +17,12 @@ export type UserSearchSelectProps = {
   placeholder?: string;
   disabled?: boolean;
   knownUsers?: UserLookupResult[];
+  filterUser?: (user: UserLookupResult) => boolean;
 };
 
 export function UserSearchSelect({
   disabled,
+  filterUser,
   knownUsers = [],
   label,
   onValueChange,
@@ -30,7 +32,10 @@ export function UserSearchSelect({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const usersQuery = useUsersSearchQuery(search, open);
-  const options = useMemo(() => mergeUsers(knownUsers, usersQuery.data ?? []), [knownUsers, usersQuery.data]);
+  const options = useMemo(() => {
+    const users = mergeUsers(knownUsers, usersQuery.data ?? []);
+    return filterUser ? users.filter(filterUser) : users;
+  }, [filterUser, knownUsers, usersQuery.data]);
   const selectedUser = options.find((user) => user.id === value);
 
   return (

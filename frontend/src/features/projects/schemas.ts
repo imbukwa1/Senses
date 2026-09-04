@@ -58,6 +58,16 @@ export const projectMemberSchema = z.object({
 
 export const projectMembersSchema = z.array(projectMemberSchema);
 
+export const phaseMemberSchema = z.object({
+  phase_id: z.uuid(),
+  user_id: z.uuid(),
+  name: z.string().min(1),
+  email: z.email(),
+  added_at: z.string().min(1),
+});
+
+export const phaseMembersSchema = z.array(phaseMemberSchema);
+
 export const projectLeadSchema = userSummarySchema;
 
 export const dashboardProjectSchema = z.object({

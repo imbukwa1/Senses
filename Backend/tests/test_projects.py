@@ -209,6 +209,38 @@ def test_project_members_can_be_added_listed_and_removed() -> None:
         database.close()
 
 
+def test_project_member_assigned_to_phase_cannot_be_removed() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Phase Guard PM", _unique_email("projects.phaseguardpm"))
+        assigned = _create_auth_user(database, "Phase Guard Member", _unique_email("projects.phaseguardmember"))
+        project = _create_project(database, pm["id"], "Phase Guard Project")
+        _add_project_member(database, project["id"], pm["id"], role="PM")
+        _add_project_member(database, project["id"], assigned["id"], role="Team Member")
+        phase = _create_phase(database, project["id"], pm["id"], "Guarded Phase")
+
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            token = _login(client, pm["email"])
+            assigned_to_phase = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/members",
+                headers=_auth_header(token),
+                json={"user_id": str(assigned["id"])},
+            )
+            remove_project_member = client.delete(
+                f"/projects/{project['id']}/members/{assigned['id']}",
+                headers=_auth_header(token),
+            )
+
+        assert assigned_to_phase.status_code == 201
+        assert remove_project_member.status_code == 409
+        assert remove_project_member.json()["error"]["message"] == "Project member is assigned to one or more phases"
+    finally:
+        database.close()
+
+
 def test_project_member_roles_are_valid_after_migration() -> None:
     database = _database_from_env()
     database.connect()

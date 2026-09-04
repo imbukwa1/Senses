@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { addProjectMember, archiveProject } from "./api";
+import { addPhaseMember, addProjectMember, archiveProject, listPhaseMembers } from "./api";
 
 const project = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -37,6 +37,16 @@ const member = {
   joined_at: "2026-01-01T00:00:00Z",
 };
 
+const phaseId = "44444444-4444-4444-8444-444444444444";
+
+const phaseMember = {
+  phase_id: phaseId,
+  user_id: member.user_id,
+  name: member.name,
+  email: member.email,
+  added_at: "2026-01-01T00:00:00Z",
+};
+
 describe("project API mutations", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -71,6 +81,35 @@ describe("project API mutations", () => {
       }),
     );
     expect(added).toEqual(member);
+  });
+
+  it("lists and adds phase members through phase-scoped endpoints", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([phaseMember]))
+      .mockResolvedValueOnce(jsonResponse(phaseMember));
+
+    const listed = await listPhaseMembers("token", project.id, phaseId);
+    const added = await addPhaseMember("token", project.id, phaseId, member.user_id);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `http://localhost:8000/projects/${project.id}/phases/${phaseId}/members`,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `http://localhost:8000/projects/${project.id}/phases/${phaseId}/members`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ user_id: member.user_id }),
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
+    expect(listed).toEqual([phaseMember]);
+    expect(added).toEqual(phaseMember);
   });
 });
 

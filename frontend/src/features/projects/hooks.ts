@@ -8,6 +8,7 @@ import { useAuth } from "@/features/auth/hooks";
 import {
   archiveProject,
   archivePhase,
+  addPhaseMember,
   addProjectMember,
   addTaskSupporter,
   completePhase,
@@ -20,12 +21,14 @@ import {
   getChecklist,
   getProject,
   getProjectDashboard,
+  listPhaseMembers,
   listProjectMembers,
   listProjects,
   listTaskComments,
   listTaskFiles,
   listTasks,
   listTaskSupporters,
+  removePhaseMember,
   removeProjectMember,
   removeChecklistItem,
   removeTaskSupporter,
@@ -44,6 +47,7 @@ export const projectsQueryKey = ["projects", "list"] as const;
 export const projectQueryKey = (projectId: string) => ["projects", projectId] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
 export const projectMembersQueryKey = (projectId: string) => ["projects", projectId, "members"] as const;
+export const phaseMembersQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "members"] as const;
 export const tasksQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "tasks"] as const;
 export const taskSupportersQueryKey = (projectId: string, phaseId: string, taskId: string) =>
   ["projects", projectId, "phases", phaseId, "tasks", taskId, "supporters"] as const;
@@ -523,6 +527,52 @@ export function useRemoveProjectMemberMutation(projectId: string) {
         logout();
       }
     },
+  });
+}
+
+export function usePhaseMembersQuery(projectId: string, phaseId: string, enabled: boolean) {
+  const { logout, token } = useAuth();
+  const query = useQuery({
+    queryKey: phaseMembersQueryKey(projectId, phaseId),
+    queryFn: () => listPhaseMembers(requireToken(token), projectId, phaseId),
+    enabled: enabled && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useAddPhaseMemberMutation(projectId: string, phaseId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (userId: string) => addPhaseMember(requireToken(token), projectId, phaseId, userId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: phaseMembersQueryKey(projectId, phaseId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useRemovePhaseMemberMutation(projectId: string, phaseId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (userId: string) => removePhaseMember(requireToken(token), projectId, phaseId, userId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: phaseMembersQueryKey(projectId, phaseId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+    },
+    onError: authFailureHandler(logout),
   });
 }
 

@@ -3,6 +3,8 @@ import { ApiError, apiRequest } from "@/features/auth/api";
 import {
   phaseResponseSchema,
   phaseResponsesSchema,
+  phaseMemberSchema,
+  phaseMembersSchema,
   checklistItemSchema,
   checklistSchema,
   projectDashboardSchema,
@@ -21,6 +23,7 @@ import {
 } from "./schemas";
 import type {
   PhaseMutationPayload,
+  PhaseMember,
   PhaseResponse,
   ProjectDashboard,
   ProjectMember,
@@ -130,6 +133,45 @@ export async function addProjectMember(token: string, projectId: string, userId:
 export async function removeProjectMember(token: string, projectId: string, userId: string): Promise<void> {
   await apiRequest<void>(
     `/projects/${projectId}/members/${userId}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
+}
+
+export async function listPhaseMembers(token: string, projectId: string, phaseId: string): Promise<PhaseMember[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/phases/${phaseId}/members`, {}, token);
+  const result = phaseMembersSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Phase member data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function addPhaseMember(token: string, projectId: string, phaseId: string, userId: string): Promise<PhaseMember> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/phases/${phaseId}/members`,
+    {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    },
+    token,
+  );
+  const result = phaseMemberSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Phase member data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function removePhaseMember(token: string, projectId: string, phaseId: string, userId: string): Promise<void> {
+  await apiRequest<void>(
+    `/projects/${projectId}/phases/${phaseId}/members/${userId}`,
     {
       method: "DELETE",
     },

@@ -175,6 +175,180 @@ def test_multiple_phases_can_remain_in_progress() -> None:
         database.close()
 
 
+def test_pm_can_add_list_and_remove_phase_members() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Phase PM", _unique_email("phases.pm"))
+        member = _create_auth_user(database, "Phase Member", _unique_email("phases.member"))
+        project = _create_project(database, pm["id"], "Phase Member Project")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], member["id"], "Team Member")
+        phase = _create_phase(database, project["id"], pm["id"], "Assigned Phase", 1)
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            token = _login(client, pm["email"])
+            created = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/members",
+                headers=_auth_header(token),
+                json={"user_id": str(member["id"])},
+            )
+            listed = client.get(
+                f"/projects/{project['id']}/phases/{phase['id']}/members",
+                headers=_auth_header(token),
+            )
+            removed = client.delete(
+                f"/projects/{project['id']}/phases/{phase['id']}/members/{member['id']}",
+                headers=_auth_header(token),
+            )
+            listed_after_remove = client.get(
+                f"/projects/{project['id']}/phases/{phase['id']}/members",
+                headers=_auth_header(token),
+            )
+
+        assert created.status_code == 201
+        assert created.json()["user_id"] == str(member["id"])
+        assert created.json()["name"] == member["name"]
+        assert listed.status_code == 200
+        assert [row["user_id"] for row in listed.json()] == [str(member["id"])]
+        assert removed.status_code == 204
+        assert listed_after_remove.status_code == 200
+        assert listed_after_remove.json() == []
+    finally:
+        database.close()
+
+
+def test_non_pm_roles_cannot_manage_phase_members() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Phase Role PM", _unique_email("phases.rolepm"))
+        team_member = _create_auth_user(database, "Phase Role Team", _unique_email("phases.roleteam"))
+        finance = _create_auth_user(database, "Phase Role Finance", _unique_email("phases.rolefinance"))
+        target = _create_auth_user(database, "Phase Role Target", _unique_email("phases.roletarget"))
+        project = _create_project(database, pm["id"], "Phase Role Project")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], team_member["id"], "Team Member")
+        _add_project_member(database, project["id"], finance["id"], "Finance")
+        _add_project_member(database, project["id"], target["id"], "Team Member")
+        phase = _create_phase(database, project["id"], pm["id"], "Restricted Phase", 1)
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            team_token = _login(client, team_member["email"])
+            finance_token = _login(client, finance["email"])
+            team_create = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/members",
+                headers=_auth_header(team_token),
+                json={"user_id": str(target["id"])},
+            )
+            finance_create = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/members",
+                headers=_auth_header(finance_token),
+                json={"user_id": str(target["id"])},
+            )
+            finance_delete = client.delete(
+                f"/projects/{project['id']}/phases/{phase['id']}/members/{target['id']}",
+                headers=_auth_header(finance_token),
+            )
+
+        assert team_create.status_code == 403
+        assert finance_create.status_code == 403
+        assert finance_delete.status_code == 403
+    finally:
+        database.close()
+
+
+def test_phase_member_must_be_project_member_and_duplicates_conflict() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Phase Validate PM", _unique_email("phases.validatepm"))
+        member = _create_auth_user(database, "Phase Validate Member", _unique_email("phases.validatemember"))
+        outsider = _create_auth_user(database, "Phase Validate Outsider", _unique_email("phases.validateoutsider"))
+        project = _create_project(database, pm["id"], "Phase Validation Project")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], member["id"], "Team Member")
+        phase = _create_phase(database, project["id"], pm["id"], "Validated Phase", 1)
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            token = _login(client, pm["email"])
+            outsider_create = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/members",
+                headers=_auth_header(token),
+                json={"user_id": str(outsider["id"])},
+            )
+            first_create = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/members",
+                headers=_auth_header(token),
+                json={"user_id": str(member["id"])},
+            )
+            duplicate_create = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/members",
+                headers=_auth_header(token),
+                json={"user_id": str(member["id"])},
+            )
+
+        assert outsider_create.status_code == 422
+        assert first_create.status_code == 201
+        assert duplicate_create.status_code == 409
+    finally:
+        database.close()
+
+
+def test_user_can_belong_to_multiple_phases_and_visibility_respects_project_role() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Phase Visibility PM", _unique_email("phases.visibilitypm"))
+        member = _create_auth_user(database, "Phase Visibility Member", _unique_email("phases.visibilitymember"))
+        finance = _create_auth_user(database, "Phase Visibility Finance", _unique_email("phases.visibilityfinance"))
+        project = _create_project(database, pm["id"], "Phase Visibility Project")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], member["id"], "Team Member")
+        _add_project_member(database, project["id"], finance["id"], "Finance")
+        first_phase = _create_phase(database, project["id"], pm["id"], "Shared Active One", 1, "In Progress")
+        second_phase = _create_phase(database, project["id"], pm["id"], "Shared Active Two", 2, "In Progress")
+        third_phase = _create_phase(database, project["id"], pm["id"], "PM Only", 3, "In Progress")
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            pm_token = _login(client, pm["email"])
+            member_token = _login(client, member["email"])
+            finance_token = _login(client, finance["email"])
+            first_assignment = client.post(
+                f"/projects/{project['id']}/phases/{first_phase['id']}/members",
+                headers=_auth_header(pm_token),
+                json={"user_id": str(member["id"])},
+            )
+            second_assignment = client.post(
+                f"/projects/{project['id']}/phases/{second_phase['id']}/members",
+                headers=_auth_header(pm_token),
+                json={"user_id": str(member["id"])},
+            )
+            finance_assignment = client.post(
+                f"/projects/{project['id']}/phases/{second_phase['id']}/members",
+                headers=_auth_header(pm_token),
+                json={"user_id": str(finance["id"])},
+            )
+            pm_list = client.get(f"/projects/{project['id']}/phases", headers=_auth_header(pm_token))
+            member_list = client.get(f"/projects/{project['id']}/phases", headers=_auth_header(member_token))
+            finance_dashboard = client.get(f"/projects/{project['id']}/dashboard", headers=_auth_header(finance_token))
+
+        assert first_assignment.status_code == 201
+        assert second_assignment.status_code == 201
+        assert finance_assignment.status_code == 201
+        assert [phase["name"] for phase in pm_list.json()] == ["Shared Active One", "Shared Active Two", "PM Only"]
+        assert [phase["name"] for phase in member_list.json()] == ["Shared Active One", "Shared Active Two"]
+        assert [phase["name"] for phase in finance_dashboard.json()["phases"]] == ["Shared Active Two"]
+        assert [phase["status"] for phase in pm_list.json()] == ["In Progress", "In Progress", "In Progress"]
+        assert third_phase["id"] not in {first_phase["id"], second_phase["id"]}
+    finally:
+        database.close()
+
+
 def test_cross_project_current_phase_and_unauthorized_phase_access_are_rejected() -> None:
     database = _database_from_env()
     database.connect()
@@ -276,11 +450,11 @@ def _create_phase(
         )
 
 
-def _add_project_member(database: Database, project_id, user_id) -> None:
+def _add_project_member(database: Database, project_id, user_id, role: str = "PM") -> None:
     with database.session() as session:
         session.execute(
-            "INSERT INTO project_members (project_id, user_id) VALUES (%s, %s)",
-            (project_id, user_id),
+            "INSERT INTO project_members (project_id, user_id, role) VALUES (%s, %s, %s)",
+            (project_id, user_id, role),
         )
 
 

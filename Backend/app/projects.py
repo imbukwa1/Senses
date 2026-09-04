@@ -10,7 +10,13 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, 
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
-from app.access import ensure_project_access, ensure_project_pm, fetch_accessible_project, fetch_accessible_projects
+from app.access import (
+    ensure_project_access,
+    ensure_project_pm,
+    fetch_accessible_project,
+    fetch_accessible_projects,
+    fetch_project_member_role,
+)
 from app.auth import AuthenticatedUser, get_current_user
 from app.db import DatabaseSession, Row
 from app.dependencies import get_authenticated_db_session
@@ -33,10 +39,14 @@ DELIVERABLE_NOT_FOUND_DETAIL = "Checklist item not found"
 TASK_FILE_NOT_FOUND_DETAIL = "Task file not found"
 FILE_STORAGE_NOT_CONFIGURED_DETAIL = "File storage is not configured"
 TASK_SUPPORTER_EXISTS_DETAIL = "Task supporter already exists"
+PHASE_MEMBER_EXISTS_DETAIL = "Phase member already exists"
+PHASE_MEMBER_NOT_FOUND_DETAIL = "Phase member not found"
+PHASE_MEMBER_PROJECT_MEMBER_REQUIRED_DETAIL = "Phase member must belong to the parent project"
 USER_NOT_FOUND_DETAIL = "User not found"
 PROJECT_LEAD_REQUIRED_DETAIL = "Project lead is required to change project status"
 PROJECT_LEAD_MEMBER_REMOVE_DETAIL = "Project lead cannot be removed from project members"
 LAST_PROJECT_PM_REMOVE_DETAIL = "The last project PM cannot be removed"
+PROJECT_MEMBER_HAS_PHASES_DETAIL = "Project member is assigned to one or more phases"
 REQUIRED_PROJECT_FIELDS = {
     "name",
     "description",
@@ -231,6 +241,12 @@ class TaskSupporterCreateRequest(BaseModel):
     user_id: UUID
 
 
+class PhaseMemberCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: UUID
+
+
 class TaskResponse(BaseModel):
     id: UUID
     project_id: UUID
@@ -250,6 +266,14 @@ class TaskResponse(BaseModel):
 
 class TaskSupporterResponse(BaseModel):
     task_id: UUID
+    user_id: UUID
+    name: str
+    email: str
+    added_at: datetime
+
+
+class PhaseMemberResponse(BaseModel):
+    phase_id: UUID
     user_id: UUID
     name: str
     email: str
@@ -508,7 +532,10 @@ def get_project_dashboard(
     if project is None:
         raise_project_not_found()
 
-    phases = [dashboard_phase_to_response(row) for row in fetch_dashboard_phases(session, project_id)]
+    phases = [
+        dashboard_phase_to_response(row)
+        for row in fetch_dashboard_phases(session, project_id, current_user.id)
+    ]
     current_phase = next(
         (phase for phase in phases if phase.id == project["current_phase_id"]),
         None,
@@ -579,7 +606,7 @@ def list_phases(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> list[PhaseResponse]:
     ensure_project_access(session, current_user.id, project_id)
-    return [phase_to_response(row) for row in fetch_project_phases(session, project_id)]
+    return [phase_to_response(row) for row in fetch_project_phases(session, project_id, current_user.id)]
 
 
 @router.patch("/{project_id}/phases/reorder", response_model=list[PhaseResponse])
@@ -658,6 +685,70 @@ def get_phase(
     if phase is None:
         raise_phase_not_found()
     return phase_to_response(fetch_project_phase_or_404(session, project_id, phase["id"]))
+
+
+@router.get("/{project_id}/phases/{phase_id}/members", response_model=list[PhaseMemberResponse])
+def list_phase_members(
+    project_id: UUID,
+    phase_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[PhaseMemberResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_phase_in_project(session, project_id, phase_id)
+    return [phase_member_to_response(row) for row in fetch_phase_members(session, phase_id)]
+
+
+@router.post(
+    "/{project_id}/phases/{phase_id}/members",
+    response_model=PhaseMemberResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_phase_member(
+    project_id: UUID,
+    phase_id: UUID,
+    payload: PhaseMemberCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> PhaseMemberResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    ensure_phase_in_project(session, project_id, phase_id)
+    ensure_user_exists(session, payload.user_id)
+    if fetch_optional_project_member(session, project_id, payload.user_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=PHASE_MEMBER_PROJECT_MEMBER_REQUIRED_DETAIL,
+        )
+    if fetch_phase_member(session, phase_id, payload.user_id) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=PHASE_MEMBER_EXISTS_DETAIL)
+
+    session.execute(
+        "INSERT INTO phase_members (phase_id, user_id) VALUES (%s, %s)",
+        (phase_id, payload.user_id),
+    )
+    return phase_member_to_response(fetch_phase_member_or_404(session, phase_id, payload.user_id))
+
+
+@router.delete(
+    "/{project_id}/phases/{phase_id}/members/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_phase_member(
+    project_id: UUID,
+    phase_id: UUID,
+    user_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> Response:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    ensure_phase_in_project(session, project_id, phase_id)
+    session.execute(
+        "DELETE FROM phase_members WHERE phase_id = %s AND user_id = %s",
+        (phase_id, user_id),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.patch("/{project_id}/phases/{phase_id}", response_model=PhaseResponse)
@@ -1496,6 +1587,11 @@ def ensure_project_member_removal_allowed(
             status_code=status.HTTP_409_CONFLICT,
             detail=PROJECT_LEAD_MEMBER_REMOVE_DETAIL,
         )
+    if project_member_has_phase_memberships(session, project_id, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=PROJECT_MEMBER_HAS_PHASES_DETAIL,
+        )
 
     member = fetch_project_member(session, project_id, user_id)
     if member["role"] == "PM" and count_project_pms(session, project_id) <= 1:
@@ -1576,6 +1672,23 @@ def count_project_pms(session: DatabaseSession, project_id: UUID) -> int:
         (project_id,),
     )
     return int(row["pm_count"])
+
+
+def project_member_has_phase_memberships(session: DatabaseSession, project_id: UUID, user_id: UUID) -> bool:
+    row = session.fetch_one(
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM phase_members
+          JOIN phases
+            ON phases.id = phase_members.phase_id
+          WHERE phases.project_id = %s
+            AND phase_members.user_id = %s
+        ) AS has_phase_memberships
+        """,
+        (project_id, user_id),
+    )
+    return bool(row["has_phase_memberships"])
 
 
 def fetch_project_member(
@@ -1700,9 +1813,22 @@ def fetch_dashboard_project(session: DatabaseSession, project_id: UUID) -> Row |
     )
 
 
-def fetch_dashboard_phases(session: DatabaseSession, project_id: UUID) -> list[Row]:
-    return session.fetch_all(
+def fetch_dashboard_phases(session: DatabaseSession, project_id: UUID, user_id: UUID | None = None) -> list[Row]:
+    visibility_clause = ""
+    params: tuple = (project_id,)
+    if user_id is not None and fetch_project_member_role(session, user_id, project_id) != "PM":
+        visibility_clause = """
+          AND EXISTS (
+            SELECT 1
+            FROM phase_members
+            WHERE phase_members.phase_id = phases.id
+              AND phase_members.user_id = %s
+          )
         """
+        params = (project_id, user_id)
+
+    return session.fetch_all(
+        f"""
         SELECT
           phases.id,
           phases.project_id,
@@ -1728,10 +1854,11 @@ def fetch_dashboard_phases(session: DatabaseSession, project_id: UUID) -> list[R
           ON task_progress.task_id = tasks.id
         WHERE phases.project_id = %s
           AND phases.archived_at IS NULL
+          {visibility_clause}
         GROUP BY phases.id, users.name, users.email
         ORDER BY phases.display_order, phases.created_at, phases.id
         """,
-        (project_id,),
+        params,
     )
 
 
@@ -1808,9 +1935,22 @@ def fetch_dashboard_deliverables(session: DatabaseSession, project_id: UUID) -> 
     )
 
 
-def fetch_project_phases(session: DatabaseSession, project_id: UUID) -> list[Row]:
-    return session.fetch_all(
+def fetch_project_phases(session: DatabaseSession, project_id: UUID, user_id: UUID | None = None) -> list[Row]:
+    visibility_clause = ""
+    params: tuple = (project_id,)
+    if user_id is not None and fetch_project_member_role(session, user_id, project_id) != "PM":
+        visibility_clause = """
+          AND EXISTS (
+            SELECT 1
+            FROM phase_members
+            WHERE phase_members.phase_id = phases.id
+              AND phase_members.user_id = %s
+          )
         """
+        params = (project_id, user_id)
+
+    return session.fetch_all(
+        f"""
         SELECT
           phases.*,
           users.name AS owner_name,
@@ -1819,9 +1959,10 @@ def fetch_project_phases(session: DatabaseSession, project_id: UUID) -> list[Row
         LEFT JOIN users ON users.id = phases.owner_id
         WHERE phases.project_id = %s
           AND phases.archived_at IS NULL
+          {visibility_clause}
         ORDER BY phases.display_order, phases.created_at, phases.id
         """,
-        (project_id,),
+        params,
     )
 
 
@@ -1926,6 +2067,49 @@ def fetch_project_task_or_404(
     if task is None:
         raise_task_not_found()
     return task
+
+
+def fetch_phase_members(session: DatabaseSession, phase_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          phase_members.phase_id,
+          users.id AS user_id,
+          users.name,
+          users.email,
+          phase_members.added_at
+        FROM phase_members
+        JOIN users ON users.id = phase_members.user_id
+        WHERE phase_members.phase_id = %s
+        ORDER BY phase_members.added_at, users.name, users.id
+        """,
+        (phase_id,),
+    )
+
+
+def fetch_phase_member(session: DatabaseSession, phase_id: UUID, user_id: UUID) -> Row | None:
+    return session.fetch_one(
+        """
+        SELECT
+          phase_members.phase_id,
+          users.id AS user_id,
+          users.name,
+          users.email,
+          phase_members.added_at
+        FROM phase_members
+        JOIN users ON users.id = phase_members.user_id
+        WHERE phase_members.phase_id = %s
+          AND phase_members.user_id = %s
+        """,
+        (phase_id, user_id),
+    )
+
+
+def fetch_phase_member_or_404(session: DatabaseSession, phase_id: UUID, user_id: UUID) -> Row:
+    member = fetch_phase_member(session, phase_id, user_id)
+    if member is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=PHASE_MEMBER_NOT_FOUND_DETAIL)
+    return member
 
 
 def fetch_task_supporters(session: DatabaseSession, task_id: UUID) -> list[Row]:
@@ -2178,6 +2362,10 @@ def task_to_response(row: Row) -> TaskResponse:
 
 def task_supporter_to_response(row: Row) -> TaskSupporterResponse:
     return TaskSupporterResponse(**row)
+
+
+def phase_member_to_response(row: Row) -> PhaseMemberResponse:
+    return PhaseMemberResponse(**row)
 
 
 def checklist_item_to_response(row: Row) -> ChecklistItemResponse:

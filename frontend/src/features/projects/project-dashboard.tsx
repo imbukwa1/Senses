@@ -1,5 +1,5 @@
-import { Archive, CalendarDays, CheckCircle2, Clock, Edit, ListChecks, Users } from "lucide-react";
-import { useState } from "react";
+import { Archive, CalendarDays, CheckCircle2, Clock, Edit, ListChecks, UserPlus, Users, X } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { ConfirmAction } from "@/components/common/confirm-action";
@@ -14,14 +14,24 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ApiError } from "@/features/auth/api";
+import { useAuth } from "@/features/auth/hooks";
+import { UserSearchSelect } from "@/features/users/user-search-select";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
-import { useArchiveProjectMutation, useProjectDashboardQuery, useProjectQuery } from "./hooks";
+import {
+  useAddPhaseMemberMutation,
+  useArchiveProjectMutation,
+  usePhaseMembersQuery,
+  useProjectDashboardQuery,
+  useProjectMembersQuery,
+  useProjectQuery,
+  useRemovePhaseMemberMutation,
+} from "./hooks";
 import { PhaseManagementDialog } from "./phase-management-dialog";
 import { PhaseTasks } from "./phase-tasks";
 import { ProjectFormDialog } from "./project-form-dialog";
 import { ProjectMembersDialog } from "./project-members-dialog";
-import type { DashboardDeliverable, DashboardPhase, ProjectDashboard, UpcomingDeadline } from "./types";
+import type { DashboardDeliverable, DashboardPhase, PhaseMember, ProjectDashboard, ProjectMember, UpcomingDeadline } from "./types";
 
 export function ProjectDashboardPage() {
   const { projectId } = useParams();
@@ -164,6 +174,12 @@ function SummaryCard({ children, title }: { title: string; children: React.React
 }
 
 function PhasesSection({ currentPhaseId, phases, projectId }: { projectId: string; phases: DashboardPhase[]; currentPhaseId: string | null }) {
+  const { user } = useAuth();
+  const projectMembersQuery = useProjectMembersQuery(projectId, true);
+  const projectMembers = projectMembersQuery.data ?? [];
+  const currentMember = projectMembers.find((member) => member.user_id === user?.id);
+  const isProjectPm = currentMember?.role === "PM";
+
   return (
     <Card>
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
@@ -201,6 +217,12 @@ function PhasesSection({ currentPhaseId, phases, projectId }: { projectId: strin
                     <ProgressValue value={phase.progress} label={`${phase.name} progress`} compact />
                   </div>
                 </div>
+                <PhasePeople
+                  isProjectPm={isProjectPm}
+                  phase={phase}
+                  projectId={projectId}
+                  projectMembers={projectMembers}
+                />
                 <PhaseTasks projectId={projectId} phase={phase} />
               </div>
             ))}
@@ -209,6 +231,139 @@ function PhasesSection({ currentPhaseId, phases, projectId }: { projectId: strin
       </CardContent>
     </Card>
   );
+}
+
+function PhasePeople({
+  isProjectPm,
+  phase,
+  projectId,
+  projectMembers,
+}: {
+  isProjectPm: boolean;
+  phase: DashboardPhase;
+  projectId: string;
+  projectMembers: ProjectMember[];
+}) {
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const phaseMembersQuery = usePhaseMembersQuery(projectId, phase.id, true);
+  const addPhaseMember = useAddPhaseMemberMutation(projectId, phase.id);
+  const removePhaseMember = useRemovePhaseMemberMutation(projectId, phase.id);
+  const phaseMembers = phaseMembersQuery.data ?? [];
+  const phaseMemberIds = useMemo(() => new Set(phaseMembers.map((member) => member.user_id)), [phaseMembers]);
+  const projectMemberIds = useMemo(() => new Set(projectMembers.map((member) => member.user_id)), [projectMembers]);
+  const knownUsers = projectMembers
+    .filter((member) => !phaseMemberIds.has(member.user_id))
+    .map((member) => ({ id: member.user_id, name: member.name, email: member.email }));
+  const selectedAlreadyAssigned = phaseMemberIds.has(selectedUserId);
+  const selectedOutsideProject = Boolean(selectedUserId) && !projectMemberIds.has(selectedUserId);
+  const isSaving = addPhaseMember.isPending || removePhaseMember.isPending;
+
+  async function onAddPhaseMember() {
+    if (!selectedUserId || selectedAlreadyAssigned || selectedOutsideProject) {
+      return;
+    }
+
+    await addPhaseMember.mutateAsync(selectedUserId);
+    setSelectedUserId("");
+  }
+
+  return (
+    <div className="mt-4 rounded-md border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Users className="size-4 text-muted-foreground" aria-hidden="true" />
+          <h4 className="text-sm font-medium text-foreground">People</h4>
+        </div>
+        <span className="text-xs text-muted-foreground">{phaseMembers.length} assigned</span>
+      </div>
+
+      {phaseMembersQuery.isLoading ? <p className="mt-2 text-sm text-muted-foreground">Loading people...</p> : null}
+      {phaseMembersQuery.isError ? <p className="mt-2 text-sm text-error">Phase people could not be loaded.</p> : null}
+
+      {!phaseMembersQuery.isLoading && !phaseMembersQuery.isError ? (
+        phaseMembers.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">No people assigned to this phase.</p>
+        ) : (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {phaseMembers.map((member) => (
+              <PhasePersonChip
+                key={member.user_id}
+                disabled={isSaving}
+                isProjectPm={isProjectPm}
+                member={member}
+                onRemove={() => removePhaseMember.mutate(member.user_id)}
+              />
+            ))}
+          </div>
+        )
+      ) : null}
+
+      {isProjectPm ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+          <UserSearchSelect
+            label={`Add person to ${phase.name}`}
+            value={selectedUserId}
+            onValueChange={setSelectedUserId}
+            placeholder="Search project member"
+            disabled={isSaving || projectMembers.length === 0}
+            knownUsers={knownUsers}
+            filterUser={(candidate) => projectMemberIds.has(candidate.id) && !phaseMemberIds.has(candidate.id)}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!selectedUserId || selectedAlreadyAssigned || selectedOutsideProject || isSaving}
+            onClick={onAddPhaseMember}
+          >
+            <UserPlus className="size-4" aria-hidden="true" />
+            Add
+          </Button>
+        </div>
+      ) : null}
+
+      {addPhaseMember.error ? <p className="mt-2 text-sm text-error">{phaseMemberErrorMessage(addPhaseMember.error)}</p> : null}
+      {removePhaseMember.error ? <p className="mt-2 text-sm text-error">{phaseMemberErrorMessage(removePhaseMember.error)}</p> : null}
+    </div>
+  );
+}
+
+function PhasePersonChip({
+  disabled,
+  isProjectPm,
+  member,
+  onRemove,
+}: {
+  disabled: boolean;
+  isProjectPm: boolean;
+  member: PhaseMember;
+  onRemove: () => void;
+}) {
+  return (
+    <span className="inline-flex max-w-full items-center gap-2 rounded-md border bg-background px-2 py-1 text-sm">
+      <span className="min-w-0">
+        <span className="block truncate font-medium text-foreground">{member.name}</span>
+        <span className="block truncate text-xs text-muted-foreground">{member.email}</span>
+      </span>
+      {isProjectPm ? (
+        <Button type="button" variant="ghost" size="icon" disabled={disabled} onClick={onRemove} aria-label={`Remove ${member.name}`}>
+          <X className="size-4" aria-hidden="true" />
+        </Button>
+      ) : null}
+    </span>
+  );
+}
+
+function phaseMemberErrorMessage(error: Error) {
+  if (error instanceof ApiError) {
+    return userFacingErrorMessage(error, {
+      conflict: "That person is already assigned to this phase.",
+      validation: "Only existing project members can be assigned to a phase.",
+      forbidden: "Only project PMs can manage phase people.",
+      action: "phase people",
+    });
+  }
+
+  return "Phase people could not be updated.";
 }
 
 function DeadlinesSection({ deadlines }: { deadlines: UpcomingDeadline[] }) {
