@@ -1,6 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { addPhaseMember, addProjectMember, archiveProject, listAttention, listMyWork, listPhaseMembers } from "./api";
+import {
+  addPhaseMember,
+  addProjectMember,
+  archiveProject,
+  getProjectBudget,
+  listAttention,
+  listMyWork,
+  listPhaseMembers,
+  updateProjectBudget,
+} from "./api";
 
 const project = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -79,6 +88,14 @@ const attentionItem = {
   },
   due_date: "2026-09-01",
   severity: "Needs attention",
+};
+
+const projectBudget = {
+  project_id: project.id,
+  allocated: 1000,
+  spent: 250,
+  remaining: 750,
+  utilisation: 0.25,
 };
 
 describe("project API mutations", () => {
@@ -172,6 +189,35 @@ describe("project API mutations", () => {
       }),
     );
     expect(items).toEqual([attentionItem]);
+  });
+
+  it("gets and updates project budget through project-scoped endpoints", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(projectBudget))
+      .mockResolvedValueOnce(jsonResponse({ ...projectBudget, spent: 400, remaining: 600, utilisation: 0.4 }));
+
+    const fetched = await getProjectBudget("token", project.id);
+    const updated = await updateProjectBudget("token", project.id, { spent: 400 });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `http://localhost:8000/projects/${project.id}/budget`,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `http://localhost:8000/projects/${project.id}/budget`,
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ spent: 400 }),
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
+    expect(fetched).toEqual(projectBudget);
+    expect(updated.spent).toBe(400);
   });
 });
 

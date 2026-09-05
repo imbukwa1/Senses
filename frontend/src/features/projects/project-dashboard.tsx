@@ -1,5 +1,5 @@
-import { Archive, CalendarDays, CheckCircle2, Clock, Edit, ListChecks, UserPlus, Users, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Archive, CalendarDays, CheckCircle2, Clock, DollarSign, Edit, ListChecks, Save, UserPlus, Users, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { ConfirmAction } from "@/components/common/confirm-action";
@@ -12,6 +12,8 @@ import { StatusBadge } from "@/components/common/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ApiError } from "@/features/auth/api";
 import { useAuth } from "@/features/auth/hooks";
@@ -22,10 +24,12 @@ import {
   useAddPhaseMemberMutation,
   useArchiveProjectMutation,
   usePhaseMembersQuery,
+  useProjectBudgetQuery,
   useProjectDashboardQuery,
   useProjectMembersQuery,
   useProjectQuery,
   useRemovePhaseMemberMutation,
+  useUpdateProjectBudgetMutation,
 } from "./hooks";
 import { PhaseManagementDialog } from "./phase-management-dialog";
 import { PhaseTasks } from "./phase-tasks";
@@ -45,8 +49,10 @@ export function ProjectDashboardPage() {
 
 function ProjectDashboardContent({ projectId }: { projectId: string }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const dashboardQuery = useProjectDashboardQuery(projectId);
   const projectQuery = useProjectQuery(projectId);
+  const projectMembersQuery = useProjectMembersQuery(projectId, true);
   const archiveProject = useArchiveProjectMutation(projectId);
   const [editOpen, setEditOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -66,6 +72,8 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
   }
 
   const editProject = projectQuery.data;
+  const currentMember = projectMembersQuery.data?.find((member) => member.user_id === user?.id);
+  const canManageBudget = currentMember?.role === "PM" || currentMember?.role === "Finance";
 
   return (
     <div className="space-y-5">
@@ -152,6 +160,8 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
         </SummaryCard>
       </div>
 
+      {canManageBudget ? <BudgetSection projectId={projectId} /> : null}
+
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.45fr)]">
         <PhasesSection projectId={projectId} phases={dashboard.phases} currentPhaseId={dashboard.project.current_phase_id} />
         <DeadlinesSection deadlines={dashboard.upcoming_deadlines} />
@@ -170,6 +180,95 @@ function SummaryCard({ children, title }: { title: string; children: React.React
       </CardHeader>
       <CardContent>{children}</CardContent>
     </Card>
+  );
+}
+
+function BudgetSection({ projectId }: { projectId: string }) {
+  const budgetQuery = useProjectBudgetQuery(projectId);
+  const updateBudget = useUpdateProjectBudgetMutation(projectId);
+  const [allocated, setAllocated] = useState("");
+  const [spent, setSpent] = useState("");
+
+  useEffect(() => {
+    if (budgetQuery.data) {
+      setAllocated(String(budgetQuery.data.allocated));
+      setSpent(String(budgetQuery.data.spent));
+    }
+  }, [budgetQuery.data]);
+
+  async function onSave() {
+    await updateBudget.mutateAsync({
+      allocated: Number(allocated),
+      spent: Number(spent),
+    });
+  }
+
+  if (budgetQuery.isLoading) {
+    return <LoadingState label="Loading project budget" />;
+  }
+
+  if (budgetQuery.isError) {
+    return <ErrorState title="Budget could not be loaded" message={dashboardErrorMessage(budgetQuery.error)} />;
+  }
+
+  if (!budgetQuery.data) {
+    return null;
+  }
+
+  const hasInvalidValues = !isNonNegativeNumber(allocated) || !isNonNegativeNumber(spent);
+
+  return (
+    <Card>
+      <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
+        <div>
+          <CardTitle className="flex items-center gap-2">
+            <DollarSign className="size-5 text-success" aria-hidden="true" />
+            Budget
+          </CardTitle>
+          <CardDescription>Project-level budget only.</CardDescription>
+        </div>
+        <Button type="button" variant="outline" disabled={hasInvalidValues || updateBudget.isPending} onClick={onSave}>
+          <Save className="size-4" aria-hidden="true" />
+          {updateBudget.isPending ? "Saving..." : "Save Budget"}
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-4 md:grid-cols-4">
+          <BudgetMetric label="Allocated" value={formatCurrency(budgetQuery.data.allocated)} />
+          <BudgetMetric label="Spent" value={formatCurrency(budgetQuery.data.spent)} />
+          <BudgetMetric label="Remaining" value={formatCurrency(budgetQuery.data.remaining)} tone={budgetQuery.data.remaining < 0 ? "error" : "default"} />
+          <BudgetMetric label="Utilisation" value={formatPercent(budgetQuery.data.utilisation)} />
+        </div>
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="space-y-2">
+            <Label htmlFor="budget-allocated">Allocated</Label>
+            <Input
+              id="budget-allocated"
+              type="number"
+              min="0"
+              step="0.01"
+              value={allocated}
+              onChange={(event) => setAllocated(event.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="budget-spent">Spent</Label>
+            <Input id="budget-spent" type="number" min="0" step="0.01" value={spent} onChange={(event) => setSpent(event.target.value)} />
+          </div>
+        </div>
+        {hasInvalidValues ? <p className="text-sm text-error">Budget values must be non-negative numbers.</p> : null}
+        {updateBudget.error ? <p className="text-sm text-error">{dashboardErrorMessage(updateBudget.error)}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function BudgetMetric({ label, tone = "default", value }: { label: string; value: string; tone?: "default" | "error" }) {
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={tone === "error" ? "mt-1 text-lg font-semibold text-error" : "mt-1 text-lg font-semibold text-foreground"}>{value}</p>
+    </div>
   );
 }
 
@@ -528,6 +627,26 @@ function formatDate(value: string) {
 
 function formatOptionalDate(value: string | null) {
   return value ? formatDate(value) : "No date";
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatPercent(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    style: "percent",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function isNonNegativeNumber(value: string) {
+  const numberValue = Number(value);
+  return value.trim() !== "" && Number.isFinite(numberValue) && numberValue >= 0;
 }
 
 function formatEntityType(value: string) {

@@ -114,8 +114,8 @@ class ProjectStatusUpdateRequest(BaseModel):
 class ProjectBudgetUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    allocated: Decimal | None = Field(default=None, ge=0)
-    spent: Decimal | None = Field(default=None, ge=0)
+    allocated: Decimal | None = None
+    spent: Decimal | None = None
 
 
 class UserSummaryResponse(BaseModel):
@@ -561,6 +561,18 @@ def update_project_budget(
     values = payload.model_dump(exclude_unset=True)
     if not values:
         return project_budget_to_response(fetch_project_budget_or_404(session, project_id))
+    null_fields = sorted(field for field, value in values.items() if value is None)
+    if null_fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Budget values cannot be null: {', '.join(null_fields)}",
+        )
+    negative_fields = sorted(field for field, value in values.items() if value is not None and value < 0)
+    if negative_fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Budget values cannot be negative: {', '.join(negative_fields)}",
+        )
 
     field_map = {
         "allocated": "budget_allocated",

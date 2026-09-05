@@ -20,6 +20,7 @@ import {
   downloadTaskFile,
   getChecklist,
   getProject,
+  getProjectBudget,
   getProjectDashboard,
   listAttention,
   listMyWork,
@@ -40,15 +41,17 @@ import {
   updateChecklistItem,
   updatePhase,
   updateProject,
+  updateProjectBudget,
   updateTask,
   uploadTaskFile,
 } from "./api";
-import type { PhaseMutationPayload, ProjectMutationPayload, TaskMutationPayload } from "./types";
+import type { PhaseMutationPayload, ProjectBudgetMutationPayload, ProjectMutationPayload, TaskMutationPayload } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
 export const attentionQueryKey = ["attention", "list"] as const;
 export const myWorkQueryKey = ["my-work", "list"] as const;
 export const projectQueryKey = (projectId: string) => ["projects", projectId] as const;
+export const projectBudgetQueryKey = (projectId: string) => ["projects", projectId, "budget"] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
 export const projectMembersQueryKey = (projectId: string) => ["projects", projectId, "members"] as const;
 export const phaseMembersQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "members"] as const;
@@ -167,6 +170,38 @@ export function useProjectDashboardQuery(projectId: string) {
   }, [logout, query.error]);
 
   return query;
+}
+
+export function useProjectBudgetQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectBudgetQueryKey(projectId),
+    queryFn: () => getProjectBudget(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useUpdateProjectBudgetMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: ProjectBudgetMutationPayload) => updateProjectBudget(requireToken(token), projectId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectBudgetQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: attentionQueryKey });
+    },
+    onError: authFailureHandler(logout),
+  });
 }
 
 export function useUpdateProjectMutation(projectId: string) {

@@ -451,6 +451,18 @@ def _create_project(database: Database, lead_id, name: str) -> dict:
         )
 
 
+def _create_phase(database: Database, project_id, owner_id, name: str) -> dict:
+    with database.session() as session:
+        return session.fetch_one(
+            """
+            INSERT INTO phases (project_id, name, owner_id, display_order)
+            VALUES (%s, %s, %s, 1)
+            RETURNING *
+            """,
+            (project_id, name, owner_id),
+        )
+
+
 def _add_project_member(database: Database, project_id, user_id, role: str = "Team Member") -> None:
     with database.session() as session:
         session.execute(
