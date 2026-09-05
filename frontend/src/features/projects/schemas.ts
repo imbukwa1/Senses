@@ -204,6 +204,14 @@ export const attentionItemSchema = z.object({
 
 export const attentionItemsSchema = z.array(attentionItemSchema);
 
+export const projectBudgetSchema = z.object({
+  project_id: z.uuid(),
+  allocated: backendNumberSchema,
+  spent: backendNumberSchema,
+  remaining: backendNumberSchema,
+  utilisation: backendNumberSchema,
+});
+
 export const checklistSummarySchema = z.object({
   completed_items: z.number(),
   total_items: z.number(),

@@ -48,6 +48,7 @@ PROJECT_LEAD_REQUIRED_DETAIL = "Project lead is required to change project statu
 PROJECT_LEAD_MEMBER_REMOVE_DETAIL = "Project lead cannot be removed from project members"
 LAST_PROJECT_PM_REMOVE_DETAIL = "The last project PM cannot be removed"
 PROJECT_MEMBER_HAS_PHASES_DETAIL = "Project member is assigned to one or more phases"
+PROJECT_BUDGET_ROLE_REQUIRED_DETAIL = "Project PM or Finance role is required"
 REQUIRED_PROJECT_FIELDS = {
     "name",
     "description",
@@ -108,6 +109,13 @@ class ProjectStatusUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: ProjectStatus
+
+
+class ProjectBudgetUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allocated: Decimal | None = Field(default=None, ge=0)
+    spent: Decimal | None = Field(default=None, ge=0)
 
 
 class UserSummaryResponse(BaseModel):
@@ -365,6 +373,14 @@ class ProjectMemberResponse(BaseModel):
     joined_at: datetime
 
 
+class ProjectBudgetResponse(BaseModel):
+    project_id: UUID
+    allocated: Decimal
+    spent: Decimal
+    remaining: Decimal
+    utilisation: Decimal
+
+
 class ProjectLeadResponse(BaseModel):
     id: UUID
     name: str
@@ -520,6 +536,52 @@ def get_project(
         raise_project_not_found()
 
     return project_to_response(project)
+
+
+@router.get("/{project_id}/budget", response_model=ProjectBudgetResponse)
+def get_project_budget(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectBudgetResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_budget_role(session, current_user.id, project_id)
+    return project_budget_to_response(fetch_project_budget_or_404(session, project_id))
+
+
+@router.patch("/{project_id}/budget", response_model=ProjectBudgetResponse)
+def update_project_budget(
+    project_id: UUID,
+    payload: ProjectBudgetUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectBudgetResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_budget_role(session, current_user.id, project_id)
+    values = payload.model_dump(exclude_unset=True)
+    if not values:
+        return project_budget_to_response(fetch_project_budget_or_404(session, project_id))
+
+    field_map = {
+        "allocated": "budget_allocated",
+        "spent": "budget_spent",
+    }
+    set_clause = ", ".join(f"{field_map[field]} = %s" for field in values)
+    params = [*values.values(), project_id]
+    row = session.fetch_one(
+        f"""
+        UPDATE projects
+        SET {set_clause}
+        WHERE id = %s
+          AND archived_at IS NULL
+        RETURNING id
+        """,
+        params,
+    )
+    if row is None:
+        raise_project_not_found()
+
+    return project_budget_to_response(fetch_project_budget_or_404(session, project_id))
 
 
 @router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
@@ -2367,6 +2429,37 @@ def ensure_project_lead(session: DatabaseSession, user_id: UUID, project_id: UUI
         )
 
 
+def ensure_project_budget_role(session: DatabaseSession, user_id: UUID, project_id: UUID) -> None:
+    if fetch_project_member_role(session, user_id, project_id) not in {"PM", "Finance"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PROJECT_BUDGET_ROLE_REQUIRED_DETAIL,
+        )
+
+
+def fetch_project_budget_or_404(session: DatabaseSession, project_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT
+          id AS project_id,
+          budget_allocated AS allocated,
+          budget_spent AS spent,
+          budget_allocated - budget_spent AS remaining,
+          CASE
+            WHEN budget_allocated > 0 THEN budget_spent / budget_allocated
+            ELSE 0
+          END AS utilisation
+        FROM projects
+        WHERE id = %s
+          AND archived_at IS NULL
+        """,
+        (project_id,),
+    )
+    if row is None:
+        raise_project_not_found()
+    return row
+
+
 def project_to_response(row: Row) -> ProjectResponse:
     return ProjectResponse(
         **row,
@@ -2380,6 +2473,10 @@ def project_to_response(row: Row) -> ProjectResponse:
 
 def project_member_to_response(row: Row) -> ProjectMemberResponse:
     return ProjectMemberResponse(**row)
+
+
+def project_budget_to_response(row: Row) -> ProjectBudgetResponse:
+    return ProjectBudgetResponse(**row)
 
 
 def phase_to_response(row: Row) -> PhaseResponse:

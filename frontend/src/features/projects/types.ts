@@ -220,6 +220,19 @@ export type AttentionItem = {
   severity: "Needs attention" | "At risk";
 };
 
+export type ProjectBudget = {
+  project_id: string;
+  allocated: number;
+  spent: number;
+  remaining: number;
+  utilisation: number;
+};
+
+export type ProjectBudgetMutationPayload = {
+  allocated?: number;
+  spent?: number;
+};
+
 export type ChecklistSummary = {
   completed_items: number;
   total_items: number;

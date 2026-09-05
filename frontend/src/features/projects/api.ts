@@ -9,6 +9,7 @@ import {
   checklistItemSchema,
   checklistSchema,
   myWorkItemsSchema,
+  projectBudgetSchema,
   projectDashboardSchema,
   projectMemberSchema,
   projectMembersSchema,
@@ -28,6 +29,8 @@ import type {
   AttentionItem,
   PhaseMember,
   MyWorkItem,
+  ProjectBudget,
+  ProjectBudgetMutationPayload,
   PhaseResponse,
   ProjectDashboard,
   ProjectMember,
@@ -87,6 +90,35 @@ export async function getProjectDashboard(token: string, projectId: string): Pro
 
   if (!result.success) {
     throw new ApiError("Project dashboard data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function getProjectBudget(token: string, projectId: string): Promise<ProjectBudget> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/budget`, {}, token);
+  const result = projectBudgetSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project budget data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function updateProjectBudget(token: string, projectId: string, payload: ProjectBudgetMutationPayload): Promise<ProjectBudget> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/budget`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectBudgetSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project budget data could not be loaded.", 500);
   }
 
   return result.data;

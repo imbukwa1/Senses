@@ -78,6 +78,31 @@ def list_attention(
           WHERE project_health.archived_at IS NULL
             AND project_health.health IN ('Delayed', 'At Risk')
         ),
+        budget_attention AS (
+          SELECT
+            'project'::TEXT AS type,
+            'Project budget is over allocated amount' AS reason,
+            projects.id AS project_id,
+            projects.name AS project_name,
+            projects.code AS project_code,
+            NULL::UUID AS phase_id,
+            NULL::TEXT AS phase_name,
+            NULL::UUID AS task_id,
+            NULL::TEXT AS task_name,
+            NULL::UUID AS assigned_person_id,
+            NULL::TEXT AS assigned_person_name,
+            NULL::TEXT AS assigned_person_email,
+            NULL::DATE AS due_date,
+            'Needs attention' AS severity,
+            2 AS sort_group
+          FROM projects
+          JOIN current_memberships
+            ON current_memberships.project_id = projects.id
+          WHERE projects.archived_at IS NULL
+            AND projects.budget_allocated > 0
+            AND projects.budget_spent > projects.budget_allocated
+            AND current_memberships.role IN ('PM', 'Finance')
+        ),
         phase_attention AS (
           SELECT
             'phase'::TEXT AS type,
@@ -171,6 +196,9 @@ def list_attention(
           UNION ALL
           SELECT *
           FROM project_attention
+          UNION ALL
+          SELECT *
+          FROM budget_attention
         ) AS attention_items
         ORDER BY
           sort_group,
