@@ -118,7 +118,7 @@ def list_attention(
             users.name AS assigned_person_name,
             users.email AS assigned_person_email,
             phases.end_date AS due_date,
-            'Needs attention' AS severity,
+            'At risk' AS severity,
             1 AS sort_group
           FROM phases
           JOIN projects

@@ -1,5 +1,4 @@
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TaskDetailDrawer } from "./task-detail-drawer";
@@ -144,9 +143,9 @@ describe("TaskDetailDrawer", () => {
       </TaskDetailDrawer>,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "View task" }));
+    fireEvent.click(screen.getByRole("button", { name: "View task" }));
 
-    expect(screen.getByRole("heading", { name: "What you need to do" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "What you need to do" })).toBeInTheDocument();
     expect(screen.getByText("Confirm the field plan and upload the reviewed copy.")).toBeInTheDocument();
     expect(screen.getByText("Assigned to")).toBeInTheDocument();
     expect(screen.getAllByText("Team User").length).toBeGreaterThan(0);

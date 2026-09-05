@@ -2549,7 +2549,7 @@ def project_health_display(row: Row, session: DatabaseSession | None = None, use
     moderate_reasons = [reason["reason"] for reason in reasons if reason["severity"] == "Needs attention"]
 
     if serious_reasons:
-        return "At risk", serious_reasons
+        return "At risk", serious_reasons + moderate_reasons
 
     if moderate_reasons:
         return "Needs attention", moderate_reasons
@@ -2647,10 +2647,15 @@ def fetch_project_health_reasons(session: DatabaseSession | None, project_id: UU
           AND budget_spent > budget_allocated
           AND EXISTS (
             SELECT 1
-            FROM project_members
-            WHERE project_members.project_id = %(project_id)s
-              AND project_members.user_id = %(user_id)s
-              AND project_members.role IN ('PM', 'Finance')
+            FROM projects
+            LEFT JOIN project_members
+              ON project_members.project_id = projects.id
+             AND project_members.user_id = %(user_id)s
+            WHERE projects.id = %(project_id)s
+              AND (
+                projects.project_lead_id = %(user_id)s
+                OR project_members.role IN ('PM', 'Finance')
+              )
           )
         ORDER BY sort_order
         """,
