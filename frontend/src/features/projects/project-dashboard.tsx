@@ -146,7 +146,12 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
           <StatusBadge value={dashboard.project.status} />
         </SummaryCard>
         <SummaryCard title="Health">
-          <HealthBadge value={dashboard.project.health} />
+          <div className="space-y-2">
+            <HealthBadge label={dashboard.project.health_label} />
+            {dashboard.project.health_reasons.length > 0 ? (
+              <p className="text-sm text-muted-foreground">{dashboard.project.health_reasons[0]}</p>
+            ) : null}
+          </div>
         </SummaryCard>
         <SummaryCard title="Overall Progress">
           <ProgressValue value={dashboard.project.overall_progress} label="Overall project progress" />
@@ -600,6 +605,8 @@ function projectForMembers(dashboard: ProjectDashboard) {
     status: dashboard.project.status,
     health: dashboard.project.health,
     health_color: dashboard.project.health_color,
+    health_label: dashboard.project.health_label,
+    health_reasons: dashboard.project.health_reasons,
     funder_partner: null,
     project_type: null,
     objectives: null,

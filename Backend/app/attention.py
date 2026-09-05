@@ -53,8 +53,8 @@ def list_attention(
           SELECT
             'project'::TEXT AS type,
             CASE
-              WHEN project_health.health = 'Delayed' THEN project_health.name || ' is delayed'
-              ELSE project_health.name || ' is at risk'
+              WHEN project_health.health = 'Delayed' THEN 'Project deadline has passed'
+              ELSE project_health.name || ' needs attention'
             END AS reason,
             project_health.id AS project_id,
             project_health.name AS project_name,
@@ -68,7 +68,7 @@ def list_attention(
             NULL::TEXT AS assigned_person_email,
             project_health.end_date AS due_date,
             CASE
-              WHEN project_health.health = 'At Risk' THEN 'At risk'
+              WHEN project_health.health = 'Delayed' THEN 'At risk'
               ELSE 'Needs attention'
             END AS severity,
             2 AS sort_group
@@ -93,7 +93,7 @@ def list_attention(
             NULL::TEXT AS assigned_person_name,
             NULL::TEXT AS assigned_person_email,
             NULL::DATE AS due_date,
-            'Needs attention' AS severity,
+            'At risk' AS severity,
             2 AS sort_group
           FROM projects
           JOIN current_memberships

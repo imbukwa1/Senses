@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { projectHealthValues } from "@/components/common/health-badge";
+import { projectHealthLabelValues, projectHealthValues } from "@/components/common/health-badge";
 import { phaseStatuses, priorities, projectStatuses, taskStatuses } from "@/components/common/status-badge";
 
 const backendNumberSchema = z.union([z.number(), z.string()]).transform((value, context) => {
@@ -36,6 +36,8 @@ export const projectSummarySchema = z.object({
   status: z.enum(projectStatuses),
   health: z.enum(projectHealthValues),
   health_color: z.string(),
+  health_label: z.enum(projectHealthLabelValues),
+  health_reasons: z.array(z.string()),
   funder_partner: z.string().nullable(),
   project_type: z.string().nullable(),
   objectives: z.string().nullable(),
@@ -79,6 +81,8 @@ export const dashboardProjectSchema = z.object({
   status: z.enum(projectStatuses),
   health: z.enum(projectHealthValues),
   health_color: z.string(),
+  health_label: z.enum(projectHealthLabelValues),
+  health_reasons: z.array(z.string()),
   overall_progress: backendNumberSchema,
   current_phase_id: z.uuid().nullable(),
   start_date: z.string().min(1),

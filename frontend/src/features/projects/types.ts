@@ -1,4 +1,4 @@
-import type { ProjectHealth } from "@/components/common/health-badge";
+import type { ProjectHealth, ProjectHealthLabel } from "@/components/common/health-badge";
 import type { PhaseStatus, Priority, ProjectStatus, TaskStatus } from "@/components/common/status-badge";
 
 export type ProjectSummary = {
@@ -14,6 +14,8 @@ export type ProjectSummary = {
   status: ProjectStatus;
   health: ProjectHealth;
   health_color: string;
+  health_label: ProjectHealthLabel;
+  health_reasons: string[];
   funder_partner: string | null;
   project_type: string | null;
   objectives: string | null;
@@ -68,6 +70,8 @@ export type DashboardProject = {
   status: ProjectStatus;
   health: ProjectHealth;
   health_color: string;
+  health_label: ProjectHealthLabel;
+  health_reasons: string[];
   overall_progress: number;
   current_phase_id: string | null;
   start_date: string;

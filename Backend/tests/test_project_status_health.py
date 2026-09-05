@@ -143,6 +143,50 @@ def test_project_health_is_returned_from_locked_database_logic() -> None:
         assert delayed_response.json()["health"] == "Delayed"
         assert at_risk_response.json()["health"] == "At Risk"
         assert active_response.json()["health"] == "Active"
+        assert completed_response.json()["health_label"] == "Completed"
+        assert delayed_response.json()["health_label"] == "At risk"
+        assert delayed_response.json()["health_reasons"] == ["Project deadline has passed"]
+        assert at_risk_response.json()["health_label"] == "Needs attention"
+        assert active_response.json()["health_label"] == "On track"
+        assert active_response.json()["health_reasons"] == []
+    finally:
+        database.close()
+
+
+def test_project_health_reasons_are_derived_from_existing_work() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        user = _create_auth_user(database, "Health Reason User", _unique_email("health.reason"))
+        today = _database_today(database)
+        project = _create_project(
+            database,
+            user["id"],
+            "Health Reason Project",
+            project_status="Active",
+            start_date=today - timedelta(days=20),
+            end_date=today + timedelta(days=20),
+        )
+        _add_project_member(database, project["id"], user["id"])
+        _create_phase(database, project["id"], user["id"], "Delayed Health Phase", display_order=1, end_date=today - timedelta(days=1))
+        active_phase = _create_phase(database, project["id"], user["id"], "Active Health Phase", display_order=2)
+        _create_task(database, active_phase["id"], user["id"], "Overdue Health Task", due_date=today - timedelta(days=1))
+        _create_task(database, active_phase["id"], user["id"], "Blocked Health Task", task_status="Blocked")
+        _set_budget(database, project["id"], allocated="100.00", spent="150.00")
+
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            token = _login(client, user["email"])
+            response = client.get(f"/projects/{project['id']}", headers=_auth_header(token))
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["health_label"] == "At risk"
+        assert "Delayed Health Phase is behind schedule" in body["health_reasons"]
+        assert "1 task is overdue" in body["health_reasons"]
+        assert "Blocked Health Task is blocked" in body["health_reasons"]
+        assert "Project budget is over allocated amount" in body["health_reasons"]
     finally:
         database.close()
 
@@ -252,6 +296,43 @@ def _add_project_member(database: Database, project_id, user_id) -> None:
         session.execute(
             "INSERT INTO project_members (project_id, user_id) VALUES (%s, %s)",
             (project_id, user_id),
+        )
+
+
+def _create_phase(database: Database, project_id, owner_id, name: str, display_order: int, end_date=None) -> dict:
+    with database.session() as session:
+        return session.fetch_one(
+            """
+            INSERT INTO phases (project_id, name, owner_id, display_order, status, end_date)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (project_id, name, owner_id, display_order, "In Progress", end_date),
+        )
+
+
+def _create_task(database: Database, phase_id, owner_id, name: str, due_date=None, task_status: str = "Not Started") -> dict:
+    with database.session() as session:
+        return session.fetch_one(
+            """
+            INSERT INTO tasks (phase_id, name, owner_id, due_date, status)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (phase_id, name, owner_id, due_date, task_status),
+        )
+
+
+def _set_budget(database: Database, project_id, *, allocated: str, spent: str) -> None:
+    with database.session() as session:
+        session.execute(
+            """
+            UPDATE projects
+            SET budget_allocated = %s,
+                budget_spent = %s
+            WHERE id = %s
+            """,
+            (allocated, spent, project_id),
         )
 
 

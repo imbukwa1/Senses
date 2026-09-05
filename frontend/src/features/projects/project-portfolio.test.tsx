@@ -27,6 +27,8 @@ const project = {
   status: "Active",
   health: "At Risk",
   health_color: "warning",
+  health_label: "Needs attention",
+  health_reasons: ["Review field plan is overdue"],
   funder_partner: null,
   project_type: null,
   objectives: null,
@@ -59,7 +61,8 @@ describe("ProjectPortfolio", () => {
 
     expect(screen.getByText("Inclusive Speech Tech")).toBeInTheDocument();
     expect(screen.getByText(/PRJ-2026-001/)).toBeInTheDocument();
-    expect(screen.getByText("At Risk")).toBeInTheDocument();
+    expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    expect(screen.getByText("Review field plan is overdue")).toBeInTheDocument();
     expect(screen.getByText("64%")).toBeInTheDocument();
     expect(screen.getByText(/1 active phase/)).toBeInTheDocument();
     expect(screen.getByText("Review")).toBeInTheDocument();

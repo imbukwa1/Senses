@@ -36,6 +36,8 @@ const project = {
   status: "Active",
   health: "At Risk",
   health_color: "warning",
+  health_label: "Needs attention",
+  health_reasons: ["Review field plan is overdue"],
   funder_partner: null,
   project_type: null,
   objectives: null,
@@ -97,7 +99,7 @@ describe("HomePage", () => {
     expect(screen.getByText("Inclusive Speech Tech")).toBeInTheDocument();
     expect(screen.getByText("42%")).toBeInTheDocument();
     expect(screen.getByText("Review field plan")).toBeInTheDocument();
-    expect(screen.getByText("Review field plan is overdue")).toBeInTheDocument();
+    expect(screen.getAllByText("Review field plan is overdue").length).toBeGreaterThan(0);
   });
 
   it("renders PM home with attention and project progress summaries", () => {

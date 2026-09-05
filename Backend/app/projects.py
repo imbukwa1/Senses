@@ -32,6 +32,7 @@ TaskStatus = Literal["Not Started", "In Progress", "Blocked", "Completed"]
 PriorityLevel = Literal["Low", "Medium", "High"]
 ProjectMemberRole = Literal["PM", "Team Member", "Finance"]
 TaskFileCategory = Literal["reference", "work_submission"]
+UserFacingProjectHealth = Literal["On track", "Needs attention", "At risk", "Completed"]
 
 PROJECT_NOT_FOUND_DETAIL = "Project not found"
 PHASE_NOT_FOUND_DETAIL = "Phase not found"
@@ -141,6 +142,8 @@ class ProjectResponse(BaseModel):
     status: str
     health: str
     health_color: str
+    health_label: UserFacingProjectHealth
+    health_reasons: list[str]
     funder_partner: str | None
     project_type: str | None
     objectives: str | None
@@ -400,6 +403,8 @@ class DashboardProjectResponse(BaseModel):
     status: str
     health: str
     health_color: str
+    health_label: UserFacingProjectHealth
+    health_reasons: list[str]
     overall_progress: Decimal
     current_phase_id: UUID | None
     start_date: date
@@ -518,7 +523,7 @@ def create_project(
         (project["id"], current_user.id, "Team Member"),
     )
     ensure_project_lead_membership(session, project["id"], payload.project_lead_id)
-    return project_to_response(fetch_project_health_by_id(session, project["id"]))
+    return project_to_response(fetch_project_health_by_id(session, project["id"]), session, current_user.id)
 
 
 @router.get("", response_model=list[ProjectResponse])
@@ -526,7 +531,7 @@ def list_projects(
     current_user: AuthenticatedUser = Depends(get_current_user),
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> list[ProjectResponse]:
-    return [project_to_response(row) for row in fetch_accessible_projects(session, current_user.id)]
+    return [project_to_response(row, session, current_user.id) for row in fetch_accessible_projects(session, current_user.id)]
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -539,7 +544,7 @@ def get_project(
     if project is None:
         raise_project_not_found()
 
-    return project_to_response(project)
+    return project_to_response(project, session, current_user.id)
 
 
 @router.get("/{project_id}/budget", response_model=ProjectBudgetResponse)
@@ -629,7 +634,7 @@ def get_project_dashboard(
     ]
 
     return ProjectDashboardResponse(
-        project=dashboard_project_to_response(project),
+        project=dashboard_project_to_response(project, session, current_user.id),
         current_phase=current_phase,
         upcoming_deadlines=deadlines,
         phases=phases,
@@ -749,7 +754,7 @@ def set_current_phase(
     if project is None:
         raise_project_not_found()
 
-    return project_to_response(fetch_project_health_by_id(session, project["id"]))
+    return project_to_response(fetch_project_health_by_id(session, project["id"]), session, current_user.id)
 
 
 @router.get("/{project_id}/phases/{phase_id}", response_model=PhaseResponse)
@@ -1458,7 +1463,7 @@ def update_project(
         project = fetch_accessible_project(session, current_user.id, project_id)
         if project is None:
             raise_project_not_found()
-        return project_to_response(project)
+        return project_to_response(project, session, current_user.id)
 
     null_required_fields = sorted(
         field for field in REQUIRED_PROJECT_FIELDS if field in values and values[field] is None
@@ -1493,7 +1498,7 @@ def update_project(
     if "project_lead_id" in values:
         ensure_project_lead_membership(session, project["id"], values["project_lead_id"])
 
-    return project_to_response(fetch_project_health_by_id(session, project["id"]))
+    return project_to_response(fetch_project_health_by_id(session, project["id"]), session, current_user.id)
 
 
 @router.patch("/{project_id}/status", response_model=ProjectResponse)
@@ -1518,7 +1523,7 @@ def update_project_status(
     if project is None:
         raise_project_not_found()
 
-    return project_to_response(fetch_project_health_by_id(session, project["id"]))
+    return project_to_response(fetch_project_health_by_id(session, project["id"]), session, current_user.id)
 
 
 @router.patch("/{project_id}/archive", response_model=ProjectResponse)
@@ -1540,7 +1545,7 @@ def archive_project(
     if project is None:
         raise_project_not_found()
 
-    return project_to_response(fetch_project_health_by_id(session, project["id"]))
+    return project_to_response(fetch_project_health_by_id(session, project["id"]), session, current_user.id)
 
 
 @router.get("/{project_id}/members", response_model=list[ProjectMemberResponse])
@@ -2510,7 +2515,8 @@ def fetch_project_budget_or_404(session: DatabaseSession, project_id: UUID) -> R
     return row
 
 
-def project_to_response(row: Row) -> ProjectResponse:
+def project_to_response(row: Row, session: DatabaseSession | None = None, user_id: UUID | None = None) -> ProjectResponse:
+    health_label, health_reasons = project_health_display(row, session, user_id)
     return ProjectResponse(
         **row,
         project_lead=UserSummaryResponse(
@@ -2518,6 +2524,8 @@ def project_to_response(row: Row) -> ProjectResponse:
             name=row["project_lead_name"],
             email=row["project_lead_email"],
         ),
+        health_label=health_label,
+        health_reasons=health_reasons,
     )
 
 
@@ -2527,6 +2535,127 @@ def project_member_to_response(row: Row) -> ProjectMemberResponse:
 
 def project_budget_to_response(row: Row) -> ProjectBudgetResponse:
     return ProjectBudgetResponse(**row)
+
+
+def project_health_display(row: Row, session: DatabaseSession | None = None, user_id: UUID | None = None) -> tuple[UserFacingProjectHealth, list[str]]:
+    internal_health = row["health"]
+    project_status = row["status"]
+
+    if project_status == "Completed" or internal_health == "Completed":
+        return "Completed", []
+
+    reasons = fetch_project_health_reasons(session, row["id"], user_id) if session is not None else []
+    serious_reasons = [reason["reason"] for reason in reasons if reason["severity"] == "At risk"]
+    moderate_reasons = [reason["reason"] for reason in reasons if reason["severity"] == "Needs attention"]
+
+    if serious_reasons:
+        return "At risk", serious_reasons
+
+    if moderate_reasons:
+        return "Needs attention", moderate_reasons
+
+    if internal_health == "Delayed":
+        return "At risk", ["Project deadline has passed"]
+
+    if internal_health == "At Risk":
+        return "Needs attention", ["Project needs attention"]
+
+    return "On track", []
+
+
+def fetch_project_health_reasons(session: DatabaseSession | None, project_id: UUID, user_id: UUID | None = None) -> list[Row]:
+    if session is None:
+        return []
+
+    return session.fetch_all(
+        """
+        WITH overdue_tasks AS (
+          SELECT COUNT(*) AS count
+          FROM tasks
+          JOIN phases ON phases.id = tasks.phase_id
+          WHERE phases.project_id = %(project_id)s
+            AND phases.archived_at IS NULL
+            AND tasks.due_date < CURRENT_DATE
+            AND tasks.status <> 'Completed'
+        ),
+        blocked_tasks AS (
+          SELECT COUNT(*) AS count, MIN(tasks.name) AS first_name
+          FROM tasks
+          JOIN phases ON phases.id = tasks.phase_id
+          WHERE phases.project_id = %(project_id)s
+            AND phases.archived_at IS NULL
+            AND tasks.status = 'Blocked'
+        ),
+        delayed_phases AS (
+          SELECT COUNT(*) AS count, MIN(phases.name) AS first_name
+          FROM phases
+          WHERE phases.project_id = %(project_id)s
+            AND phases.archived_at IS NULL
+            AND phases.end_date < CURRENT_DATE
+            AND phases.status <> 'Completed'
+        ),
+        project_budget AS (
+          SELECT budget_allocated, budget_spent
+          FROM projects
+          WHERE id = %(project_id)s
+            AND archived_at IS NULL
+        ),
+        project_deadline AS (
+          SELECT end_date, status
+          FROM projects
+          WHERE id = %(project_id)s
+            AND archived_at IS NULL
+        )
+        SELECT 'Project deadline has passed' AS reason, 'At risk' AS severity, 0 AS sort_order
+        FROM project_deadline
+        WHERE end_date < CURRENT_DATE
+          AND status <> 'Completed'
+        UNION ALL
+        SELECT
+          CASE
+            WHEN count = 1 THEN first_name || ' is behind schedule'
+            ELSE count || ' phases are behind schedule'
+          END AS reason,
+          'At risk' AS severity,
+          1 AS sort_order
+        FROM delayed_phases
+        WHERE count > 0
+        UNION ALL
+        SELECT
+          CASE
+            WHEN count = 1 THEN '1 task is overdue'
+            ELSE count || ' tasks are overdue'
+          END AS reason,
+          'At risk' AS severity,
+          2 AS sort_order
+        FROM overdue_tasks
+        WHERE count > 0
+        UNION ALL
+        SELECT
+          CASE
+            WHEN count = 1 THEN first_name || ' is blocked'
+            ELSE count || ' tasks are blocked'
+          END AS reason,
+          'Needs attention' AS severity,
+          3 AS sort_order
+        FROM blocked_tasks
+        WHERE count > 0
+        UNION ALL
+        SELECT 'Project budget is over allocated amount' AS reason, 'Needs attention' AS severity, 4 AS sort_order
+        FROM project_budget
+        WHERE budget_allocated > 0
+          AND budget_spent > budget_allocated
+          AND EXISTS (
+            SELECT 1
+            FROM project_members
+            WHERE project_members.project_id = %(project_id)s
+              AND project_members.user_id = %(user_id)s
+              AND project_members.role IN ('PM', 'Finance')
+          )
+        ORDER BY sort_order
+        """,
+        {"project_id": project_id, "user_id": user_id},
+    )
 
 
 def phase_to_response(row: Row) -> PhaseResponse:
@@ -2576,7 +2705,8 @@ def task_file_to_response(row: Row) -> TaskFileResponse:
     return TaskFileResponse(**row)
 
 
-def dashboard_project_to_response(row: Row) -> DashboardProjectResponse:
+def dashboard_project_to_response(row: Row, session: DatabaseSession | None = None, user_id: UUID | None = None) -> DashboardProjectResponse:
+    health_label, health_reasons = project_health_display(row, session, user_id)
     return DashboardProjectResponse(
         id=row["id"],
         code=row["code"],
@@ -2590,6 +2720,8 @@ def dashboard_project_to_response(row: Row) -> DashboardProjectResponse:
         status=row["status"],
         health=row["health"],
         health_color=row["health_color"],
+        health_label=health_label,
+        health_reasons=health_reasons,
         overall_progress=row["overall_progress"],
         current_phase_id=row["current_phase_id"],
         start_date=row["start_date"],

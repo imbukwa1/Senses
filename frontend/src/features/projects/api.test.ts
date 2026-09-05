@@ -28,6 +28,8 @@ const project = {
   status: "Planning",
   health: "Active",
   health_color: "purple",
+  health_label: "On track",
+  health_reasons: [],
   funder_partner: null,
   project_type: null,
   objectives: null,

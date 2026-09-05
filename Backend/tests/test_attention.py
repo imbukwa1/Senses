@@ -98,12 +98,13 @@ def test_attention_includes_delayed_and_at_risk_projects_and_delayed_phases() ->
         items = response.json()
         projects = {item["project_name"]: item for item in items if item["type"] == "project"}
         phases = {item["phase_name"]: item for item in items if item["type"] == "phase"}
-        assert projects["Delayed Attention Project"]["reason"] == "Delayed Attention Project is delayed"
-        assert projects["Delayed Attention Project"]["severity"] == "Needs attention"
-        assert projects["Risk Attention Project"]["reason"] == "Risk Attention Project is at risk"
-        assert projects["Risk Attention Project"]["severity"] == "At risk"
+        assert projects["Delayed Attention Project"]["reason"] == "Project deadline has passed"
+        assert projects["Delayed Attention Project"]["severity"] == "At risk"
+        assert projects["Risk Attention Project"]["reason"] == "Risk Attention Project needs attention"
+        assert projects["Risk Attention Project"]["severity"] == "Needs attention"
         assert phases["Delayed Attention Phase"]["phase_id"] == str(delayed_phase["id"])
         assert phases["Delayed Attention Phase"]["reason"] == "Delayed Attention Phase is behind schedule"
+        assert phases["Delayed Attention Phase"]["severity"] == "At risk"
         assert "Completed Delayed Phase" not in phases
     finally:
         database.close()

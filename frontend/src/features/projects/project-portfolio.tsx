@@ -62,7 +62,8 @@ function ProjectRow({ project }: { project: ProjectSummary }) {
   const dashboardQuery = useProjectDashboardQuery(project.id);
   const progress = dashboardQuery.data?.project.overall_progress;
   const activePhaseCount = dashboardQuery.data?.phases.filter((phase) => phase.status === "In Progress").length;
-  const needsAttention = project.health === "At Risk" || project.health === "Delayed";
+  const needsAttention = project.health_label === "Needs attention" || project.health_label === "At risk";
+  const healthReason = project.health_reasons[0];
 
   return (
     <TableRow>
@@ -79,7 +80,10 @@ function ProjectRow({ project }: { project: ProjectSummary }) {
         </p>
       </TableCell>
       <TableCell>
-        <HealthBadge value={project.health} />
+        <HealthBadge label={project.health_label} />
+        {healthReason && project.health_label !== "On track" && project.health_label !== "Completed" ? (
+          <p className="mt-2 max-w-56 text-xs text-muted-foreground">{healthReason}</p>
+        ) : null}
       </TableCell>
       <TableCell className="min-w-44">
         <div className="flex items-center justify-between gap-3 text-xs">

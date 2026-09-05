@@ -195,12 +195,15 @@ function ProjectHomeCard({ project }: { project: ProjectSummary }) {
           <p className="truncate text-sm font-semibold text-foreground">{project.name}</p>
           <p className="mt-1 text-xs text-muted-foreground">{project.code}</p>
         </div>
-        <HealthBadge value={project.health} />
+        <HealthBadge label={project.health_label} />
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <StatusBadge value={project.status} />
         <span className="text-xs text-muted-foreground">Lead: {project.project_lead.name}</span>
       </div>
+      {project.health_reasons[0] && project.health_label !== "On track" && project.health_label !== "Completed" ? (
+        <p className="mt-3 text-xs text-muted-foreground">{project.health_reasons[0]}</p>
+      ) : null}
       <div className="mt-4 space-y-2">
         <div className="flex items-center justify-between text-xs">
           <span className="text-muted-foreground">Progress</span>
