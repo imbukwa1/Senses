@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Download, Edit, FileText, MessageSquare, Paperclip, Save, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, Download, Edit, FileText, MessageSquare, Paperclip, Save, Trash2, Upload } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/features/auth/hooks";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import {
@@ -28,6 +29,7 @@ import {
   useTaskFilesQuery,
   useTaskSupportersQuery,
   useUploadTaskFileMutation,
+  useUpdateTaskMutation,
   useUpdateChecklistItemMutation,
 } from "./hooks";
 import { TaskFormDialog } from "./task-form-dialog";
@@ -44,15 +46,47 @@ const commentSchema = z.object({
 type ChecklistItemFormValues = z.infer<typeof checklistItemSchema>;
 type CommentFormValues = z.infer<typeof commentSchema>;
 
-export function TaskDetailDrawer({ children, phase, projectId, task }: { children: React.ReactNode; projectId: string; phase: DashboardPhase; task: Task }) {
+export function TaskDetailDrawer({
+  children,
+  isProjectPm,
+  phase,
+  projectId,
+  task,
+}: {
+  children: React.ReactNode;
+  isProjectPm: boolean;
+  projectId: string;
+  phase: DashboardPhase;
+  task: Task;
+}) {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [editTaskOpen, setEditTaskOpen] = useState(false);
   const checklistQuery = useChecklistQuery(projectId, phase.id, task.id, open);
   const commentsQuery = useTaskCommentsQuery(projectId, phase.id, task.id, open);
   const filesQuery = useTaskFilesQuery(projectId, phase.id, task.id, open);
   const supportersQuery = useTaskSupportersQuery(projectId, phase.id, task.id, open);
+  const updateTask = useUpdateTaskMutation(projectId, phase.id, task.id);
   const checklist = checklistQuery.data;
   const taskProgress = checklist?.summary.progress;
+  const supporters = supportersQuery.data ?? [];
+  const canMarkDone = task.status !== "Completed" && (isProjectPm || task.owner_id === user?.id || supporters.some((supporter) => supporter.user_id === user?.id));
+
+  async function markDone() {
+    await updateTask.mutateAsync({
+      currentSupporterIds: supporters.map((supporter) => supporter.user_id),
+      supporterIds: supporters.map((supporter) => supporter.user_id),
+      payload: {
+        name: task.name,
+        description: task.description,
+        owner_id: task.owner_id,
+        priority: task.priority,
+        status: "Completed",
+        start_date: task.start_date,
+        due_date: task.due_date,
+      },
+    });
+  }
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -66,30 +100,41 @@ export function TaskDetailDrawer({ children, phase, projectId, task }: { childre
                 <StatusBadge value={task.status} />
               </div>
               <SheetTitle className="mt-3 text-xl">{task.name}</SheetTitle>
-              <SheetDescription>Task details for phase {phase.name}.</SheetDescription>
+              <SheetDescription>
+                {phase.name} / Assigned to {task.owner.name} / Due {formatOptionalDate(task.due_date)}
+              </SheetDescription>
             </SheetHeader>
             <div className="mt-4 flex flex-wrap gap-2">
-              <TaskFormDialog mode="edit" projectId={projectId} phase={phase} task={task}>
-                <Button type="button" variant="outline" size="sm" onClick={() => setEditTaskOpen(true)} aria-expanded={editTaskOpen}>
-                  <Edit className="size-4" aria-hidden="true" />
-                  Edit Task
+              {isProjectPm ? (
+                <TaskFormDialog mode="edit" projectId={projectId} phase={phase} task={task}>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setEditTaskOpen(true)} aria-expanded={editTaskOpen}>
+                    <Edit className="size-4" aria-hidden="true" />
+                    Edit
+                  </Button>
+                </TaskFormDialog>
+              ) : null}
+              {canMarkDone ? (
+                <Button type="button" size="sm" disabled={updateTask.isPending} onClick={markDone}>
+                  <CheckCircle2 className="size-4" aria-hidden="true" />
+                  {updateTask.isPending ? "Saving..." : "Mark done"}
                 </Button>
-              </TaskFormDialog>
+              ) : null}
             </div>
           </div>
           <div className="flex-1 space-y-5 overflow-y-auto p-6">
-            <TaskMetadata task={task} phase={phase} supporters={supportersQuery.data ?? []} supportersLoading={supportersQuery.isLoading} />
+            {updateTask.error ? <InlineErrorMessage message={taskErrorMessage(updateTask.error)} /> : null}
+            <TaskMetadata task={task} phase={phase} supporters={supporters} supportersLoading={supportersQuery.isLoading} />
             {task.description ? (
               <section className="rounded-md border bg-background p-4">
-                <h3 className="text-sm font-semibold text-foreground">Description</h3>
+                <h3 className="text-sm font-semibold text-foreground">What you need to do</h3>
                 <p className="mt-2 text-sm text-muted-foreground">{task.description}</p>
               </section>
             ) : null}
             <section className="rounded-md border bg-background p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h3 className="text-sm font-semibold text-foreground">Deliverables</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">Checklist items attached to this task.</p>
+                  <h3 className="text-sm font-semibold text-foreground">Checklist</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">Optional steps for this task.</p>
                 </div>
                 {checklist ? (
                   <p className="text-sm font-medium text-foreground">
@@ -100,10 +145,10 @@ export function TaskDetailDrawer({ children, phase, projectId, task }: { childre
               {typeof taskProgress === "number" ? (
                 <div className="mt-4">
                   <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-                    <span className="text-muted-foreground">Backend task progress</span>
+                    <span className="text-muted-foreground">Progress</span>
                     <span className="font-semibold text-foreground">{Math.round(taskProgress)}%</span>
                   </div>
-                  <Progress value={taskProgress} aria-label={`Backend task progress ${Math.round(taskProgress)}%`} />
+                  <Progress value={taskProgress} aria-label={`Task progress ${Math.round(taskProgress)}%`} />
                 </div>
               ) : null}
               <ChecklistPanel
@@ -371,12 +416,12 @@ function TaskMetadata({
 }) {
   return (
     <section className="rounded-md border bg-background p-4">
-      <h3 className="text-sm font-semibold text-foreground">Task Information</h3>
+      <h3 className="text-sm font-semibold text-foreground">Overview</h3>
       <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
         <MetadataItem label="Phase" value={phase.name} />
-        <MetadataItem label="Owner" value={`${task.owner.name} (${task.owner.email})`} />
-        <MetadataItem label="Start Date" value={formatOptionalDate(task.start_date)} />
-        <MetadataItem label="Due Date" value={formatOptionalDate(task.due_date)} />
+        <MetadataItem label="Assigned to" value={task.owner.name} />
+        <MetadataItem label="Start" value={formatOptionalDate(task.start_date)} />
+        <MetadataItem label="Due" value={formatOptionalDate(task.due_date)} />
       </dl>
       <div className="mt-4">
         <p className="text-xs font-medium uppercase text-muted-foreground">Supporters</p>
@@ -471,7 +516,7 @@ function ChecklistPanel({
       </form>
       {checklistLoading ? <LoadingState label="Loading checklist" /> : null}
       {checklistError ? <ErrorState title="Checklist could not be loaded" message={checklistErrorMessage(checklistError)} /> : null}
-      {!checklistLoading && !checklistError && items.length === 0 ? <EmptyState title="No deliverables have been added yet." /> : null}
+      {!checklistLoading && !checklistError && items.length === 0 ? <EmptyState title="No checklist items have been added yet." /> : null}
       {!checklistLoading && !checklistError && items.length > 0 ? (
         <div className="divide-y rounded-md border bg-surface">
           {items.map((item) => (
@@ -590,6 +635,15 @@ function fileErrorMessage(error: Error) {
     notFound: "The task file could not be found.",
     payloadTooLarge: "The selected file is too large.",
     server: "File storage is unavailable. This may require GCS configuration.",
+  });
+}
+
+function taskErrorMessage(error: Error) {
+  return userFacingErrorMessage(error, {
+    action: "the task",
+    forbidden: "You do not have access to update this task.",
+    notFound: "The task could not be found.",
+    validation: "The task could not be updated with the selected values.",
   });
 }
 

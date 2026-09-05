@@ -4,7 +4,6 @@ import { createBrowserRouter } from "react-router-dom";
 import { LoadingState } from "@/components/common/loading-state";
 import { AppShell } from "@/components/layout/app-shell";
 import { ProtectedRoute } from "@/features/auth/protected-route";
-import { ProjectsHeaderActions } from "@/features/projects/project-header-actions";
 
 const LoginPage = lazy(() => import("@/pages/login-page").then((module) => ({ default: module.LoginPage })));
 const AttentionPage = lazy(() => import("@/pages/attention-page").then((module) => ({ default: module.AttentionPage })));
@@ -88,7 +87,6 @@ export const router = createBrowserRouter([
           title: "Projects",
           subtitle: "Accessible project portfolio.",
           breadcrumbs: [{ label: "Projects" }],
-          actions: <ProjectsHeaderActions />,
         },
       },
       {

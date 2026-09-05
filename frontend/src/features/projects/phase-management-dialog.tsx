@@ -64,9 +64,7 @@ export function PhaseManagementDialog({ children, currentPhaseId, phases, projec
       <DialogContent className="max-w-4xl">
         <DialogHeader>
           <DialogTitle>Manage Phases</DialogTitle>
-          <DialogDescription>
-            Create, edit, reorder, archive, and set dashboard focus. Phase status and Current Phase are separate.
-          </DialogDescription>
+          <DialogDescription>Create and update phases for this project.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -90,7 +88,7 @@ export function PhaseManagementDialog({ children, currentPhaseId, phases, projec
                       <ChevronsUpDown className="size-4 text-muted-foreground" aria-hidden="true" />
                       <h3 className="text-sm font-semibold text-foreground">{phase.name}</h3>
                       <StatusBadge value={phase.status} />
-                      {phase.id === currentPhaseId ? <Badge variant="outline">Current Phase</Badge> : null}
+                      {phase.id === currentPhaseId ? <Badge variant="outline">Focus</Badge> : null}
                     </div>
                     {phase.description ? <p className="mt-2 text-sm text-muted-foreground">{phase.description}</p> : null}
                     <p className="mt-2 text-xs text-muted-foreground">
@@ -98,10 +96,10 @@ export function PhaseManagementDialog({ children, currentPhaseId, phases, projec
                     </p>
                     <div className="mt-3 max-w-xs">
                       <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-                        <span className="text-muted-foreground">Backend progress</span>
+                        <span className="text-muted-foreground">Progress</span>
                         <span className="font-medium text-foreground">{Math.round(phase.progress)}%</span>
                       </div>
-                      <Progress value={phase.progress} aria-label={`${phase.name} backend progress ${Math.round(phase.progress)}%`} />
+                      <Progress value={phase.progress} aria-label={`${phase.name} progress ${Math.round(phase.progress)}%`} />
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1 lg:justify-end">
@@ -126,7 +124,7 @@ export function PhaseManagementDialog({ children, currentPhaseId, phases, projec
                       onClick={() => setCurrentPhase.mutate(phase.id)}
                     >
                       <Flag className="size-4" aria-hidden="true" />
-                      Current
+                      Focus
                     </Button>
                     <PhaseFormDialog mode="edit" projectId={projectId} phase={phase} nextDisplayOrder={nextDisplayOrder}>
                       <Button type="button" variant="ghost" size="sm">
@@ -140,7 +138,7 @@ export function PhaseManagementDialog({ children, currentPhaseId, phases, projec
                     </Button>
                     <ConfirmAction
                       title="Archive phase?"
-                      description="This uses the backend's history-preserving archive behaviour. It does not hard-delete the phase from React."
+                      description="This keeps phase history and removes the phase from active work."
                       confirmLabel="Archive Phase"
                       onConfirm={() => archivePhase.mutate(phase.id)}
                     >

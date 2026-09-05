@@ -1,20 +1,16 @@
-import { Archive, ArrowUpRight, Edit, Users } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, ArrowUpRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { ConfirmAction } from "@/components/common/confirm-action";
-import { ErrorState, InlineErrorMessage } from "@/components/common/error-state";
+import { ErrorState } from "@/components/common/error-state";
 import { HealthBadge } from "@/components/common/health-badge";
 import { PageTable } from "@/components/common/page-table";
-import { StatusBadge } from "@/components/common/status-badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError } from "@/features/auth/api";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
-import { useArchiveProjectMutation, useProjectsQuery } from "./hooks";
-import { ProjectFormDialog } from "./project-form-dialog";
-import { ProjectMembersDialog } from "./project-members-dialog";
+import { useProjectDashboardQuery, useProjectsQuery } from "./hooks";
 import type { ProjectSummary } from "./types";
 
 export function ProjectPortfolio() {
@@ -40,124 +36,78 @@ export function ProjectPortfolio() {
 }
 
 function ProjectTable({ projects }: { projects: ProjectSummary[] }) {
-  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
-  const [membersProjectId, setMembersProjectId] = useState<string | null>(null);
-
   return (
     <Table>
       <TableHeader>
         <TableRow className="bg-muted/40 hover:bg-muted/40">
-          <TableHead scope="col">Code</TableHead>
-          <TableHead scope="col">Project Name</TableHead>
-          <TableHead scope="col">Status</TableHead>
+          <TableHead scope="col">Project</TableHead>
           <TableHead scope="col">Health</TableHead>
-          <TableHead scope="col">End Date</TableHead>
-          <TableHead scope="col">Priority</TableHead>
+          <TableHead scope="col">Progress</TableHead>
+          <TableHead scope="col">Attention</TableHead>
           <TableHead scope="col" className="text-right">
-            Action
+            Open
           </TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {projects.map((project) => (
-          <TableRow key={project.id}>
-            <TableCell className="whitespace-nowrap font-mono text-xs font-medium text-foreground">{project.code}</TableCell>
-            <TableCell>
-              <Link
-                to={`/projects/${project.id}`}
-                className="font-medium text-foreground outline-none transition-colors hover:text-primary focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {project.name}
-              </Link>
-              {project.project_type ? <p className="mt-1 text-xs text-muted-foreground">{project.project_type}</p> : null}
-            </TableCell>
-            <TableCell>
-              <StatusBadge value={project.status} />
-            </TableCell>
-            <TableCell>
-              <HealthBadge value={project.health} />
-            </TableCell>
-            <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{formatDate(project.end_date)}</TableCell>
-            <TableCell>{project.priority ? <StatusBadge value={project.priority} /> : <span className="text-muted-foreground">-</span>}</TableCell>
-            <TableCell className="text-right">
-              <div className="flex justify-end gap-1">
-                <ProjectFormDialog
-                  mode="edit"
-                  project={project}
-                  open={editingProjectId === project.id}
-                  onOpenChange={(open) => setEditingProjectId(open ? project.id : null)}
-                >
-                  <Button type="button" variant="ghost" size="sm" aria-label={`Edit ${project.name}`}>
-                    <Edit className="size-4" aria-hidden="true" />
-                    Edit
-                  </Button>
-                </ProjectFormDialog>
-                <ProjectMembersDialog
-                  project={project}
-                  open={membersProjectId === project.id}
-                  onOpenChange={(open) => setMembersProjectId(open ? project.id : null)}
-                >
-                  <Button type="button" variant="ghost" size="sm" aria-label={`Manage members for ${project.name}`}>
-                    <Users className="size-4" aria-hidden="true" />
-                    Members
-                  </Button>
-                </ProjectMembersDialog>
-                <Button asChild variant="ghost" size="sm">
-                  <Link to={`/projects/${project.id}`} aria-label={`Open ${project.name}`}>
-                    Open
-                    <ArrowUpRight className="size-4" aria-hidden="true" />
-                  </Link>
-                </Button>
-                <ArchiveProjectAction project={project} />
-              </div>
-            </TableCell>
-          </TableRow>
+          <ProjectRow key={project.id} project={project} />
         ))}
       </TableBody>
     </Table>
   );
 }
 
-function ArchiveProjectAction({ project }: { project: ProjectSummary }) {
-  const archiveProject = useArchiveProjectMutation(project.id);
+function ProjectRow({ project }: { project: ProjectSummary }) {
+  const dashboardQuery = useProjectDashboardQuery(project.id);
+  const progress = dashboardQuery.data?.project.overall_progress;
+  const activePhaseCount = dashboardQuery.data?.phases.filter((phase) => phase.status === "In Progress").length;
+  const needsAttention = project.health === "At Risk" || project.health === "Delayed";
 
   return (
-    <div className="inline-flex flex-col items-end gap-1">
-      <ConfirmAction
-        title="Archive project?"
-        description="This uses the backend's history-preserving archive behaviour. It does not hard-delete the project."
-        confirmLabel="Archive Project"
-        onConfirm={() => archiveProject.mutate()}
-      >
-        <Button type="button" variant="ghost" size="sm" disabled={archiveProject.isPending} aria-label={`Archive ${project.name}`}>
-          <Archive className="size-4" aria-hidden="true" />
-          {archiveProject.isPending ? "Archiving..." : "Archive"}
+    <TableRow>
+      <TableCell>
+        <Link
+          to={`/projects/${project.id}`}
+          className="font-medium text-foreground outline-none transition-colors hover:text-primary focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {project.name}
+        </Link>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {project.code}
+          {typeof activePhaseCount === "number" ? ` / ${activePhaseCount} active phase${activePhaseCount === 1 ? "" : "s"}` : ""}
+        </p>
+      </TableCell>
+      <TableCell>
+        <HealthBadge value={project.health} />
+      </TableCell>
+      <TableCell className="min-w-44">
+        <div className="flex items-center justify-between gap-3 text-xs">
+          <span className="text-muted-foreground">Progress</span>
+          <span className="font-medium text-foreground">{typeof progress === "number" ? `${Math.round(progress)}%` : "Loading"}</span>
+        </div>
+        <Progress value={typeof progress === "number" ? progress : 0} aria-label={`${project.name} progress`} className="mt-2" />
+      </TableCell>
+      <TableCell>
+        {needsAttention ? (
+          <span className="inline-flex items-center gap-1 text-sm font-medium text-warning">
+            <AlertTriangle className="size-4" aria-hidden="true" />
+            Review
+          </span>
+        ) : (
+          <span className="text-sm text-muted-foreground">None</span>
+        )}
+      </TableCell>
+      <TableCell className="text-right">
+        <Button asChild variant="ghost" size="sm">
+          <Link to={`/projects/${project.id}`} aria-label={`Open ${project.name}`}>
+            Open
+            <ArrowUpRight className="size-4" aria-hidden="true" />
+          </Link>
         </Button>
-      </ConfirmAction>
-      {archiveProject.error ? (
-        <InlineErrorMessage
-          message={userFacingErrorMessage(archiveProject.error, {
-            forbidden: "You do not have access to archive this project.",
-            notFound: "The project could not be found.",
-          })}
-        />
-      ) : null}
-    </div>
+      </TableCell>
+    </TableRow>
   );
-}
-
-function formatDate(value: string) {
-  const date = new Date(`${value}T00:00:00`);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(date);
 }
 
 function errorTitle(error: Error | null) {

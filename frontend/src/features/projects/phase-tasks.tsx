@@ -78,7 +78,7 @@ function TaskTable({ isProjectPm, phase, projectId, tasks }: { isProjectPm: bool
             </TableCell>
             <TableCell className="text-right">
               <div className="flex justify-end gap-1">
-                <TaskDetailDrawer phase={phase} projectId={projectId} task={task}>
+                <TaskDetailDrawer isProjectPm={isProjectPm} phase={phase} projectId={projectId} task={task}>
                   <Button type="button" variant="ghost" size="sm">
                     View
                   </Button>

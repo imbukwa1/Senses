@@ -1,4 +1,4 @@
-import { Archive, CalendarDays, CheckCircle2, Clock, DollarSign, Edit, ListChecks, Save, UserPlus, Users, X } from "lucide-react";
+import { AlertTriangle, Archive, CalendarDays, CheckCircle2, Clock, DollarSign, Edit, ListChecks, Save, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -23,6 +23,7 @@ import { userFacingErrorMessage } from "@/lib/api-errors";
 import {
   useAddPhaseMemberMutation,
   useArchiveProjectMutation,
+  useAttentionQuery,
   usePhaseMembersQuery,
   useProjectBudgetQuery,
   useProjectDashboardQuery,
@@ -53,6 +54,7 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
   const dashboardQuery = useProjectDashboardQuery(projectId);
   const projectQuery = useProjectQuery(projectId);
   const projectMembersQuery = useProjectMembersQuery(projectId, true);
+  const attentionQuery = useAttentionQuery();
   const archiveProject = useArchiveProjectMutation(projectId);
   const [editOpen, setEditOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
@@ -73,7 +75,9 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
 
   const editProject = projectQuery.data;
   const currentMember = projectMembersQuery.data?.find((member) => member.user_id === user?.id);
+  const isProjectPm = currentMember?.role === "PM";
   const canManageBudget = currentMember?.role === "PM" || currentMember?.role === "Finance";
+  const projectAttention = (attentionQuery.data ?? []).filter((item) => item.project_id === projectId);
 
   return (
     <div className="space-y-5">
@@ -89,38 +93,40 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
             <CardTitle className="mt-3 text-xl">{dashboard.project.name}</CardTitle>
             <CardDescription className="mt-2 max-w-3xl">{dashboard.project.description}</CardDescription>
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <ProjectFormDialog mode="edit" project={editProject} open={editOpen} onOpenChange={setEditOpen}>
-              <Button type="button" variant="outline" disabled={projectQuery.isLoading || !editProject}>
-                <Edit className="size-4" aria-hidden="true" />
-                Edit Project
-              </Button>
-            </ProjectFormDialog>
-            <ProjectMembersDialog project={projectForMembers(dashboard)} open={membersOpen} onOpenChange={setMembersOpen}>
-              <Button type="button" variant="outline">
-                <Users className="size-4" aria-hidden="true" />
-                Members
-              </Button>
-            </ProjectMembersDialog>
-            <ConfirmAction
-              title="Archive project?"
-              description="This uses the backend's history-preserving archive behaviour. It does not hard-delete the project."
-              confirmLabel="Archive Project"
-              onConfirm={async () => {
-                try {
-                  await archiveProject.mutateAsync();
-                  navigate("/projects");
-                } catch {
-                  return;
-                }
-              }}
-            >
-              <Button type="button" variant="outline" disabled={archiveProject.isPending}>
-                <Archive className="size-4" aria-hidden="true" />
-                {archiveProject.isPending ? "Archiving..." : "Archive Project"}
-              </Button>
-            </ConfirmAction>
-          </div>
+          {isProjectPm ? (
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <ProjectFormDialog mode="edit" project={editProject} open={editOpen} onOpenChange={setEditOpen}>
+                <Button type="button" variant="outline" size="sm" disabled={projectQuery.isLoading || !editProject}>
+                  <Edit className="size-4" aria-hidden="true" />
+                  Edit
+                </Button>
+              </ProjectFormDialog>
+              <ProjectMembersDialog project={projectForMembers(dashboard)} open={membersOpen} onOpenChange={setMembersOpen}>
+                <Button type="button" variant="outline" size="sm">
+                  <Users className="size-4" aria-hidden="true" />
+                  People
+                </Button>
+              </ProjectMembersDialog>
+              <ConfirmAction
+                title="Archive project?"
+                description="This keeps project history and removes the project from active work."
+                confirmLabel="Archive Project"
+                onConfirm={async () => {
+                  try {
+                    await archiveProject.mutateAsync();
+                    navigate("/projects");
+                  } catch {
+                    return;
+                  }
+                }}
+              >
+                <Button type="button" variant="ghost" size="sm" disabled={archiveProject.isPending}>
+                  <Archive className="size-4" aria-hidden="true" />
+                  {archiveProject.isPending ? "Archiving..." : "Archive"}
+                </Button>
+              </ConfirmAction>
+            </div>
+          ) : null}
         </CardHeader>
         {archiveProject.error ? (
           <CardContent className="pt-0">
@@ -145,29 +151,35 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
         <SummaryCard title="Overall Progress">
           <ProgressValue value={dashboard.project.overall_progress} label="Overall project progress" />
         </SummaryCard>
-        <SummaryCard title="Current Phase">
-          {dashboard.current_phase ? (
-            <div>
-              <p className="text-sm font-semibold text-foreground">{dashboard.current_phase.name}</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <StatusBadge value={dashboard.current_phase.status} />
-                <Badge variant="outline">Current Phase</Badge>
-              </div>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No current phase selected.</p>
-          )}
+        <SummaryCard title="Attention">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className={projectAttention.length > 0 ? "size-4 text-warning" : "size-4 text-muted-foreground"} aria-hidden="true" />
+            <span className="text-sm font-semibold text-foreground">
+              {projectAttention.length} item{projectAttention.length === 1 ? "" : "s"}
+            </span>
+          </div>
         </SummaryCard>
       </div>
 
       {canManageBudget ? <BudgetSection projectId={projectId} /> : null}
+
+      {editProject?.objectives ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Objectives</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{editProject.objectives}</p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.45fr)]">
         <PhasesSection projectId={projectId} phases={dashboard.phases} currentPhaseId={dashboard.project.current_phase_id} />
         <DeadlinesSection deadlines={dashboard.upcoming_deadlines} />
       </div>
 
-      <DeliverablesSection deliverables={dashboard.deliverables} />
+      <ProjectChecklistSection deliverables={dashboard.deliverables} />
     </div>
   );
 }
@@ -284,14 +296,16 @@ function PhasesSection({ currentPhaseId, phases, projectId }: { projectId: strin
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
         <div>
           <CardTitle>Phases</CardTitle>
-          <CardDescription>Current Phase is a dashboard focus marker only.</CardDescription>
+          <CardDescription>Open a phase to see its people and tasks.</CardDescription>
         </div>
-        <PhaseManagementDialog projectId={projectId} phases={phases} currentPhaseId={currentPhaseId}>
-          <Button type="button" variant="outline">
-            <ListChecks className="size-4" aria-hidden="true" />
-            Manage Phases
-          </Button>
-        </PhaseManagementDialog>
+        {isProjectPm ? (
+          <PhaseManagementDialog projectId={projectId} phases={phases} currentPhaseId={currentPhaseId}>
+            <Button type="button" variant="outline" size="sm">
+              <ListChecks className="size-4" aria-hidden="true" />
+              Manage
+            </Button>
+          </PhaseManagementDialog>
+        ) : null}
       </CardHeader>
       <CardContent>
         {phases.length === 0 ? (
@@ -299,31 +313,34 @@ function PhasesSection({ currentPhaseId, phases, projectId }: { projectId: strin
         ) : (
           <div className="space-y-3">
             {phases.map((phase) => (
-              <div key={phase.id} className="rounded-md border bg-background p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-sm font-semibold text-foreground">{phase.name}</h3>
-                      <StatusBadge value={phase.status} />
-                      {phase.id === currentPhaseId ? <Badge variant="outline">Current Phase</Badge> : null}
+              <details key={phase.id} className="rounded-md border bg-background p-4" open={phase.status === "In Progress" || phase.id === currentPhaseId}>
+                <summary className="cursor-pointer list-none">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-semibold text-foreground">{phase.name}</h3>
+                        <StatusBadge value={phase.status} />
+                      </div>
+                      {phase.description ? <p className="mt-2 text-sm text-muted-foreground">{phase.description}</p> : null}
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        {formatOptionalDate(phase.start_date)} - {formatOptionalDate(phase.end_date)}
+                      </p>
                     </div>
-                    {phase.description ? <p className="mt-2 text-sm text-muted-foreground">{phase.description}</p> : null}
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {formatOptionalDate(phase.start_date)} - {formatOptionalDate(phase.end_date)}
-                    </p>
+                    <div className="w-full sm:w-36">
+                      <ProgressValue value={phase.progress} label={`${phase.name} progress`} compact />
+                    </div>
                   </div>
-                  <div className="w-full sm:w-36">
-                    <ProgressValue value={phase.progress} label={`${phase.name} progress`} compact />
-                  </div>
+                </summary>
+                <div className="pt-1">
+                  <PhasePeople
+                    isProjectPm={isProjectPm}
+                    phase={phase}
+                    projectId={projectId}
+                    projectMembers={projectMembers}
+                  />
+                  <PhaseTasks isProjectPm={isProjectPm} projectId={projectId} phase={phase} />
                 </div>
-                <PhasePeople
-                  isProjectPm={isProjectPm}
-                  phase={phase}
-                  projectId={projectId}
-                  projectMembers={projectMembers}
-                />
-                <PhaseTasks isProjectPm={isProjectPm} projectId={projectId} phase={phase} />
-              </div>
+              </details>
             ))}
           </div>
         )}
@@ -347,7 +364,7 @@ function PhasePeople({
   const phaseMembersQuery = usePhaseMembersQuery(projectId, phase.id, true);
   const addPhaseMember = useAddPhaseMemberMutation(projectId, phase.id);
   const removePhaseMember = useRemovePhaseMemberMutation(projectId, phase.id);
-  const phaseMembers = phaseMembersQuery.data ?? [];
+  const phaseMembers = useMemo(() => phaseMembersQuery.data ?? [], [phaseMembersQuery.data]);
   const phaseMemberIds = useMemo(() => new Set(phaseMembers.map((member) => member.user_id)), [phaseMembers]);
   const projectMemberIds = useMemo(() => new Set(projectMembers.map((member) => member.user_id)), [projectMembers]);
   const knownUsers = projectMembers
@@ -470,7 +487,7 @@ function DeadlinesSection({ deadlines }: { deadlines: UpcomingDeadline[] }) {
     <Card>
       <CardHeader>
         <CardTitle>Upcoming Deadlines</CardTitle>
-        <CardDescription>Backend-provided project, phase, and task deadlines.</CardDescription>
+        <CardDescription>Project, phase, and task due dates coming up soon.</CardDescription>
       </CardHeader>
       <CardContent>
         {deadlines.length === 0 ? (
@@ -496,23 +513,23 @@ function DeadlinesSection({ deadlines }: { deadlines: UpcomingDeadline[] }) {
   );
 }
 
-function DeliverablesSection({ deliverables }: { deliverables: DashboardDeliverable[] }) {
+function ProjectChecklistSection({ deliverables }: { deliverables: DashboardDeliverable[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Deliverables</CardTitle>
-        <CardDescription>Checklist items attached to project tasks.</CardDescription>
+        <CardTitle>Checklist</CardTitle>
+        <CardDescription>Open checklist items across project tasks.</CardDescription>
       </CardHeader>
       <CardContent>
         {deliverables.length === 0 ? (
-          <EmptyState title="No deliverables available." description="Task checklist items will appear here when they exist." />
+          <EmptyState title="No checklist items available." description="Task checklist items will appear here when they exist." />
         ) : (
           <div className="overflow-auto rounded-md border">
             <table className="w-full text-sm">
               <thead className="border-b bg-muted/40 text-left text-muted-foreground">
                 <tr>
                   <th scope="col" className="px-4 py-3 font-medium">
-                    Deliverable
+                    What needs doing
                   </th>
                   <th scope="col" className="px-4 py-3 font-medium">
                     Task
