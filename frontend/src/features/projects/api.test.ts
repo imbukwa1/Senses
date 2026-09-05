@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { addPhaseMember, addProjectMember, archiveProject, listPhaseMembers } from "./api";
+import { addPhaseMember, addProjectMember, archiveProject, listMyWork, listPhaseMembers } from "./api";
 
 const project = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -45,6 +45,21 @@ const phaseMember = {
   name: member.name,
   email: member.email,
   added_at: "2026-01-01T00:00:00Z",
+};
+
+const myWorkItem = {
+  task_id: "55555555-5555-4555-8555-555555555555",
+  task_name: "Draft implementation plan",
+  project_id: project.id,
+  project_name: project.name,
+  project_code: project.code,
+  phase_id: phaseId,
+  phase_name: "Discovery",
+  due_date: "2026-09-05",
+  status: "In Progress",
+  relationship: "owner",
+  overdue: false,
+  action_label: "Due today",
 };
 
 describe("project API mutations", () => {
@@ -110,6 +125,20 @@ describe("project API mutations", () => {
     );
     expect(listed).toEqual([phaseMember]);
     expect(added).toEqual(phaseMember);
+  });
+
+  it("lists My Work through the current-user endpoint", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([myWorkItem]));
+
+    const items = await listMyWork("token");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/my-work",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
+    expect(items).toEqual([myWorkItem]);
   });
 });
 

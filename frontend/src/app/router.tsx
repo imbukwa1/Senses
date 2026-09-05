@@ -11,6 +11,7 @@ const ProjectDetailPlaceholderPage = lazy(() =>
   import("@/pages/project-detail-placeholder-page").then((module) => ({ default: module.ProjectDetailPlaceholderPage })),
 );
 const HomePage = lazy(() => import("@/pages/placeholders/home-page").then((module) => ({ default: module.HomePage })));
+const MyWorkPage = lazy(() => import("@/pages/my-work-page").then((module) => ({ default: module.MyWorkPage })));
 const NotFoundPage = lazy(() => import("@/pages/placeholders/not-found-page").then((module) => ({ default: module.NotFoundPage })));
 const ProjectsPage = lazy(() => import("@/pages/placeholders/projects-page").then((module) => ({ default: module.ProjectsPage })));
 const SearchPage = lazy(() => import("@/pages/placeholders/search-page").then((module) => ({ default: module.SearchPage })));
@@ -47,6 +48,19 @@ export const router = createBrowserRouter([
           title: "Home",
           subtitle: "Shared application layout foundation.",
           breadcrumbs: [{ label: "Home" }],
+        },
+      },
+      {
+        path: "my-work",
+        element: (
+          <RouteLoader>
+            <MyWorkPage />
+          </RouteLoader>
+        ),
+        handle: {
+          title: "My Work",
+          subtitle: "Tasks you own or support.",
+          breadcrumbs: [{ label: "My Work" }],
         },
       },
       {

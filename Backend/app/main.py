@@ -9,6 +9,7 @@ from app.auth import router as auth_router
 from app.config import Settings, get_settings
 from app.db import Database
 from app.exceptions import register_exception_handlers
+from app.my_work import router as my_work_router
 from app.projects import router as projects_router
 from app.search import router as search_router
 from app.storage import FileStorage, GCSFileStorage
@@ -66,6 +67,7 @@ def create_app(
     register_exception_handlers(app)
     app.include_router(auth_router)
     app.include_router(users_router)
+    app.include_router(my_work_router)
     app.include_router(projects_router)
     app.include_router(search_router)
 

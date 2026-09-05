@@ -7,6 +7,7 @@ import {
   phaseMembersSchema,
   checklistItemSchema,
   checklistSchema,
+  myWorkItemsSchema,
   projectDashboardSchema,
   projectMemberSchema,
   projectMembersSchema,
@@ -24,6 +25,7 @@ import {
 import type {
   PhaseMutationPayload,
   PhaseMember,
+  MyWorkItem,
   PhaseResponse,
   ProjectDashboard,
   ProjectMember,
@@ -45,6 +47,17 @@ export async function listProjects(token: string): Promise<ProjectSummary[]> {
 
   if (!result.success) {
     throw new ApiError("Project data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function listMyWork(token: string): Promise<MyWorkItem[]> {
+  const data = await apiRequest<unknown>("/my-work", {}, token);
+  const result = myWorkItemsSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("My Work data could not be loaded.", 500);
   }
 
   return result.data;

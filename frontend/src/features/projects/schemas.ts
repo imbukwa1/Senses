@@ -170,6 +170,23 @@ export const taskSupporterSchema = z.object({
 
 export const taskSupportersSchema = z.array(taskSupporterSchema);
 
+export const myWorkItemSchema = z.object({
+  task_id: z.uuid(),
+  task_name: z.string().min(1),
+  project_id: z.uuid(),
+  project_name: z.string().min(1),
+  project_code: z.string().min(1),
+  phase_id: z.uuid(),
+  phase_name: z.string().min(1),
+  due_date: z.string().nullable(),
+  status: z.enum(taskStatuses),
+  relationship: z.enum(["owner", "supporter", "owner_supporter"]),
+  overdue: z.boolean(),
+  action_label: z.string().nullable(),
+});
+
+export const myWorkItemsSchema = z.array(myWorkItemSchema);
+
 export const checklistSummarySchema = z.object({
   completed_items: z.number(),
   total_items: z.number(),

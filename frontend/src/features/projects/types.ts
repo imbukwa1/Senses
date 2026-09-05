@@ -190,6 +190,21 @@ export type TaskSupporter = {
   added_at: string;
 };
 
+export type MyWorkItem = {
+  task_id: string;
+  task_name: string;
+  project_id: string;
+  project_name: string;
+  project_code: string;
+  phase_id: string;
+  phase_name: string;
+  due_date: string | null;
+  status: TaskStatus;
+  relationship: "owner" | "supporter" | "owner_supporter";
+  overdue: boolean;
+  action_label: string | null;
+};
+
 export type ChecklistSummary = {
   completed_items: number;
   total_items: number;
