@@ -223,7 +223,7 @@ function PhasesSection({ currentPhaseId, phases, projectId }: { projectId: strin
                   projectId={projectId}
                   projectMembers={projectMembers}
                 />
-                <PhaseTasks projectId={projectId} phase={phase} />
+                <PhaseTasks isProjectPm={isProjectPm} projectId={projectId} phase={phase} />
               </div>
             ))}
           </div>

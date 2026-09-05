@@ -19,7 +19,8 @@ def test_task_can_be_created_retrieved_and_project_context_derives_through_phase
         owner = _create_auth_user(database, "Task Owner", _unique_email("tasks.owner"))
         project = _create_project(database, user["id"], "Task Project")
         phase = _create_phase(database, project["id"], user["id"], "Task Phase", 1)
-        _add_project_member(database, project["id"], user["id"])
+        _add_project_member(database, project["id"], user["id"], "PM")
+        _add_project_member(database, project["id"], owner["id"])
         app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
 
         with TestClient(app) as client:
@@ -52,6 +53,15 @@ def test_task_can_be_created_retrieved_and_project_context_derives_through_phase
                     """,
                     (body["id"],),
                 )
+                owner_phase_membership = session.fetch_one(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM phase_members
+                    WHERE phase_id = %s
+                      AND user_id = %s
+                    """,
+                    (phase["id"], owner["id"]),
+                )
 
         assert created.status_code == 201
         assert body["phase_id"] == str(phase["id"])
@@ -70,6 +80,7 @@ def test_task_can_be_created_retrieved_and_project_context_derives_through_phase
         assert [task["id"] for task in listed.json()] == [body["id"]]
         assert audit["user_id"] == user["id"]
         assert audit["new_values"]["name"] == "Section Nine Task"
+        assert owner_phase_membership["count"] == 1
     finally:
         database.close()
 
@@ -83,7 +94,8 @@ def test_task_update_owner_priority_dates_and_status() -> None:
         project = _create_project(database, user["id"], "Editable Task Project")
         phase = _create_phase(database, project["id"], user["id"], "Editable Task Phase", 1)
         task = _create_task(database, phase["id"], user["id"], "Editable Task")
-        _add_project_member(database, project["id"], user["id"])
+        _add_project_member(database, project["id"], user["id"], "PM")
+        _add_project_member(database, project["id"], new_owner["id"])
         today = _database_today(database)
         app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
 
@@ -127,6 +139,15 @@ def test_task_update_owner_priority_dates_and_status() -> None:
                     """,
                     (task["id"],),
                 )
+                owner_phase_membership = session.fetch_one(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM phase_members
+                    WHERE phase_id = %s
+                      AND user_id = %s
+                    """,
+                    (phase["id"], new_owner["id"]),
+                )
 
         assert updated.status_code == 200
         assert updated.json()["name"] == "Updated Task"
@@ -142,11 +163,12 @@ def test_task_update_owner_priority_dates_and_status() -> None:
         assert reopened.json()["status"] == "In Progress"
         assert reopened.json()["completed_at"] is None
         assert audit["user_id"] == user["id"]
+        assert owner_phase_membership["count"] == 1
     finally:
         database.close()
 
 
-def test_task_supporters_can_be_added_listed_removed_and_duplicates_are_rejected() -> None:
+def test_task_supporters_can_be_added_listed_removed_and_duplicates_are_safe() -> None:
     database = _database_from_env()
     database.connect()
     try:
@@ -155,7 +177,8 @@ def test_task_supporters_can_be_added_listed_removed_and_duplicates_are_rejected
         project = _create_project(database, user["id"], "Supporter Task Project")
         phase = _create_phase(database, project["id"], user["id"], "Supporter Task Phase", 1)
         task = _create_task(database, phase["id"], user["id"], "Supporter Task")
-        _add_project_member(database, project["id"], user["id"])
+        _add_project_member(database, project["id"], user["id"], "PM")
+        _add_project_member(database, project["id"], supporter["id"])
         app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
 
         with TestClient(app) as client:
@@ -182,14 +205,25 @@ def test_task_supporters_can_be_added_listed_removed_and_duplicates_are_rejected
                 f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}/supporters",
                 headers=_auth_header(token),
             )
+            with database.session() as session:
+                supporter_phase_membership = session.fetch_one(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM phase_members
+                    WHERE phase_id = %s
+                      AND user_id = %s
+                    """,
+                    (phase["id"], supporter["id"]),
+                )
 
         assert added.status_code == 201
         assert added.json()["user_id"] == str(supporter["id"])
         assert added.json()["name"] == "Task Supporter"
         assert added.json()["email"] == supporter["email"]
-        assert duplicate.status_code == 409
-        assert duplicate.json() == {"error": {"message": "Task supporter already exists"}}
+        assert duplicate.status_code == 201
+        assert duplicate.json()["user_id"] == str(supporter["id"])
         assert [row["user_id"] for row in listed.json()] == [str(supporter["id"])]
+        assert supporter_phase_membership["count"] == 1
         assert removed.status_code == 204
         assert listed_after_remove.json() == []
     finally:
@@ -203,7 +237,7 @@ def test_task_validation_and_invalid_phase_are_rejected() -> None:
         user = _create_auth_user(database, "Task Validation User", _unique_email("tasks.validation"))
         project = _create_project(database, user["id"], "Task Validation Project")
         phase = _create_phase(database, project["id"], user["id"], "Task Validation Phase", 1)
-        _add_project_member(database, project["id"], user["id"])
+        _add_project_member(database, project["id"], user["id"], "PM")
         app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
 
         with TestClient(app) as client:
@@ -233,6 +267,151 @@ def test_task_validation_and_invalid_phase_are_rejected() -> None:
         assert invalid_priority.status_code == 422
         assert invalid_status.status_code == 422
         assert invalid_project_id.status_code == 422
+    finally:
+        database.close()
+
+
+def test_task_assignment_requires_project_member_for_owner_and_supporter() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Assignment PM", _unique_email("tasks.assignmentpm"))
+        outsider = _create_auth_user(database, "Assignment Outsider", _unique_email("tasks.assignmentoutsider"))
+        project = _create_project(database, pm["id"], "Assignment Validation Project")
+        phase = _create_phase(database, project["id"], pm["id"], "Assignment Validation Phase", 1)
+        task = _create_task(database, phase["id"], pm["id"], "Assignment Validation Task")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            token = _login(client, pm["email"])
+            owner_response = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks",
+                headers=_auth_header(token),
+                json=_task_payload(outsider["id"]),
+            )
+            supporter_response = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}/supporters",
+                headers=_auth_header(token),
+                json={"user_id": str(outsider["id"])},
+            )
+
+        assert owner_response.status_code == 422
+        assert owner_response.json() == {"error": {"message": "Task assignee must belong to the parent project"}}
+        assert supporter_response.status_code == 422
+        assert supporter_response.json() == {"error": {"message": "Task assignee must belong to the parent project"}}
+    finally:
+        database.close()
+
+
+def test_task_assignment_management_requires_pm_role() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Assignment Role PM", _unique_email("tasks.rolepm"))
+        team_member = _create_auth_user(database, "Assignment Role Team", _unique_email("tasks.roleteam"))
+        finance = _create_auth_user(database, "Assignment Role Finance", _unique_email("tasks.rolefinance"))
+        assignee = _create_auth_user(database, "Assignment Role Target", _unique_email("tasks.roletarget"))
+        project = _create_project(database, pm["id"], "Assignment Role Project")
+        phase = _create_phase(database, project["id"], pm["id"], "Assignment Role Phase", 1)
+        task = _create_task(database, phase["id"], pm["id"], "Assignment Role Task")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], team_member["id"], "Team Member")
+        _add_project_member(database, project["id"], finance["id"], "Finance")
+        _add_project_member(database, project["id"], assignee["id"], "Team Member")
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            pm_token = _login(client, pm["email"])
+            team_token = _login(client, team_member["email"])
+            finance_token = _login(client, finance["email"])
+
+            pm_create = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks",
+                headers=_auth_header(pm_token),
+                json=_task_payload(assignee["id"]),
+            )
+            pm_supporter = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}/supporters",
+                headers=_auth_header(pm_token),
+                json={"user_id": str(assignee["id"])},
+            )
+            team_create = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks",
+                headers=_auth_header(team_token),
+                json=_task_payload(assignee["id"]),
+            )
+            team_update_owner = client.patch(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}",
+                headers=_auth_header(team_token),
+                json={"owner_id": str(assignee["id"])},
+            )
+            team_supporter = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}/supporters",
+                headers=_auth_header(team_token),
+                json={"user_id": str(team_member["id"])},
+            )
+            finance_create = client.post(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks",
+                headers=_auth_header(finance_token),
+                json=_task_payload(assignee["id"]),
+            )
+
+        assert pm_create.status_code == 201
+        assert pm_supporter.status_code == 201
+        assert team_create.status_code == 403
+        assert team_update_owner.status_code == 403
+        assert team_supporter.status_code == 403
+        assert finance_create.status_code == 403
+    finally:
+        database.close()
+
+
+def test_task_assignment_preserves_project_role_and_multiple_phase_memberships() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Multi Phase PM", _unique_email("tasks.multiphasepm"))
+        assignee = _create_auth_user(database, "Multi Phase Assignee", _unique_email("tasks.multiphaseassignee"))
+        project = _create_project(database, pm["id"], "Multi Phase Assignment Project")
+        first_phase = _create_phase(database, project["id"], pm["id"], "Multi Phase One", 1)
+        second_phase = _create_phase(database, project["id"], pm["id"], "Multi Phase Two", 2)
+        task = _create_task(database, second_phase["id"], pm["id"], "Multi Phase Task")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], assignee["id"], "Finance")
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            token = _login(client, pm["email"])
+            owner_response = client.post(
+                f"/projects/{project['id']}/phases/{first_phase['id']}/tasks",
+                headers=_auth_header(token),
+                json=_task_payload(assignee["id"]),
+            )
+            supporter_response = client.post(
+                f"/projects/{project['id']}/phases/{second_phase['id']}/tasks/{task['id']}/supporters",
+                headers=_auth_header(token),
+                json={"user_id": str(assignee["id"])},
+            )
+            with database.session() as session:
+                membership = session.fetch_one(
+                    "SELECT role FROM project_members WHERE project_id = %s AND user_id = %s",
+                    (project["id"], assignee["id"]),
+                )
+                phase_memberships = session.fetch_one(
+                    """
+                    SELECT COUNT(*) AS count
+                    FROM phase_members
+                    WHERE user_id = %s
+                      AND phase_id IN (%s, %s)
+                    """,
+                    (assignee["id"], first_phase["id"], second_phase["id"]),
+                )
+
+        assert owner_response.status_code == 201
+        assert supporter_response.status_code == 201
+        assert membership == {"role": "Finance"}
+        assert phase_memberships == {"count": 2}
     finally:
         database.close()
 
@@ -279,7 +458,7 @@ def test_database_date_constraint_rejects_invalid_task_dates() -> None:
         user = _create_auth_user(database, "Task Date User", _unique_email("tasks.date"))
         project = _create_project(database, user["id"], "Task Date Project")
         phase = _create_phase(database, project["id"], user["id"], "Task Date Phase", 1)
-        _add_project_member(database, project["id"], user["id"])
+        _add_project_member(database, project["id"], user["id"], "PM")
         today = _database_today(database)
         app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
 
@@ -370,11 +549,11 @@ def _create_task(database: Database, phase_id, owner_id, name: str) -> dict:
         )
 
 
-def _add_project_member(database: Database, project_id, user_id) -> None:
+def _add_project_member(database: Database, project_id, user_id, role: str = "Team Member") -> None:
     with database.session() as session:
         session.execute(
-            "INSERT INTO project_members (project_id, user_id) VALUES (%s, %s)",
-            (project_id, user_id),
+            "INSERT INTO project_members (project_id, user_id, role) VALUES (%s, %s, %s)",
+            (project_id, user_id, role),
         )
 
 

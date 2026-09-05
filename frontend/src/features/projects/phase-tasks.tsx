@@ -13,7 +13,7 @@ import { TaskFormDialog } from "./task-form-dialog";
 import { TaskDetailDrawer } from "./task-detail-drawer";
 import type { DashboardPhase, Task } from "./types";
 
-export function PhaseTasks({ phase, projectId }: { projectId: string; phase: DashboardPhase }) {
+export function PhaseTasks({ isProjectPm, phase, projectId }: { isProjectPm: boolean; projectId: string; phase: DashboardPhase }) {
   const tasksQuery = useTasksQuery(projectId, phase.id);
   const tasks = tasksQuery.data ?? [];
 
@@ -21,12 +21,14 @@ export function PhaseTasks({ phase, projectId }: { projectId: string; phase: Das
     <div className="mt-4 rounded-md border bg-surface">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-3 py-3">
         <h4 className="text-sm font-semibold text-foreground">Tasks</h4>
-        <TaskFormDialog mode="create" projectId={projectId} phase={phase}>
-          <Button type="button" variant="outline" size="sm">
-            <Plus className="size-4" aria-hidden="true" />
-            Add Task
-          </Button>
-        </TaskFormDialog>
+        {isProjectPm ? (
+          <TaskFormDialog mode="create" projectId={projectId} phase={phase}>
+            <Button type="button" variant="outline" size="sm">
+              <Plus className="size-4" aria-hidden="true" />
+              Add Task
+            </Button>
+          </TaskFormDialog>
+        ) : null}
       </div>
       <div className="p-3">
         {tasksQuery.isLoading ? <LoadingState label="Loading tasks" /> : null}
@@ -34,13 +36,15 @@ export function PhaseTasks({ phase, projectId }: { projectId: string; phase: Das
         {!tasksQuery.isLoading && !tasksQuery.isError && tasks.length === 0 ? (
           <EmptyState title="No tasks have been added to this phase." />
         ) : null}
-        {!tasksQuery.isLoading && !tasksQuery.isError && tasks.length > 0 ? <TaskTable projectId={projectId} phase={phase} tasks={tasks} /> : null}
+        {!tasksQuery.isLoading && !tasksQuery.isError && tasks.length > 0 ? (
+          <TaskTable isProjectPm={isProjectPm} projectId={projectId} phase={phase} tasks={tasks} />
+        ) : null}
       </div>
     </div>
   );
 }
 
-function TaskTable({ phase, projectId, tasks }: { projectId: string; phase: DashboardPhase; tasks: Task[] }) {
+function TaskTable({ isProjectPm, phase, projectId, tasks }: { isProjectPm: boolean; projectId: string; phase: DashboardPhase; tasks: Task[] }) {
   return (
     <Table>
       <TableHeader>
@@ -79,12 +83,14 @@ function TaskTable({ phase, projectId, tasks }: { projectId: string; phase: Dash
                     View
                   </Button>
                 </TaskDetailDrawer>
-                <TaskFormDialog mode="edit" projectId={projectId} phase={phase} task={task}>
-                  <Button type="button" variant="ghost" size="sm">
-                    <Edit className="size-4" aria-hidden="true" />
-                    Edit
-                  </Button>
-                </TaskFormDialog>
+                {isProjectPm ? (
+                  <TaskFormDialog mode="edit" projectId={projectId} phase={phase} task={task}>
+                    <Button type="button" variant="ghost" size="sm">
+                      <Edit className="size-4" aria-hidden="true" />
+                      Edit
+                    </Button>
+                  </TaskFormDialog>
+                ) : null}
               </div>
             </TableCell>
           </TableRow>

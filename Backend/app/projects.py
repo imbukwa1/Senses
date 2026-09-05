@@ -42,6 +42,7 @@ TASK_SUPPORTER_EXISTS_DETAIL = "Task supporter already exists"
 PHASE_MEMBER_EXISTS_DETAIL = "Phase member already exists"
 PHASE_MEMBER_NOT_FOUND_DETAIL = "Phase member not found"
 PHASE_MEMBER_PROJECT_MEMBER_REQUIRED_DETAIL = "Phase member must belong to the parent project"
+TASK_ASSIGNEE_PROJECT_MEMBER_REQUIRED_DETAIL = "Task assignee must belong to the parent project"
 USER_NOT_FOUND_DETAIL = "User not found"
 PROJECT_LEAD_REQUIRED_DETAIL = "Project lead is required to change project status"
 PROJECT_LEAD_MEMBER_REMOVE_DETAIL = "Project lead cannot be removed from project members"
@@ -875,8 +876,9 @@ def create_task(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> TaskResponse:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     ensure_phase_in_project(session, project_id, phase_id)
-    ensure_user_exists(session, payload.owner_id)
+    ensure_task_assignee_membership(session, project_id, phase_id, payload.owner_id)
     task = session.fetch_one(
         """
         INSERT INTO tasks (
@@ -940,6 +942,7 @@ def update_task(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> TaskResponse:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     fetch_project_task_or_404(session, project_id, phase_id, task_id)
     values = payload.model_dump(exclude_unset=True)
     if not values:
@@ -954,7 +957,7 @@ def update_task(
             detail=f"Required task fields cannot be null: {', '.join(null_required_fields)}",
         )
     if "owner_id" in values:
-        ensure_user_exists(session, values["owner_id"])
+        ensure_task_assignee_membership(session, project_id, phase_id, values["owner_id"])
 
     set_clause = ", ".join(f"{field} = %s" for field in values)
     params = [*values.values(), task_id, phase_id]
@@ -1031,13 +1034,16 @@ def add_task_supporter(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> TaskSupporterResponse:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     fetch_project_task_or_404(session, project_id, phase_id, task_id)
-    ensure_user_exists(session, payload.user_id)
-    if fetch_task_supporter(session, task_id, payload.user_id) is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=TASK_SUPPORTER_EXISTS_DETAIL)
+    ensure_task_assignee_membership(session, project_id, phase_id, payload.user_id)
 
     session.execute(
-        "INSERT INTO task_supporters (task_id, user_id) VALUES (%s, %s)",
+        """
+        INSERT INTO task_supporters (task_id, user_id)
+        VALUES (%s, %s)
+        ON CONFLICT DO NOTHING
+        """,
         (task_id, payload.user_id),
     )
     return task_supporter_to_response(fetch_task_supporter_or_404(session, task_id, payload.user_id))
@@ -1056,6 +1062,7 @@ def remove_task_supporter(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> Response:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     fetch_project_task_or_404(session, project_id, phase_id, task_id)
     session.execute(
         "DELETE FROM task_supporters WHERE task_id = %s AND user_id = %s",
@@ -1548,6 +1555,35 @@ def ensure_user_exists(session: DatabaseSession, user_id: UUID) -> None:
     row = session.fetch_one("SELECT id FROM users WHERE id = %s", (user_id,))
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=USER_NOT_FOUND_DETAIL)
+
+
+def ensure_task_assignee_membership(
+    session: DatabaseSession,
+    project_id: UUID,
+    phase_id: UUID,
+    user_id: UUID,
+) -> None:
+    ensure_user_exists(session, user_id)
+    if fetch_optional_project_member(session, project_id, user_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=TASK_ASSIGNEE_PROJECT_MEMBER_REQUIRED_DETAIL,
+        )
+
+    session.execute(
+        """
+        INSERT INTO phase_members (phase_id, user_id)
+        VALUES (%s, %s)
+        ON CONFLICT DO NOTHING
+        """,
+        (phase_id, user_id),
+    )
+
+    if fetch_phase_member(session, phase_id, user_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=PHASE_MEMBER_PROJECT_MEMBER_REQUIRED_DETAIL,
+        )
 
 
 def ensure_project_lead_membership(
