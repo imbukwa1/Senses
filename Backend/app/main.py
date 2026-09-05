@@ -30,6 +30,7 @@ def create_app(
     file_storage: FileStorage | None = None,
 ) -> FastAPI:
     resolved_settings = settings or get_settings()
+    validate_startup_settings(resolved_settings)
     configure_logging(resolved_settings.log_level)
     resolved_database = database or Database(resolved_settings)
     resolved_file_storage = file_storage
@@ -56,10 +57,7 @@ def create_app(
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-        ],
+        allow_origins=list(resolved_settings.cors_allowed_origins),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -92,6 +90,14 @@ def create_app(
         )
 
     return app
+
+
+def validate_startup_settings(settings: Settings) -> None:
+    if not settings.auth_token_secret:
+        raise RuntimeError("AUTH_TOKEN_SECRET is not configured")
+
+    if "*" in settings.cors_allowed_origins:
+        raise RuntimeError("CORS_ALLOWED_ORIGINS cannot include '*' while credentials are enabled")
 
 
 app = create_app()

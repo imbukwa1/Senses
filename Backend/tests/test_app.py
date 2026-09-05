@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import pytest
 
 from app.config import Settings
 from app.main import create_app
@@ -58,13 +59,27 @@ def test_health_returns_degraded_when_database_unreachable() -> None:
     }
 
 
-def _settings() -> Settings:
+def test_application_requires_auth_secret() -> None:
+    with pytest.raises(RuntimeError, match="AUTH_TOKEN_SECRET"):
+        create_app(settings=_settings(auth_token_secret=""))
+
+
+def test_application_rejects_wildcard_cors_with_credentials() -> None:
+    with pytest.raises(RuntimeError, match="CORS_ALLOWED_ORIGINS"):
+        create_app(settings=_settings(cors_allowed_origins=("*",)))
+
+
+def _settings(
+    auth_token_secret: str = "test-secret",
+    cors_allowed_origins: tuple[str, ...] = ("http://localhost:5173",),
+) -> Settings:
     return Settings(
         app_name="SENSES Test API",
         database_url=None,
         log_level="CRITICAL",
         db_pool_min_size=1,
         db_pool_max_size=1,
-        auth_token_secret="test-secret",
+        auth_token_secret=auth_token_secret,
         access_token_expire_minutes=60,
+        cors_allowed_origins=cors_allowed_origins,
     )

@@ -1,4 +1,5 @@
 import { ApiError, apiRequest } from "@/features/auth/api";
+import { env } from "@/lib/env";
 
 import {
   attentionItemsSchema,
@@ -596,7 +597,7 @@ function parseChecklistItem(data: unknown) {
 }
 
 function apiBaseUrl() {
-  return import.meta.env.VITE_API_BASE_URL?.trim().replace(/\/+$/, "") || "http://localhost:8000";
+  return env.apiBaseUrl;
 }
 
 async function safeFileErrorMessage(response: Response) {

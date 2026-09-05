@@ -16,6 +16,7 @@ class Settings:
     gcs_project_id: str | None = None
     gcs_bucket_name: str | None = None
     max_upload_bytes: int = 10 * 1024 * 1024
+    cors_allowed_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
 
 
 def _read_int_env(name: str, default: int) -> int:
@@ -27,6 +28,14 @@ def _read_int_env(name: str, default: int) -> int:
         return int(raw_value)
     except ValueError as exc:
         raise ValueError(f"{name} must be an integer") from exc
+
+
+def _read_csv_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value.strip() == "":
+        return default
+
+    return tuple(value.strip() for value in raw_value.split(",") if value.strip())
 
 
 def get_settings() -> Settings:
@@ -41,4 +50,8 @@ def get_settings() -> Settings:
         gcs_project_id=os.getenv("GCS_PROJECT_ID"),
         gcs_bucket_name=os.getenv("GCS_BUCKET_NAME"),
         max_upload_bytes=_read_int_env("MAX_UPLOAD_BYTES", 10 * 1024 * 1024),
+        cors_allowed_origins=_read_csv_env(
+            "CORS_ALLOWED_ORIGINS",
+            ("http://localhost:5173", "http://127.0.0.1:5173"),
+        ),
     )
