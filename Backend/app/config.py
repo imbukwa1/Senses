@@ -15,6 +15,7 @@ class Settings:
     access_token_expire_minutes: int
     gcs_project_id: str | None = None
     gcs_bucket_name: str | None = None
+    max_upload_bytes: int = 10 * 1024 * 1024
 
 
 def _read_int_env(name: str, default: int) -> int:
@@ -39,4 +40,5 @@ def get_settings() -> Settings:
         access_token_expire_minutes=_read_int_env("ACCESS_TOKEN_EXPIRE_MINUTES", 60),
         gcs_project_id=os.getenv("GCS_PROJECT_ID"),
         gcs_bucket_name=os.getenv("GCS_BUCKET_NAME"),
+        max_upload_bytes=_read_int_env("MAX_UPLOAD_BYTES", 10 * 1024 * 1024),
     )

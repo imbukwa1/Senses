@@ -255,9 +255,9 @@ export const taskFileSchema = z.object({
   uploader_name: z.string().min(1),
   uploader_email: z.email(),
   file_name: z.string().min(1),
-  storage_key: z.string().min(1),
   file_type: z.string().nullable(),
   file_size: z.number(),
+  file_category: z.enum(["reference", "work_submission"]),
   created_at: z.string().min(1),
 });
 

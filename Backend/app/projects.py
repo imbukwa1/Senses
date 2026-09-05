@@ -6,7 +6,7 @@ from urllib.parse import quote
 from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -31,6 +31,7 @@ PhaseStatus = Literal["Not Started", "In Progress", "Completed"]
 TaskStatus = Literal["Not Started", "In Progress", "Blocked", "Completed"]
 PriorityLevel = Literal["Low", "Medium", "High"]
 ProjectMemberRole = Literal["PM", "Team Member", "Finance"]
+TaskFileCategory = Literal["reference", "work_submission"]
 
 PROJECT_NOT_FOUND_DETAIL = "Project not found"
 PHASE_NOT_FOUND_DETAIL = "Phase not found"
@@ -38,6 +39,9 @@ TASK_NOT_FOUND_DETAIL = "Task not found"
 DELIVERABLE_NOT_FOUND_DETAIL = "Checklist item not found"
 TASK_FILE_NOT_FOUND_DETAIL = "Task file not found"
 FILE_STORAGE_NOT_CONFIGURED_DETAIL = "File storage is not configured"
+FILE_UPLOAD_EMPTY_DETAIL = "Uploaded file cannot be empty"
+FILE_UPLOAD_TOO_LARGE_DETAIL = "Uploaded file is too large"
+TASK_FILE_UPLOAD_FORBIDDEN_DETAIL = "You cannot upload work to this task"
 TASK_SUPPORTER_EXISTS_DETAIL = "Task supporter already exists"
 PHASE_MEMBER_EXISTS_DETAIL = "Phase member already exists"
 PHASE_MEMBER_NOT_FOUND_DETAIL = "Phase member not found"
@@ -358,9 +362,9 @@ class TaskFileResponse(BaseModel):
     uploader_name: str
     uploader_email: str
     file_name: str
-    storage_key: str
     file_type: str | None
     file_size: int
+    file_category: str
     created_at: datetime
 
 
@@ -1343,22 +1347,32 @@ async def upload_task_file(
     project_id: UUID,
     phase_id: UUID,
     task_id: UUID,
+    file_category: TaskFileCategory = Form("work_submission"),
     file: UploadFile = File(...),
     current_user: AuthenticatedUser = Depends(get_current_user),
 ) -> TaskFileResponse:
     with request.app.state.database.session(actor_user_id=current_user.id) as session:
         ensure_project_access(session, current_user.id, project_id)
-        fetch_project_task_or_404(session, project_id, phase_id, task_id)
+        task = fetch_project_task_or_404(session, project_id, phase_id, task_id)
+        ensure_task_file_upload_allowed(session, current_user.id, project_id, task, file_category)
 
     storage = get_file_storage(request)
     content = await file.read()
-    storage_key = build_task_file_storage_key(task_id, file.filename or "attachment")
+    if len(content) == 0:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=FILE_UPLOAD_EMPTY_DETAIL)
+    max_upload_bytes = request.app.state.settings.max_upload_bytes
+    if len(content) > max_upload_bytes:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=FILE_UPLOAD_TOO_LARGE_DETAIL)
+
+    safe_file_name = sanitize_storage_file_name(file.filename or "attachment")
+    storage_key = build_task_file_storage_key(task_id, safe_file_name)
 
     await run_in_threadpool(storage.upload, storage_key, content, file.content_type)
     try:
         with request.app.state.database.session(actor_user_id=current_user.id) as session:
             ensure_project_access(session, current_user.id, project_id)
-            fetch_project_task_or_404(session, project_id, phase_id, task_id)
+            task = fetch_project_task_or_404(session, project_id, phase_id, task_id)
+            ensure_task_file_upload_allowed(session, current_user.id, project_id, task, file_category)
             row = session.fetch_one(
                 """
                 INSERT INTO task_files (
@@ -1367,18 +1381,20 @@ async def upload_task_file(
                   file_name,
                   storage_key,
                   file_type,
-                  file_size
+                  file_size,
+                  file_category
                 )
-                VALUES (%s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
                     task_id,
                     current_user.id,
-                    file.filename or "attachment",
+                    safe_file_name,
                     storage_key,
                     file.content_type,
                     len(content),
+                    file_category,
                 ),
             )
             response = task_file_to_response(fetch_task_file_or_404(session, task_id, row["id"]))
@@ -2377,6 +2393,7 @@ def fetch_task_files(session: DatabaseSession, task_id: UUID) -> list[Row]:
           task_files.storage_key,
           task_files.file_type,
           task_files.file_size,
+          task_files.file_category,
           task_files.created_at
         FROM task_files
         JOIN users ON users.id = task_files.uploaded_by
@@ -2400,6 +2417,7 @@ def fetch_task_file(session: DatabaseSession, task_id: UUID, file_id: UUID) -> R
           task_files.storage_key,
           task_files.file_type,
           task_files.file_size,
+          task_files.file_category,
           task_files.created_at
         FROM task_files
         JOIN users ON users.id = task_files.uploaded_by
@@ -2447,6 +2465,26 @@ def ensure_project_budget_role(session: DatabaseSession, user_id: UUID, project_
             status_code=status.HTTP_403_FORBIDDEN,
             detail=PROJECT_BUDGET_ROLE_REQUIRED_DETAIL,
         )
+
+
+def ensure_task_file_upload_allowed(
+    session: DatabaseSession,
+    user_id: UUID,
+    project_id: UUID,
+    task: Row,
+    file_category: TaskFileCategory,
+) -> None:
+    if fetch_project_member_role(session, user_id, project_id) == "PM":
+        return
+    if file_category == "work_submission" and (
+        task["owner_id"] == user_id or fetch_task_supporter(session, task["id"], user_id) is not None
+    ):
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=TASK_FILE_UPLOAD_FORBIDDEN_DETAIL,
+    )
 
 
 def fetch_project_budget_or_404(session: DatabaseSession, project_id: UUID) -> Row:

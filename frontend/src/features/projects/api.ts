@@ -510,8 +510,16 @@ export async function listTaskFiles(token: string, projectId: string, phaseId: s
   return result.data;
 }
 
-export async function uploadTaskFile(token: string, projectId: string, phaseId: string, taskId: string, file: File): Promise<TaskFile> {
+export async function uploadTaskFile(
+  token: string,
+  projectId: string,
+  phaseId: string,
+  taskId: string,
+  file: File,
+  fileCategory: TaskFile["file_category"] = "work_submission",
+): Promise<TaskFile> {
   const body = new FormData();
+  body.append("file_category", fileCategory);
   body.append("file", file);
   const data = await apiRequest<unknown>(
     `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/files`,

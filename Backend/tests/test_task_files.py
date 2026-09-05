@@ -64,7 +64,7 @@ def test_authorized_user_can_upload_file_and_metadata_is_saved_after_storage_upl
             with database.session() as session:
                 stored = session.fetch_one(
                     """
-                    SELECT task_id, uploaded_by, file_name, storage_key, file_type, file_size
+                    SELECT task_id, uploaded_by, file_name, storage_key, file_type, file_size, file_category
                     FROM task_files
                     WHERE id = %s
                     """,
@@ -88,20 +88,22 @@ def test_authorized_user_can_upload_file_and_metadata_is_saved_after_storage_upl
         assert body["uploaded_by"] == str(user["id"])
         assert body["uploader_name"] == "File Uploader"
         assert body["uploader_email"] == user["email"]
-        assert body["file_name"] == "scope document.pdf"
+        assert body["file_name"] == "scope_document.pdf"
         assert body["file_type"] == "application/pdf"
         assert body["file_size"] == len(b"binary-content")
-        assert body["storage_key"].startswith(f"tasks/{task['id']}/")
-        assert body["storage_key"] != "client-key"
-        assert storage.objects[body["storage_key"]].content == b"binary-content"
+        assert body["file_category"] == "work_submission"
+        assert "storage_key" not in body
         assert stored["task_id"] == task["id"]
         assert stored["uploaded_by"] == user["id"]
-        assert stored["file_name"] == "scope document.pdf"
-        assert stored["storage_key"] == body["storage_key"]
+        assert stored["file_name"] == "scope_document.pdf"
+        assert stored["storage_key"].startswith(f"tasks/{task['id']}/")
+        assert stored["storage_key"] != "client-key"
         assert stored["file_type"] == "application/pdf"
         assert stored["file_size"] == len(b"binary-content")
+        assert stored["file_category"] == "work_submission"
+        assert storage.objects[stored["storage_key"]].content == b"binary-content"
         assert audit["user_id"] == user["id"]
-        assert audit["new_values"]["file_name"] == "scope document.pdf"
+        assert audit["new_values"]["file_name"] == "scope_document.pdf"
     finally:
         database.close()
 
@@ -130,12 +132,124 @@ def test_multiple_files_can_belong_to_one_task_and_list_with_unique_storage_keys
                 _files_url(project["id"], phase["id"], task["id"]),
                 headers=_auth_header(token),
             )
+            with database.session() as session:
+                storage_keys = session.fetch_all(
+                    """
+                    SELECT storage_key
+                    FROM task_files
+                    WHERE task_id = %s
+                    ORDER BY created_at, id
+                    """,
+                    (task["id"],),
+                )
 
         assert first.status_code == 201
         assert second.status_code == 201
         assert listed.status_code == 200
-        assert first.json()["storage_key"] != second.json()["storage_key"]
         assert [row["file_name"] for row in listed.json()] == ["first.txt", "second.txt"]
+        assert [row["file_category"] for row in listed.json()] == ["work_submission", "work_submission"]
+        assert storage_keys[0]["storage_key"] != storage_keys[1]["storage_key"]
+        assert len(storage.objects) == 2
+    finally:
+        database.close()
+
+
+def test_file_category_separates_reference_and_work_submission_files() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "File Category PM", _unique_email("files.categorypm"))
+        project = _create_project(database, pm["id"], "File Category Project")
+        phase = _create_phase(database, project["id"], pm["id"], "File Category Phase", 1)
+        task = _create_task(database, phase["id"], pm["id"], "File Category Task")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        storage = FakeFileStorage()
+        app = create_app(
+            settings=_settings(database_url=os.getenv("DATABASE_URL")),
+            database=database,
+            file_storage=storage,
+        )
+
+        with TestClient(app) as client:
+            token = _login(client, pm["email"])
+            reference = _upload_file(client, project["id"], phase["id"], task["id"], token, "brief.pdf", b"brief", file_category="reference")
+            work = _upload_file(client, project["id"], phase["id"], task["id"], token, "answer.pdf", b"answer", file_category="work_submission")
+            listed = client.get(_files_url(project["id"], phase["id"], task["id"]), headers=_auth_header(token))
+
+        assert reference.status_code == 201
+        assert reference.json()["file_category"] == "reference"
+        assert work.status_code == 201
+        assert work.json()["file_category"] == "work_submission"
+        assert [(row["file_name"], row["file_category"]) for row in listed.json()] == [
+            ("brief.pdf", "reference"),
+            ("answer.pdf", "work_submission"),
+        ]
+    finally:
+        database.close()
+
+
+def test_team_member_can_upload_work_to_owned_or_supported_task_only() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Work Upload PM", _unique_email("files.workpm"))
+        owner = _create_auth_user(database, "Work Upload Owner", _unique_email("files.workowner"))
+        supporter = _create_auth_user(database, "Work Upload Supporter", _unique_email("files.worksupporter"))
+        unrelated = _create_auth_user(database, "Work Upload Unrelated", _unique_email("files.workunrelated"))
+        project = _create_project(database, pm["id"], "Team Work Upload Project")
+        phase = _create_phase(database, project["id"], pm["id"], "Team Work Upload Phase", 1)
+        owned_task = _create_task(database, phase["id"], owner["id"], "Owned Upload Task")
+        supported_task = _create_task(database, phase["id"], pm["id"], "Supported Upload Task")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], owner["id"], "Team Member")
+        _add_project_member(database, project["id"], supporter["id"], "Team Member")
+        _add_project_member(database, project["id"], unrelated["id"], "Team Member")
+        _add_task_supporter(database, supported_task["id"], supporter["id"])
+        storage = FakeFileStorage()
+        app = create_app(
+            settings=_settings(database_url=os.getenv("DATABASE_URL")),
+            database=database,
+            file_storage=storage,
+        )
+
+        with TestClient(app) as client:
+            owner_token = _login(client, owner["email"])
+            supporter_token = _login(client, supporter["email"])
+            unrelated_token = _login(client, unrelated["email"])
+            owner_work = _upload_file(client, project["id"], phase["id"], owned_task["id"], owner_token, "owner.txt", b"owner")
+            supporter_work = _upload_file(
+                client,
+                project["id"],
+                phase["id"],
+                supported_task["id"],
+                supporter_token,
+                "supporter.txt",
+                b"supporter",
+            )
+            owner_reference = _upload_file(
+                client,
+                project["id"],
+                phase["id"],
+                owned_task["id"],
+                owner_token,
+                "reference.txt",
+                b"reference",
+                file_category="reference",
+            )
+            unrelated_work = _upload_file(
+                client,
+                project["id"],
+                phase["id"],
+                owned_task["id"],
+                unrelated_token,
+                "unrelated.txt",
+                b"unrelated",
+            )
+
+        assert owner_work.status_code == 201
+        assert supporter_work.status_code == 201
+        assert owner_reference.status_code == 403
+        assert unrelated_work.status_code == 403
         assert len(storage.objects) == 2
     finally:
         database.close()
@@ -178,7 +292,7 @@ def test_authorized_user_can_download_file_without_public_gcs_url() -> None:
         assert downloaded.status_code == 200
         assert downloaded.content == b"downloadable"
         assert downloaded.headers["content-type"].startswith("text/plain")
-        assert "delivery%20notes.txt" in downloaded.headers["content-disposition"]
+        assert "delivery_notes.txt" in downloaded.headers["content-disposition"]
         assert "storage.googleapis.com" not in downloaded.text
     finally:
         database.close()
@@ -308,6 +422,42 @@ def test_failed_storage_upload_does_not_create_database_metadata() -> None:
         database.close()
 
 
+def test_empty_and_oversized_uploads_are_rejected_before_storage() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        user = _create_auth_user(database, "Safe Upload User", _unique_email("files.safeupload"))
+        project = _create_project(database, user["id"], "Safe Upload Project")
+        phase = _create_phase(database, project["id"], user["id"], "Safe Upload Phase", 1)
+        task = _create_task(database, phase["id"], user["id"], "Safe Upload Task")
+        _add_project_member(database, project["id"], user["id"])
+        storage = FakeFileStorage()
+        app = create_app(
+            settings=_settings(database_url=os.getenv("DATABASE_URL"), max_upload_bytes=4),
+            database=database,
+            file_storage=storage,
+        )
+
+        with TestClient(app) as client:
+            token = _login(client, user["email"])
+            empty = _upload_file(client, project["id"], phase["id"], task["id"], token, "empty.txt", b"")
+            oversized = _upload_file(client, project["id"], phase["id"], task["id"], token, "large.txt", b"large")
+            with database.session() as session:
+                count = session.fetch_one(
+                    "SELECT COUNT(*) AS count FROM task_files WHERE task_id = %s",
+                    (task["id"],),
+                )
+
+        assert empty.status_code == 422
+        assert empty.json() == {"error": {"message": "Uploaded file cannot be empty"}}
+        assert oversized.status_code == 413
+        assert oversized.json() == {"error": {"message": "Uploaded file is too large"}}
+        assert count == {"count": 0}
+        assert storage.objects == {}
+    finally:
+        database.close()
+
+
 def _create_auth_user(database: Database, name: str, email: str, password: str = "file-password") -> dict:
     with database.session() as session:
         user = session.fetch_one(
@@ -377,11 +527,19 @@ def _create_task(database: Database, phase_id, owner_id, name: str) -> dict:
         )
 
 
-def _add_project_member(database: Database, project_id, user_id) -> None:
+def _add_project_member(database: Database, project_id, user_id, role: str = "Team Member") -> None:
     with database.session() as session:
         session.execute(
-            "INSERT INTO project_members (project_id, user_id) VALUES (%s, %s)",
-            (project_id, user_id),
+            "INSERT INTO project_members (project_id, user_id, role) VALUES (%s, %s, %s)",
+            (project_id, user_id, role),
+        )
+
+
+def _add_task_supporter(database: Database, task_id, user_id) -> None:
+    with database.session() as session:
+        session.execute(
+            "INSERT INTO task_supporters (task_id, user_id) VALUES (%s, %s)",
+            (task_id, user_id),
         )
 
 
@@ -403,11 +561,13 @@ def _upload_file(
     file_name: str,
     content: bytes,
     content_type: str = "text/plain",
+    file_category: str = "work_submission",
 ):
     headers = _auth_header(token) if token else None
     return client.post(
         _files_url(project_id, phase_id, task_id),
         headers=headers,
+        data={"file_category": file_category},
         files={"file": (file_name, content, content_type)},
     )
 
@@ -434,7 +594,7 @@ def _database_from_env() -> Database:
     return Database(_settings(database_url=database_url))
 
 
-def _settings(database_url: str | None = None) -> Settings:
+def _settings(database_url: str | None = None, max_upload_bytes: int = 10 * 1024 * 1024) -> Settings:
     return Settings(
         app_name="SENSES Task File API Test",
         database_url=database_url,
@@ -443,4 +603,5 @@ def _settings(database_url: str | None = None) -> Settings:
         db_pool_max_size=2,
         auth_token_secret="test-file-secret",
         access_token_expire_minutes=60,
+        max_upload_bytes=max_upload_bytes,
     )

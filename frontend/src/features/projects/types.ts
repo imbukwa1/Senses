@@ -274,9 +274,9 @@ export type TaskFile = {
   uploader_name: string;
   uploader_email: string;
   file_name: string;
-  storage_key: string;
   file_type: string | null;
   file_size: number;
+  file_category: "reference" | "work_submission";
   created_at: string;
 };
 

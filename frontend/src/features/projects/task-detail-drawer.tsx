@@ -158,6 +158,8 @@ function TaskFilesSection({
   const uploadFile = useUploadTaskFileMutation(projectId, phaseId, taskId);
   const uploadError = uploadFile.error ? fileErrorMessage(uploadFile.error) : null;
   const isUploading = uploadFile.isPending;
+  const referenceFiles = files.filter((file) => file.file_category === "reference");
+  const workFiles = files.filter((file) => file.file_category === "work_submission");
 
   async function handleUpload() {
     if (!selectedFile) {
@@ -177,12 +179,28 @@ function TaskFilesSection({
     <section className="rounded-md border bg-background p-4">
       <div className="flex items-center gap-2">
         <Paperclip className="size-4 text-primary" aria-hidden="true" />
-        <h3 className="text-sm font-semibold text-foreground">Files</h3>
+        <h3 className="text-sm font-semibold text-foreground">Files needed for this task</h3>
       </div>
-      <div className="mt-4 rounded-md border bg-surface p-3">
+      <div className="mt-4">
+        {filesLoading ? <LoadingState label="Loading files" /> : null}
+        {filesError ? <ErrorState title="Files could not be loaded" message={fileErrorMessage(filesError)} /> : null}
+        {!filesLoading && !filesError && referenceFiles.length === 0 ? <EmptyState title="No reference files attached." /> : null}
+        {!filesLoading && !filesError && referenceFiles.length > 0 ? (
+          <div className="divide-y rounded-md border bg-surface">
+            {referenceFiles.map((file) => (
+              <TaskFileRow key={file.id} file={file} projectId={projectId} phaseId={phaseId} taskId={taskId} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <div className="mt-5 flex items-center gap-2">
+        <Upload className="size-4 text-primary" aria-hidden="true" />
+        <h3 className="text-sm font-semibold text-foreground">Your Work</h3>
+      </div>
+      <div className="mt-3 rounded-md border bg-surface p-3">
         {uploadError ? <InlineErrorMessage message={uploadError} /> : null}
         <label className="text-sm font-medium text-foreground" htmlFor={`task-file-${taskId}`}>
-          Select file
+          Upload your work
         </label>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row">
           <Input
@@ -200,12 +218,10 @@ function TaskFilesSection({
         {selectedFile ? <p className="mt-2 text-xs text-muted-foreground">Selected: {selectedFile.name}</p> : null}
       </div>
       <div className="mt-5">
-        {filesLoading ? <LoadingState label="Loading files" /> : null}
-        {filesError ? <ErrorState title="Files could not be loaded" message={fileErrorMessage(filesError)} /> : null}
-        {!filesLoading && !filesError && files.length === 0 ? <EmptyState title="No files attached." /> : null}
-        {!filesLoading && !filesError && files.length > 0 ? (
+        {!filesLoading && !filesError && workFiles.length === 0 ? <EmptyState title="No work uploaded yet." /> : null}
+        {!filesLoading && !filesError && workFiles.length > 0 ? (
           <div className="divide-y rounded-md border bg-surface">
-            {files.map((file) => (
+            {workFiles.map((file) => (
               <TaskFileRow key={file.id} file={file} projectId={projectId} phaseId={phaseId} taskId={taskId} />
             ))}
           </div>
