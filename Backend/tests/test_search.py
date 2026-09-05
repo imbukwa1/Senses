@@ -1,5 +1,5 @@
 import os
-from datetime import timedelta
+from datetime import date
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -175,7 +175,6 @@ def _create_auth_user(database: Database, name: str, email: str, password: str =
 
 
 def _create_project(database: Database, lead_id, name: str, objectives: str | None = None) -> dict:
-    today = _database_today(database)
     with database.session() as session:
         return session.fetch_one(
             """
@@ -187,19 +186,21 @@ def _create_project(database: Database, lead_id, name: str, objectives: str | No
               start_date,
               end_date,
               status,
-              objectives
+              objectives,
+              created_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, 'Planning', %s)
+            VALUES (%s, %s, %s, %s, %s, %s, 'Planning', %s, %s)
             RETURNING *
             """,
             (
-                "PRJ-2026-001",
+                "PRJ-2098-001",
                 name,
                 f"{name} description",
                 lead_id,
-                today,
-                today + timedelta(days=30),
+                date(2098, 1, 1),
+                date(2098, 1, 31),
                 objectives,
+                date(2098, 1, 1),
             ),
         )
 
@@ -247,11 +248,6 @@ def _add_project_member(database: Database, project_id, user_id) -> None:
             "INSERT INTO project_members (project_id, user_id) VALUES (%s, %s)",
             (project_id, user_id),
         )
-
-
-def _database_today(database: Database):
-    with database.session() as session:
-        return session.fetch_one("SELECT CURRENT_DATE AS today")["today"]
 
 
 def _login(client: TestClient, email: str, password: str = "search-password") -> str:
