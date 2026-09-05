@@ -23,7 +23,7 @@ def test_invalid_uuid_paths_are_rejected_by_request_validation() -> None:
             response = client.get("/projects/not-a-uuid", headers=_auth_header(token))
 
         assert response.status_code == 422
-        assert response.json()["error"]["message"] == "Request validation failed"
+        assert response.json() == {"error": {"message": "Invalid input"}}
     finally:
         database.close()
 

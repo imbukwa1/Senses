@@ -260,6 +260,56 @@ def test_non_pm_roles_cannot_manage_phase_members() -> None:
         database.close()
 
 
+def test_non_pm_roles_cannot_manage_phases() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Phase Admin PM", _unique_email("phases.adminpm"))
+        team_member = _create_auth_user(database, "Phase Admin Team", _unique_email("phases.adminteam"))
+        finance = _create_auth_user(database, "Phase Admin Finance", _unique_email("phases.adminfinance"))
+        project = _create_project(database, pm["id"], "Phase Admin Guard")
+        phase = _create_phase(database, project["id"], pm["id"], "Guarded Phase", 1)
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], team_member["id"], "Team Member")
+        _add_project_member(database, project["id"], finance["id"], "Finance")
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            team_token = _login(client, team_member["email"])
+            finance_token = _login(client, finance["email"])
+            team_create = client.post(
+                f"/projects/{project['id']}/phases",
+                headers=_auth_header(team_token),
+                json=_phase_payload("Team Created", 2, team_member["id"]),
+            )
+            team_update = client.patch(
+                f"/projects/{project['id']}/phases/{phase['id']}",
+                headers=_auth_header(team_token),
+                json={"name": "Team Edited"},
+            )
+            finance_complete = client.patch(
+                f"/projects/{project['id']}/phases/{phase['id']}/complete",
+                headers=_auth_header(finance_token),
+            )
+            finance_archive = client.patch(
+                f"/projects/{project['id']}/phases/{phase['id']}/archive",
+                headers=_auth_header(finance_token),
+            )
+            team_current = client.patch(
+                f"/projects/{project['id']}/current-phase",
+                headers=_auth_header(team_token),
+                json={"phase_id": str(phase["id"])},
+            )
+
+        assert team_create.status_code == 403
+        assert team_update.status_code == 403
+        assert finance_complete.status_code == 403
+        assert finance_archive.status_code == 403
+        assert team_current.status_code == 403
+    finally:
+        database.close()
+
+
 def test_phase_member_must_be_project_member_and_duplicates_conflict() -> None:
     database = _database_from_env()
     database.connect()

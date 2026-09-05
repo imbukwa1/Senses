@@ -650,6 +650,7 @@ def create_phase(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> PhaseResponse:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     if payload.owner_id is not None:
         ensure_user_exists(session, payload.owner_id)
     phase = session.fetch_one(
@@ -701,6 +702,7 @@ def reorder_phases(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> list[PhaseResponse]:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     if len(set(payload.phase_ids)) != len(payload.phase_ids):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -738,6 +740,7 @@ def set_current_phase(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> ProjectResponse:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     if payload.phase_id is not None:
         ensure_phase_in_project(session, project_id, payload.phase_id)
 
@@ -844,6 +847,7 @@ def update_phase(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> PhaseResponse:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     ensure_phase_in_project(session, project_id, phase_id)
     values = payload.model_dump(exclude_unset=True)
     if not values:
@@ -887,6 +891,7 @@ def mark_phase_complete(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> PhaseResponse:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     phase = session.fetch_one(
         """
         UPDATE phases
@@ -912,6 +917,7 @@ def archive_phase(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> PhaseResponse:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     phase = session.fetch_one(
         """
         WITH archived_phase AS (
@@ -1070,7 +1076,8 @@ def update_task_status(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> TaskResponse:
     ensure_project_access(session, current_user.id, project_id)
-    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    current_task = fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    ensure_task_work_allowed(session, current_user.id, project_id, current_task)
     task = session.fetch_one(
         """
         UPDATE tasks
@@ -1168,7 +1175,8 @@ def create_checklist_item(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> ChecklistItemResponse:
     ensure_project_access(session, current_user.id, project_id)
-    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    task = fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    ensure_task_work_allowed(session, current_user.id, project_id, task)
     item = session.fetch_one(
         """
         INSERT INTO task_deliverables (
@@ -1215,7 +1223,8 @@ def update_checklist_item(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> ChecklistItemResponse:
     ensure_project_access(session, current_user.id, project_id)
-    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    task = fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    ensure_task_work_allowed(session, current_user.id, project_id, task)
     fetch_checklist_item_or_404(session, task_id, item_id)
     values = payload.model_dump(exclude_unset=True)
     if not values:
@@ -1262,7 +1271,8 @@ def set_checklist_item_completion(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> ChecklistItemResponse:
     ensure_project_access(session, current_user.id, project_id)
-    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    task = fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    ensure_task_work_allowed(session, current_user.id, project_id, task)
     item = session.fetch_one(
         """
         UPDATE task_deliverables
@@ -1292,7 +1302,8 @@ def remove_checklist_item(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> Response:
     ensure_project_access(session, current_user.id, project_id)
-    fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    task = fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    ensure_task_work_allowed(session, current_user.id, project_id, task)
     session.execute(
         "DELETE FROM task_deliverables WHERE id = %s AND task_id = %s",
         (item_id, task_id),
@@ -1465,6 +1476,8 @@ def update_project(
             raise_project_not_found()
         return project_to_response(project, session, current_user.id)
 
+    ensure_project_pm(session, current_user.id, project_id)
+
     null_required_fields = sorted(
         field for field in REQUIRED_PROJECT_FIELDS if field in values and values[field] is None
     )
@@ -1533,6 +1546,7 @@ def archive_project(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> ProjectResponse:
     ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
     project = session.fetch_one(
         """
         UPDATE projects
@@ -2489,6 +2503,23 @@ def ensure_task_file_upload_allowed(
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail=TASK_FILE_UPLOAD_FORBIDDEN_DETAIL,
+    )
+
+
+def ensure_task_work_allowed(
+    session: DatabaseSession,
+    user_id: UUID,
+    project_id: UUID,
+    task: Row,
+) -> None:
+    if fetch_project_member_role(session, user_id, project_id) == "PM":
+        return
+    if task["owner_id"] == user_id or fetch_task_supporter(session, task["id"], user_id) is not None:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You cannot update this task",
     )
 
 

@@ -92,7 +92,7 @@ def test_project_can_be_listed_retrieved_updated_and_archived() -> None:
         other_user = _create_auth_user(database, "Other Project User", _unique_email("projects.other"))
         project = _create_project(database, user["id"], "Visible API Project")
         hidden_project = _create_project(database, other_user["id"], "Hidden API Project")
-        _add_project_member(database, project["id"], user["id"])
+        _add_project_member(database, project["id"], user["id"], "PM")
 
         app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
 
@@ -348,6 +348,39 @@ def test_only_pm_members_can_manage_project_members() -> None:
         assert pm_update.status_code == 200
         assert pm_update.json()["role"] == "Team Member"
         assert pm_remove.status_code == 204
+    finally:
+        database.close()
+
+
+def test_only_pm_members_can_update_or_archive_projects() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Project Admin PM", _unique_email("projects.adminpm"))
+        team_member = _create_auth_user(database, "Project Admin Team", _unique_email("projects.adminteam"))
+        finance = _create_auth_user(database, "Project Admin Finance", _unique_email("projects.adminfinance"))
+        project = _create_project(database, pm["id"], "Project Admin Guard")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], team_member["id"], "Team Member")
+        _add_project_member(database, project["id"], finance["id"], "Finance")
+
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            team_token = _login(client, team_member["email"])
+            finance_token = _login(client, finance["email"])
+            team_update = client.patch(
+                f"/projects/{project['id']}",
+                headers=_auth_header(team_token),
+                json={"name": "Team Edited Project"},
+            )
+            finance_archive = client.patch(
+                f"/projects/{project['id']}/archive",
+                headers=_auth_header(finance_token),
+            )
+
+        assert team_update.status_code == 403
+        assert finance_archive.status_code == 403
     finally:
         database.close()
 

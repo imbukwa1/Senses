@@ -27,9 +27,10 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request,
         exc: RequestValidationError,
     ) -> JSONResponse:
+        logger.info("Request validation failed")
         return JSONResponse(
             status_code=422,
-            content={"error": {"message": "Request validation failed", "details": exc.errors()}},
+            content={"error": {"message": "Invalid input"}},
         )
 
     @app.exception_handler(DatabaseConstraintError)

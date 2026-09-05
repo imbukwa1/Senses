@@ -367,6 +367,51 @@ def test_task_assignment_management_requires_pm_role() -> None:
         database.close()
 
 
+def test_only_assigned_users_or_pm_can_update_task_status() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Task Work PM", _unique_email("tasks.workpm"))
+        owner = _create_auth_user(database, "Task Work Owner", _unique_email("tasks.workowner"))
+        supporter = _create_auth_user(database, "Task Work Supporter", _unique_email("tasks.worksupporter"))
+        unrelated = _create_auth_user(database, "Task Work Unrelated", _unique_email("tasks.workunrelated"))
+        project = _create_project(database, pm["id"], "Task Work Guard")
+        phase = _create_phase(database, project["id"], pm["id"], "Task Work Phase", 1)
+        task = _create_task(database, phase["id"], owner["id"], "Task Work Item")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], owner["id"], "Team Member")
+        _add_project_member(database, project["id"], supporter["id"], "Team Member")
+        _add_project_member(database, project["id"], unrelated["id"], "Team Member")
+        _add_task_supporter(database, task["id"], supporter["id"])
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            owner_token = _login(client, owner["email"])
+            supporter_token = _login(client, supporter["email"])
+            unrelated_token = _login(client, unrelated["email"])
+            owner_update = client.patch(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}/status",
+                headers=_auth_header(owner_token),
+                json={"status": "In Progress"},
+            )
+            supporter_update = client.patch(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}/status",
+                headers=_auth_header(supporter_token),
+                json={"status": "Completed"},
+            )
+            unrelated_update = client.patch(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}/status",
+                headers=_auth_header(unrelated_token),
+                json={"status": "Blocked"},
+            )
+
+        assert owner_update.status_code == 200
+        assert supporter_update.status_code == 200
+        assert unrelated_update.status_code == 403
+    finally:
+        database.close()
+
+
 def test_task_assignment_preserves_project_role_and_multiple_phase_memberships() -> None:
     database = _database_from_env()
     database.connect()
@@ -546,6 +591,14 @@ def _create_task(database: Database, phase_id, owner_id, name: str) -> dict:
             RETURNING *
             """,
             (phase_id, name, owner_id),
+        )
+
+
+def _add_task_supporter(database: Database, task_id, user_id) -> None:
+    with database.session() as session:
+        session.execute(
+            "INSERT INTO task_supporters (task_id, user_id) VALUES (%s, %s)",
+            (task_id, user_id),
         )
 
 
