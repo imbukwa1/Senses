@@ -9,6 +9,10 @@ TEST_DATABASE_NAMES = {"senses_test"}
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
+    test_database_url = os.getenv("TEST_DATABASE_URL")
+    if test_database_url:
+        os.environ["DATABASE_URL"] = test_database_url
+
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         return

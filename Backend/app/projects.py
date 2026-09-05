@@ -703,14 +703,14 @@ def reorder_phases(
     ensure_project_access(session, current_user.id, project_id)
     if len(set(payload.phase_ids)) != len(payload.phase_ids):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Phase IDs must be unique",
         )
 
     active_phase_ids = [row["id"] for row in fetch_project_phases(session, project_id)]
     if set(active_phase_ids) != set(payload.phase_ids):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Reorder must include every active phase for the project exactly once",
         )
 
@@ -801,7 +801,7 @@ def add_phase_member(
     ensure_user_exists(session, payload.user_id)
     if fetch_optional_project_member(session, project_id, payload.user_id) is None:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=PHASE_MEMBER_PROJECT_MEMBER_REQUIRED_DETAIL,
         )
     if fetch_phase_member(session, phase_id, payload.user_id) is not None:
@@ -854,7 +854,7 @@ def update_phase(
     )
     if null_required_fields:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Required phase fields cannot be null: {', '.join(null_required_fields)}",
         )
     if "owner_id" in values and values["owner_id"] is not None:
@@ -1036,7 +1036,7 @@ def update_task(
     )
     if null_required_fields:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Required task fields cannot be null: {', '.join(null_required_fields)}",
         )
     if "owner_id" in values:
@@ -1226,7 +1226,7 @@ def update_checklist_item(
     )
     if null_required_fields:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Required checklist item fields cannot be null: {', '.join(null_required_fields)}",
         )
 
@@ -1470,7 +1470,7 @@ def update_project(
     )
     if null_required_fields:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Required project fields cannot be null: {', '.join(null_required_fields)}",
         )
 
