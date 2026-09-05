@@ -142,17 +142,13 @@ function SearchContext({ result }: { result: SearchResult }) {
   }
 
   if (result.result_type === "phase") {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Project: {result.project_name} <span className="font-mono text-xs">({result.project_code})</span>
-      </p>
-    );
+    return <p className="text-sm text-muted-foreground">Project: {result.project_name} ({result.project_code})</p>;
   }
 
   return (
     <p className="text-sm text-muted-foreground">
-      Project: {result.project_name} <span className="font-mono text-xs">({result.project_code})</span>
-      {result.phase_name ? <> · Phase: {result.phase_name}</> : null}
+      Project: {result.project_name} ({result.project_code})
+      {result.phase_name ? <> / Phase: {result.phase_name}</> : null}
     </p>
   );
 }
@@ -191,7 +187,16 @@ function resultTitle(result: SearchResult) {
 }
 
 function resultLink(result: SearchResult) {
-  return `/projects/${result.project_id}`;
+  const params = new URLSearchParams();
+  if (result.phase_id) {
+    params.set("phase", result.phase_id);
+  }
+  if (result.task_id) {
+    params.set("task", result.task_id);
+  }
+
+  const query = params.toString();
+  return `/projects/${result.project_id}${query ? `?${query}` : ""}`;
 }
 
 function resultKey(result: SearchResult) {
