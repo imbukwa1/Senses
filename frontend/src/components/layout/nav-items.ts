@@ -1,4 +1,4 @@
-import { AlertTriangle, ClipboardCheck, FolderKanban, Home, Search } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, FolderKanban, Home } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 
 export type NavigationItem = {
@@ -29,10 +29,5 @@ export const navigationItems: NavigationItem[] = [
     label: "My Work",
     to: "/my-work",
     icon: ClipboardCheck,
-  },
-  {
-    label: "Search",
-    to: "/search",
-    icon: Search,
   },
 ];

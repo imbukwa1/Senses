@@ -47,7 +47,7 @@ export const router = createBrowserRouter([
         ),
         handle: {
           title: "Home",
-          subtitle: "Shared application layout foundation.",
+          subtitle: "Your projects, assigned work, and items needing attention.",
           breadcrumbs: [{ label: "Home" }],
         },
       },
