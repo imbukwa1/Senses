@@ -1,6 +1,7 @@
 import { ApiError, apiRequest } from "@/features/auth/api";
 
 import {
+  attentionItemsSchema,
   phaseResponseSchema,
   phaseResponsesSchema,
   phaseMemberSchema,
@@ -24,6 +25,7 @@ import {
 } from "./schemas";
 import type {
   PhaseMutationPayload,
+  AttentionItem,
   PhaseMember,
   MyWorkItem,
   PhaseResponse,
@@ -47,6 +49,17 @@ export async function listProjects(token: string): Promise<ProjectSummary[]> {
 
   if (!result.success) {
     throw new ApiError("Project data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function listAttention(token: string): Promise<AttentionItem[]> {
+  const data = await apiRequest<unknown>("/attention", {}, token);
+  const result = attentionItemsSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Attention data could not be loaded.", 500);
   }
 
   return result.data;

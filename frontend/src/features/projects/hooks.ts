@@ -21,6 +21,7 @@ import {
   getChecklist,
   getProject,
   getProjectDashboard,
+  listAttention,
   listMyWork,
   listPhaseMembers,
   listProjectMembers,
@@ -45,6 +46,7 @@ import {
 import type { PhaseMutationPayload, ProjectMutationPayload, TaskMutationPayload } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
+export const attentionQueryKey = ["attention", "list"] as const;
 export const myWorkQueryKey = ["my-work", "list"] as const;
 export const projectQueryKey = (projectId: string) => ["projects", projectId] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
@@ -65,6 +67,24 @@ export function useProjectsQuery() {
   const query = useQuery({
     queryKey: projectsQueryKey,
     queryFn: () => listProjects(token ?? ""),
+    enabled: status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useAttentionQuery() {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: attentionQueryKey,
+    queryFn: () => listAttention(requireToken(token)),
     enabled: status === "authenticated" && Boolean(token),
     retry: false,
   });

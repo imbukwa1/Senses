@@ -205,6 +205,21 @@ export type MyWorkItem = {
   action_label: string | null;
 };
 
+export type AttentionItem = {
+  type: "project" | "phase" | "task";
+  reason: string;
+  project_id: string;
+  project_name: string;
+  project_code: string;
+  phase_id: string | null;
+  phase_name: string | null;
+  task_id: string | null;
+  task_name: string | null;
+  assigned_person: ProjectLead | null;
+  due_date: string | null;
+  severity: "Needs attention" | "At risk";
+};
+
 export type ChecklistSummary = {
   completed_items: number;
   total_items: number;

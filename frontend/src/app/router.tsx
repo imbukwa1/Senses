@@ -7,6 +7,7 @@ import { ProtectedRoute } from "@/features/auth/protected-route";
 import { ProjectsHeaderActions } from "@/features/projects/project-header-actions";
 
 const LoginPage = lazy(() => import("@/pages/login-page").then((module) => ({ default: module.LoginPage })));
+const AttentionPage = lazy(() => import("@/pages/attention-page").then((module) => ({ default: module.AttentionPage })));
 const ProjectDetailPlaceholderPage = lazy(() =>
   import("@/pages/project-detail-placeholder-page").then((module) => ({ default: module.ProjectDetailPlaceholderPage })),
 );
@@ -48,6 +49,19 @@ export const router = createBrowserRouter([
           title: "Home",
           subtitle: "Shared application layout foundation.",
           breadcrumbs: [{ label: "Home" }],
+        },
+      },
+      {
+        path: "attention",
+        element: (
+          <RouteLoader>
+            <AttentionPage />
+          </RouteLoader>
+        ),
+        handle: {
+          title: "Attention",
+          subtitle: "Work and project items that need review.",
+          breadcrumbs: [{ label: "Attention" }],
         },
       },
       {

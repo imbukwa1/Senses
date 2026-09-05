@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { addPhaseMember, addProjectMember, archiveProject, listMyWork, listPhaseMembers } from "./api";
+import { addPhaseMember, addProjectMember, archiveProject, listAttention, listMyWork, listPhaseMembers } from "./api";
 
 const project = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -60,6 +60,25 @@ const myWorkItem = {
   relationship: "owner",
   overdue: false,
   action_label: "Due today",
+};
+
+const attentionItem = {
+  type: "task",
+  reason: "Draft implementation plan is overdue",
+  project_id: project.id,
+  project_name: project.name,
+  project_code: project.code,
+  phase_id: phaseId,
+  phase_name: "Discovery",
+  task_id: myWorkItem.task_id,
+  task_name: myWorkItem.task_name,
+  assigned_person: {
+    id: member.user_id,
+    name: member.name,
+    email: member.email,
+  },
+  due_date: "2026-09-01",
+  severity: "Needs attention",
 };
 
 describe("project API mutations", () => {
@@ -139,6 +158,20 @@ describe("project API mutations", () => {
       }),
     );
     expect(items).toEqual([myWorkItem]);
+  });
+
+  it("lists Attention through the current-user endpoint", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([attentionItem]));
+
+    const items = await listAttention("token");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/attention",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
+    expect(items).toEqual([attentionItem]);
   });
 });
 

@@ -187,6 +187,23 @@ export const myWorkItemSchema = z.object({
 
 export const myWorkItemsSchema = z.array(myWorkItemSchema);
 
+export const attentionItemSchema = z.object({
+  type: z.enum(["project", "phase", "task"]),
+  reason: z.string().min(1),
+  project_id: z.uuid(),
+  project_name: z.string().min(1),
+  project_code: z.string().min(1),
+  phase_id: z.uuid().nullable(),
+  phase_name: z.string().nullable(),
+  task_id: z.uuid().nullable(),
+  task_name: z.string().nullable(),
+  assigned_person: userSummarySchema.nullable(),
+  due_date: z.string().nullable(),
+  severity: z.enum(["Needs attention", "At risk"]),
+});
+
+export const attentionItemsSchema = z.array(attentionItemSchema);
+
 export const checklistSummarySchema = z.object({
   completed_items: z.number(),
   total_items: z.number(),
