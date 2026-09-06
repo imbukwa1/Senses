@@ -4,6 +4,7 @@ import {
   addPhaseMember,
   addProjectMember,
   archiveProject,
+  createProject,
   getProjectBudget,
   listAttention,
   listMyWork,
@@ -118,6 +119,32 @@ describe("project API mutations", () => {
       }),
     );
     expect(archived.archived_at).toBe("2026-02-01T00:00:00Z");
+  });
+
+  it("creates a project without sending project lead, code, or role fields", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(project));
+    const payload = {
+      name: "Inclusive Speech Tech",
+      description: "Project description",
+      start_date: "2026-01-01",
+      end_date: "2026-12-31",
+      status: "Planning" as const,
+      funder_partner: null,
+      project_type: null,
+      objectives: null,
+      priority: "Medium" as const,
+    };
+
+    await createProject("token", payload);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/projects",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(payload),
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
   });
 
   it("adds a project member with only the registered user id", async () => {

@@ -28,7 +28,7 @@ export type ProjectSummary = {
 export type ProjectMutationPayload = {
   name: string;
   description: string;
-  project_lead_id: string;
+  project_lead_id?: string;
   start_date: string;
   end_date: string;
   status: ProjectStatus;

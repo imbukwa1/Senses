@@ -1,4 +1,5 @@
 import os
+import re
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -15,7 +16,6 @@ def test_project_create_generates_code_and_sets_audit_actor() -> None:
     database.connect()
     try:
         creator = _create_auth_user(database, "Project Creator", _unique_email("projects.creator"))
-        lead = _create_auth_user(database, "Project Lead", _unique_email("projects.lead"))
         app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
 
         with TestClient(app) as client:
@@ -23,38 +23,29 @@ def test_project_create_generates_code_and_sets_audit_actor() -> None:
             response = client.post(
                 "/projects",
                 headers=_auth_header(token),
-                json=_project_payload(lead["id"]) | {"code": "PRJ-2099-999"},
+                json=_project_payload() | {"code": "PRJ-2099-999"},
             )
             rejected_status = response.status_code
             response = client.post(
                 "/projects",
                 headers=_auth_header(token),
-                json=_project_payload(lead["id"]),
+                json=_project_payload(),
             )
 
             assert rejected_status == 422
             assert response.status_code == 201
             body = response.json()
-            assert body["code"].startswith("PRJ-")
+            assert re.fullmatch(r"PRJ-\d{4}-\d{3}", body["code"])
             assert body["code"] != "PRJ-0000-000"
-            assert body["project_lead_id"] == str(lead["id"])
+            assert body["project_lead_id"] == str(creator["id"])
             assert body["project_lead"] == {
-                "id": str(lead["id"]),
-                "name": lead["name"],
-                "email": lead["email"],
+                "id": str(creator["id"]),
+                "name": creator["name"],
+                "email": creator["email"],
             }
 
             with database.session() as session:
                 membership = session.fetch_one(
-                    """
-                    SELECT role
-                    FROM project_members
-                    WHERE project_id = %s
-                      AND user_id = %s
-                    """,
-                    (body["id"], lead["id"]),
-                )
-                creator_membership = session.fetch_one(
                     """
                     SELECT role
                     FROM project_members
@@ -77,10 +68,132 @@ def test_project_create_generates_code_and_sets_audit_actor() -> None:
                 )
 
         assert membership == {"role": "PM"}
-        assert creator_membership == {"role": "Team Member"}
         assert audit["user_id"] == creator["id"]
         assert audit["new_values"]["name"] == "Section Five Project"
     finally:
+        database.close()
+
+
+def test_any_authenticated_project_role_can_create_project_without_changing_other_roles() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        existing_pm = _create_auth_user(database, "Existing PM", _unique_email("projects.existing-pm"))
+        team_member = _create_auth_user(database, "Existing Team Member", _unique_email("projects.team-member"))
+        finance = _create_auth_user(database, "Existing Finance", _unique_email("projects.finance"))
+        no_prior_membership = _create_auth_user(database, "No Prior Membership", _unique_email("projects.new-user"))
+        reviewer = _create_auth_user(database, "Project Reviewer", _unique_email("projects.reviewer"))
+        existing_project = _create_project(database, existing_pm["id"], "Existing Role Project")
+        _add_project_member(database, existing_project["id"], existing_pm["id"], "PM")
+        _add_project_member(database, existing_project["id"], team_member["id"], "Team Member")
+        _add_project_member(database, existing_project["id"], finance["id"], "Finance")
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        created_projects = []
+        with TestClient(app) as client:
+            for actor in (team_member, finance, no_prior_membership):
+                token = _login(client, actor["email"])
+                create_response = client.post(
+                    "/projects",
+                    headers=_auth_header(token),
+                    json=_project_payload() | {"name": f"Created by {actor['name']}"},
+                )
+                assert create_response.status_code == 201
+                created = create_response.json()
+                created_projects.append((actor, created))
+                assert created["project_lead_id"] == str(actor["id"])
+
+                member_response = client.post(
+                    f"/projects/{created['id']}/members",
+                    headers=_auth_header(token),
+                    json={"user_id": str(reviewer["id"]), "role": "Team Member"},
+                )
+                assert member_response.status_code == 201
+
+        database.connect()
+        with database.session() as session:
+            existing_roles = session.fetch_all(
+                """
+                SELECT user_id, role
+                FROM project_members
+                WHERE project_id = %s
+                """,
+                (existing_project["id"],),
+            )
+            for actor, created in created_projects:
+                new_role = session.fetch_one(
+                    """
+                    SELECT role
+                    FROM project_members
+                    WHERE project_id = %s
+                      AND user_id = %s
+                    """,
+                    (created["id"], actor["id"]),
+                )
+                assert new_role == {"role": "PM"}
+
+        assert {row["user_id"]: row["role"] for row in existing_roles} == {
+            existing_pm["id"]: "PM",
+            team_member["id"]: "Team Member",
+            finance["id"]: "Finance",
+        }
+    finally:
+        database.close()
+
+
+def test_project_creation_rolls_back_when_creator_membership_fails() -> None:
+    database = _database_from_env()
+    database.connect()
+    trigger_name = "fail_restore_project_create_membership"
+    function_name = "fail_restore_project_create_membership"
+    try:
+        creator = _create_auth_user(database, "Rollback Creator", _unique_email("projects.rollback"))
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+        with database.session() as session:
+            session.execute(f"DROP TRIGGER IF EXISTS {trigger_name} ON project_members")
+            session.execute(f"DROP FUNCTION IF EXISTS {function_name}()")
+            session.execute(
+                f"""
+                CREATE FUNCTION {function_name}() RETURNS trigger AS $$
+                BEGIN
+                  IF NEW.user_id = '{creator["id"]}'::uuid THEN
+                    RAISE EXCEPTION 'forced test membership failure';
+                  END IF;
+                  RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql
+                """
+            )
+            session.execute(
+                f"""
+                CREATE TRIGGER {trigger_name}
+                BEFORE INSERT ON project_members
+                FOR EACH ROW EXECUTE FUNCTION {function_name}()
+                """
+            )
+
+        with TestClient(app) as client:
+            token = _login(client, creator["email"])
+            response = client.post(
+                "/projects",
+                headers=_auth_header(token),
+                json=_project_payload() | {"name": "Rollback Project"},
+            )
+
+        database.connect()
+        with database.session() as session:
+            created_project = session.fetch_one(
+                "SELECT id FROM projects WHERE name = %s",
+                ("Rollback Project",),
+            )
+
+        assert response.status_code == 500
+        assert created_project is None
+    finally:
+        database.connect()
+        with database.session() as session:
+            session.execute(f"DROP TRIGGER IF EXISTS {trigger_name} ON project_members")
+            session.execute(f"DROP FUNCTION IF EXISTS {function_name}()")
         database.close()
 
 
@@ -438,7 +551,7 @@ def test_project_endpoints_reject_unauthenticated_requests() -> None:
         with TestClient(app) as client:
             list_response = client.get("/projects")
             get_response = client.get(f"/projects/{project['id']}")
-            create_response = client.post("/projects", json=_project_payload(user["id"]))
+            create_response = client.post("/projects", json=_project_payload())
 
         assert list_response.status_code == 401
         assert get_response.status_code == 401
@@ -504,11 +617,10 @@ def _add_project_member(database: Database, project_id, user_id, role: str = "Te
         )
 
 
-def _project_payload(lead_id) -> dict:
+def _project_payload() -> dict:
     return {
         "name": "Section Five Project",
         "description": "Project created through the Section 5 API.",
-        "project_lead_id": str(lead_id),
         "start_date": "2026-01-01",
         "end_date": "2026-12-31",
         "status": "Planning",

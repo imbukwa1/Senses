@@ -12,7 +12,7 @@ export function ProjectsHeaderActions() {
     <ProjectFormDialog mode="create" open={open} onOpenChange={setOpen}>
       <Button type="button" className="bg-brand-red text-white hover:bg-brand-red/90">
         <Plus className="size-4" aria-hidden="true" />
-        Add Project
+        New Project
       </Button>
     </ProjectFormDialog>
   );

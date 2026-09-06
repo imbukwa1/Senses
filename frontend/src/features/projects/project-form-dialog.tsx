@@ -32,7 +32,7 @@ const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const projectFormSchema = z.object({
   name: z.string().trim().min(1, "Project name is required.").max(200, "Project name must be 200 characters or fewer."),
   description: z.string().trim().min(1, "Description is required."),
-  project_lead_id: z.uuid("Select a project lead."),
+  project_lead_id: z.uuid("Select a project lead.").optional().or(z.literal("")),
   start_date: z.string().regex(datePattern, "Enter a valid start date."),
   end_date: z.string().regex(datePattern, "Enter a valid end date."),
   status: z.enum(["Planning", "Not Started", "Active", "On Hold", "Completed"]),
@@ -81,7 +81,7 @@ export function ProjectFormDialog({ children, mode, onOpenChange, open, project 
 
   async function onSubmit(values: ProjectFormValues) {
     try {
-      const saved = await mutation.mutateAsync(toPayload(values));
+      const saved = await mutation.mutateAsync(toPayload(values, mode));
       reset(projectToFormValues(saved, user?.id));
       onOpenChange(false);
     } catch {
@@ -120,27 +120,29 @@ export function ProjectFormDialog({ children, mode, onOpenChange, open, project 
                 <Textarea id={id} aria-describedby={describedBy} aria-invalid={invalid} {...register("description")} />
               )}
             </FormField>
-            <FormField
-              label="Project Lead"
-              error={errors.project_lead_id?.message}
-              required
-            >
-              {() => (
-                <Controller
-                  control={control}
-                  name="project_lead_id"
-                  render={({ field }) => (
-                    <UserSearchSelect
-                      label="Project Lead"
-                      knownUsers={leadOptions}
-                      value={field.value}
-                      onValueChange={field.onChange}
-                      placeholder="Search and select project lead"
-                    />
-                  )}
-                />
-              )}
-            </FormField>
+            {mode === "edit" ? (
+              <FormField
+                label="Project Lead"
+                error={errors.project_lead_id?.message}
+                required
+              >
+                {() => (
+                  <Controller
+                    control={control}
+                    name="project_lead_id"
+                    render={({ field }) => (
+                      <UserSearchSelect
+                        label="Project Lead"
+                        knownUsers={leadOptions}
+                        value={field.value ?? ""}
+                        onValueChange={field.onChange}
+                        placeholder="Search and select project lead"
+                      />
+                    )}
+                  />
+                )}
+              </FormField>
+            ) : null}
             <FormField label="Status" error={errors.status?.message} required>
               {() => (
                 <Controller
@@ -218,7 +220,7 @@ export function ProjectFormDialog({ children, mode, onOpenChange, open, project 
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={isPending || leadOptions.length === 0} className="bg-brand-red text-white hover:bg-brand-red/90">
+            <Button type="submit" disabled={isPending || (mode === "edit" && leadOptions.length === 0)} className="bg-brand-red text-white hover:bg-brand-red/90">
               <Save className="size-4" aria-hidden="true" />
               {isPending ? "Saving..." : mode === "create" ? "Create Project" : "Save Changes"}
             </Button>
@@ -244,11 +246,10 @@ function projectToFormValues(project: ProjectSummary | undefined, currentUserId:
   };
 }
 
-function toPayload(values: ProjectFormValues): ProjectMutationPayload {
-  return {
+function toPayload(values: ProjectFormValues, mode: ProjectFormDialogProps["mode"]): ProjectMutationPayload {
+  const payload: ProjectMutationPayload = {
     name: values.name.trim(),
     description: values.description.trim(),
-    project_lead_id: values.project_lead_id,
     start_date: values.start_date,
     end_date: values.end_date,
     status: values.status,
@@ -257,6 +258,12 @@ function toPayload(values: ProjectFormValues): ProjectMutationPayload {
     objectives: blankToNull(values.objectives),
     priority: values.priority ?? null,
   };
+
+  if (mode === "edit" && values.project_lead_id) {
+    payload.project_lead_id = values.project_lead_id;
+  }
+
+  return payload;
 }
 
 function blankToNull(value: string | undefined) {

@@ -85,7 +85,6 @@ class ProjectCreateRequest(BaseModel):
 
     name: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1)
-    project_lead_id: UUID
     start_date: date
     end_date: date
     status: ProjectStatus
@@ -470,7 +469,6 @@ def create_project(
     current_user: AuthenticatedUser = Depends(get_current_user),
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> ProjectResponse:
-    ensure_user_exists(session, payload.project_lead_id)
     project = session.fetch_one(
         """
         INSERT INTO projects (
@@ -504,7 +502,7 @@ def create_project(
         (
             payload.name,
             payload.description,
-            payload.project_lead_id,
+            current_user.id,
             payload.start_date,
             payload.end_date,
             payload.status,
@@ -514,15 +512,7 @@ def create_project(
             payload.priority,
         ),
     )
-    session.execute(
-        """
-        INSERT INTO project_members (project_id, user_id, role)
-        VALUES (%s, %s, %s)
-        ON CONFLICT DO NOTHING
-        """,
-        (project["id"], current_user.id, "Team Member"),
-    )
-    ensure_project_lead_membership(session, project["id"], payload.project_lead_id)
+    ensure_project_lead_membership(session, project["id"], current_user.id)
     return project_to_response(fetch_project_health_by_id(session, project["id"]), session, current_user.id)
 
 
