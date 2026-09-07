@@ -96,12 +96,20 @@ def list_attention(
             'At risk' AS severity,
             2 AS sort_group
           FROM projects
+          LEFT JOIN phases
+            ON phases.project_id = projects.id
+           AND phases.archived_at IS NULL
           JOIN current_memberships
             ON current_memberships.project_id = projects.id
           WHERE projects.archived_at IS NULL
             AND projects.budget_allocated > 0
-            AND projects.budget_spent > projects.budget_allocated
             AND current_memberships.role IN ('PM', 'Finance')
+          GROUP BY
+            projects.id,
+            projects.name,
+            projects.code,
+            projects.budget_allocated
+          HAVING COALESCE(SUM(phases.budget_spent), 0) > projects.budget_allocated
         ),
         phase_attention AS (
           SELECT

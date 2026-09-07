@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ApiError } from "@/features/auth/api";
 import { useAuth } from "@/features/auth/hooks";
 import { UserSearchSelect } from "@/features/users/user-search-select";
@@ -32,7 +33,10 @@ import {
   useProjectMembersQuery,
   useProjectQuery,
   useRemovePhaseMemberMutation,
+  useTasksQuery,
+  useUpdatePhaseBudgetMutation,
   useUpdateProjectBudgetMutation,
+  useUploadTaskFileMutation,
 } from "./hooks";
 import { PhaseManagementDialog } from "./phase-management-dialog";
 import { PhaseTasks } from "./phase-tasks";
@@ -78,7 +82,8 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
   const editProject = projectQuery.data;
   const currentMember = projectMembersQuery.data?.find((member) => member.user_id === user?.id);
   const isProjectPm = currentMember?.role === "PM";
-  const canManageBudget = currentMember?.role === "PM" || currentMember?.role === "Finance";
+  const canViewFinance = currentMember?.role === "PM" || currentMember?.role === "Finance";
+  const canEditFinance = currentMember?.role === "Finance";
   const projectAttention = (attentionQuery.data ?? []).filter((item) => item.project_id === projectId);
 
   return (
@@ -168,7 +173,7 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
         </SummaryCard>
       </div>
 
-      {canManageBudget ? <BudgetSection projectId={projectId} /> : null}
+      {canViewFinance ? <ProjectFinanceSection canEdit={canEditFinance} phases={dashboard.phases} projectId={projectId} /> : null}
 
       {editProject?.objectives ? (
         <Card>
@@ -204,23 +209,30 @@ function SummaryCard({ children, title }: { title: string; children: React.React
   );
 }
 
-function BudgetSection({ projectId }: { projectId: string }) {
+function ProjectFinanceSection({ canEdit, phases, projectId }: { canEdit: boolean; phases: DashboardPhase[]; projectId: string }) {
+  return (
+    <div className="space-y-4">
+      <BudgetSection canEdit={canEdit} projectId={projectId} />
+      <PhaseBudgetsSection canEdit={canEdit} phases={phases} projectId={projectId} />
+      <FinanceDocumentsSection canEdit={canEdit} phases={phases} projectId={projectId} />
+    </div>
+  );
+}
+
+function BudgetSection({ canEdit, projectId }: { canEdit: boolean; projectId: string }) {
   const budgetQuery = useProjectBudgetQuery(projectId);
   const updateBudget = useUpdateProjectBudgetMutation(projectId);
   const [allocated, setAllocated] = useState("");
-  const [spent, setSpent] = useState("");
 
   useEffect(() => {
     if (budgetQuery.data) {
       setAllocated(String(budgetQuery.data.allocated));
-      setSpent(String(budgetQuery.data.spent));
     }
   }, [budgetQuery.data]);
 
   async function onSave() {
     await updateBudget.mutateAsync({
       allocated: Number(allocated),
-      spent: Number(spent),
     });
   }
 
@@ -236,7 +248,7 @@ function BudgetSection({ projectId }: { projectId: string }) {
     return null;
   }
 
-  const hasInvalidValues = !isNonNegativeNumber(allocated) || !isNonNegativeNumber(spent);
+  const hasInvalidValues = !isNonNegativeNumber(allocated);
 
   return (
     <Card>
@@ -244,14 +256,14 @@ function BudgetSection({ projectId }: { projectId: string }) {
         <div>
           <CardTitle className="flex items-center gap-2">
             <DollarSign className="size-5 text-success" aria-hidden="true" />
-            Budget
+            Project Budget Summary
           </CardTitle>
-          <CardDescription>Project-level budget only.</CardDescription>
+          <CardDescription>Project allocated budget with phase spending totals.</CardDescription>
         </div>
-        <Button type="button" variant="outline" disabled={hasInvalidValues || updateBudget.isPending} onClick={onSave}>
+        {canEdit ? <Button type="button" variant="outline" disabled={hasInvalidValues || updateBudget.isPending} onClick={onSave}>
           <Save className="size-4" aria-hidden="true" />
           {updateBudget.isPending ? "Saving..." : "Save Budget"}
-        </Button>
+        </Button> : null}
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 md:grid-cols-4">
@@ -260,7 +272,7 @@ function BudgetSection({ projectId }: { projectId: string }) {
           <BudgetMetric label="Remaining" value={formatCurrency(budgetQuery.data.remaining)} tone={budgetQuery.data.remaining < 0 ? "error" : "default"} />
           <BudgetMetric label="Utilisation" value={formatPercent(budgetQuery.data.utilisation)} />
         </div>
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        {canEdit ? <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="space-y-2">
             <Label htmlFor="budget-allocated">Allocated</Label>
             <Input
@@ -272,11 +284,7 @@ function BudgetSection({ projectId }: { projectId: string }) {
               onChange={(event) => setAllocated(event.target.value)}
             />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="budget-spent">Spent</Label>
-            <Input id="budget-spent" type="number" min="0" step="0.01" value={spent} onChange={(event) => setSpent(event.target.value)} />
-          </div>
-        </div>
+        </div> : null}
         {hasInvalidValues ? <p className="text-sm text-error">Budget values must be non-negative numbers.</p> : null}
         {updateBudget.error ? <p className="text-sm text-error">{dashboardErrorMessage(updateBudget.error)}</p> : null}
       </CardContent>
@@ -289,6 +297,271 @@ function BudgetMetric({ label, tone = "default", value }: { label: string; value
     <div className="rounded-md border bg-background p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={tone === "error" ? "mt-1 text-lg font-semibold text-error" : "mt-1 text-lg font-semibold text-foreground"}>{value}</p>
+    </div>
+  );
+}
+
+function PhaseBudgetsSection({ canEdit, phases, projectId }: { canEdit: boolean; phases: DashboardPhase[]; projectId: string }) {
+  const updatePhaseBudget = useUpdatePhaseBudgetMutation(projectId);
+  const [drafts, setDrafts] = useState<Record<string, { allocated: string; spent: string }>>({});
+  const phaseBudgetRows = phases.map((phase) => ({
+    ...phase,
+    draft: drafts[phase.id] ?? {
+      allocated: String(phase.budget_allocated),
+      spent: String(phase.budget_spent),
+    },
+  }));
+
+  function setDraft(phaseId: string, field: "allocated" | "spent", value: string) {
+    setDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [phaseId]: {
+        allocated: currentDrafts[phaseId]?.allocated ?? String(phases.find((phase) => phase.id === phaseId)?.budget_allocated ?? 0),
+        spent: currentDrafts[phaseId]?.spent ?? String(phases.find((phase) => phase.id === phaseId)?.budget_spent ?? 0),
+        [field]: value,
+      },
+    }));
+  }
+
+  async function savePhaseBudget(phaseId: string) {
+    const draft = drafts[phaseId];
+    if (!draft) {
+      return;
+    }
+    await updatePhaseBudget.mutateAsync({
+      phaseId,
+      payload: {
+        allocated: Number(draft.allocated),
+        spent: Number(draft.spent),
+      },
+    });
+    setDrafts((currentDrafts) => {
+      const nextDrafts = { ...currentDrafts };
+      delete nextDrafts[phaseId];
+      return nextDrafts;
+    });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Phase Budgets</CardTitle>
+        <CardDescription>Allocated and spent values by phase.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[42rem] text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs text-muted-foreground">
+                <th className="py-2 pr-3 font-medium">Phase</th>
+                <th className="px-3 py-2 font-medium">Allocated</th>
+                <th className="px-3 py-2 font-medium">Spent</th>
+                <th className="px-3 py-2 font-medium">Remaining</th>
+                <th className="px-3 py-2 font-medium">Utilisation</th>
+                {canEdit ? <th className="py-2 pl-3 text-right font-medium">Save</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {phaseBudgetRows.map((phase) => {
+                const invalid = !isNonNegativeNumber(phase.draft.allocated) || !isNonNegativeNumber(phase.draft.spent);
+                return (
+                  <tr key={phase.id} className="border-b last:border-b-0">
+                    <td className="py-3 pr-3 font-medium text-foreground">{phase.name}</td>
+                    <td className="px-3 py-3">
+                      {canEdit ? (
+                        <Input type="number" min="0" step="0.01" value={phase.draft.allocated} onChange={(event) => setDraft(phase.id, "allocated", event.target.value)} aria-label={`${phase.name} allocated`} />
+                      ) : (
+                        formatCurrency(phase.budget_allocated)
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
+                      {canEdit ? (
+                        <Input type="number" min="0" step="0.01" value={phase.draft.spent} onChange={(event) => setDraft(phase.id, "spent", event.target.value)} aria-label={`${phase.name} spent`} />
+                      ) : (
+                        formatCurrency(phase.budget_spent)
+                      )}
+                    </td>
+                    <td className={phase.budget_remaining < 0 ? "px-3 py-3 text-error" : "px-3 py-3"}>{formatCurrency(phase.budget_remaining)}</td>
+                    <td className="px-3 py-3">{formatPercent(phase.budget_utilisation)}</td>
+                    {canEdit ? (
+                      <td className="py-3 pl-3 text-right">
+                        <Button type="button" variant="outline" size="sm" disabled={invalid || updatePhaseBudget.isPending || !drafts[phase.id]} onClick={() => savePhaseBudget(phase.id)}>
+                          <Save className="size-4" aria-hidden="true" />
+                          Save
+                        </Button>
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {updatePhaseBudget.error ? <p className="mt-3 text-sm text-error">{dashboardErrorMessage(updatePhaseBudget.error)}</p> : null}
+        </div>
+        <PhaseBudgetPie phases={phases} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function PhaseBudgetPie({ phases }: { phases: DashboardPhase[] }) {
+  const totalSpent = phases.reduce((sum, phase) => sum + phase.budget_spent, 0);
+  const colors = ["#b91c1c", "#2563eb", "#16a34a", "#ca8a04", "#7c3aed", "#0891b2"];
+  const segments = buildPieSegments(phases, totalSpent);
+
+  return (
+    <div className="rounded-md border bg-background p-4">
+      <p className="text-sm font-semibold text-foreground">Spending Distribution</p>
+      {totalSpent > 0 ? (
+        <svg viewBox="0 0 120 120" className="mx-auto mt-4 size-44" role="img" aria-label="Phase spending distribution">
+          {segments.map((segment, index) => (
+            <circle
+              key={segment.phase.id}
+              cx="60"
+              cy="60"
+              r="42"
+              fill="transparent"
+              stroke={colors[index % colors.length]}
+              strokeDasharray={`${segment.percent} ${100 - segment.percent}`}
+              strokeDashoffset={segment.offset}
+              strokeWidth="22"
+              transform="rotate(-90 60 60)"
+            />
+          ))}
+        </svg>
+      ) : (
+        <div className="mt-4 flex aspect-square items-center justify-center rounded-full border text-sm text-muted-foreground">No spending</div>
+      )}
+      <div className="mt-4 space-y-2">
+        {phases.map((phase, index) => (
+          <div key={phase.id} className="flex items-center justify-between gap-3 text-xs">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
+              <span className="truncate text-muted-foreground">{phase.name}</span>
+            </span>
+            <span className="font-medium text-foreground">{formatCurrency(phase.budget_spent)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function FinanceDocumentsSection({ canEdit, phases, projectId }: { canEdit: boolean; phases: DashboardPhase[]; projectId: string }) {
+  const filesQuery = useProjectFilesQuery(projectId);
+  const financeFiles = (filesQuery.data ?? []).filter((file) => file.file_category === "finance");
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Finance Documents</CardTitle>
+        <CardDescription>Budget sheets, quotations, finance reports, and supporting spreadsheets.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {canEdit ? <FinanceDocumentUpload projectId={projectId} phases={phases} /> : null}
+        {filesQuery.isLoading ? <LoadingState label="Loading finance documents" /> : null}
+        {filesQuery.isError ? <ErrorState title="Finance documents could not be loaded" message={dashboardErrorMessage(filesQuery.error)} /> : null}
+        {!filesQuery.isLoading && !filesQuery.isError && financeFiles.length === 0 ? <EmptyState title="No finance documents uploaded yet." /> : null}
+        {!filesQuery.isLoading && !filesQuery.isError && financeFiles.length > 0 ? (
+          <div className="divide-y rounded-md border bg-surface">
+            {financeFiles.map((file) => (
+              <ProjectFileRow key={file.id} file={file} projectId={projectId} />
+            ))}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function FinanceDocumentUpload({ phases, projectId }: { phases: DashboardPhase[]; projectId: string }) {
+  const [selectedPhaseId, setSelectedPhaseId] = useState(phases[0]?.id ?? "");
+  const selectedPhase = phases.find((phase) => phase.id === selectedPhaseId);
+  const tasksQuery = useTasksQuery(projectId, selectedPhaseId, Boolean(selectedPhaseId));
+  const tasks = tasksQuery.data ?? [];
+  const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const uploadFile = useUploadTaskFileMutation(projectId, selectedPhaseId, selectedTaskId);
+
+  useEffect(() => {
+    if (tasks.length > 0 && !tasks.some((task) => task.id === selectedTaskId)) {
+      setSelectedTaskId(tasks[0].id);
+    }
+  }, [selectedTaskId, tasks]);
+
+  function onSelectFiles(files: FileList | null) {
+    if (!files?.length) {
+      return;
+    }
+    setSelectedFiles((currentFiles) => [...currentFiles, ...Array.from(files)]);
+    setFileInputKey((key) => key + 1);
+  }
+
+  async function onUpload() {
+    for (const file of selectedFiles) {
+      await uploadFile.mutateAsync({ file, fileCategory: "finance" });
+    }
+    setSelectedFiles([]);
+    setFileInputKey((key) => key + 1);
+  }
+
+  return (
+    <div className="rounded-md border bg-background p-4">
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Phase</Label>
+          <Select value={selectedPhaseId} onValueChange={(value) => { setSelectedPhaseId(value); setSelectedTaskId(""); }}>
+            <SelectTrigger aria-label="Finance document phase">
+              <SelectValue placeholder="Select phase" />
+            </SelectTrigger>
+            <SelectContent>
+              {phases.map((phase) => (
+                <SelectItem key={phase.id} value={phase.id}>
+                  {phase.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label>Task</Label>
+          <Select value={selectedTaskId} onValueChange={setSelectedTaskId} disabled={!selectedPhase || tasksQuery.isLoading || tasks.length === 0}>
+            <SelectTrigger aria-label="Finance document task">
+              <SelectValue placeholder={tasksQuery.isLoading ? "Loading tasks" : "Select task"} />
+            </SelectTrigger>
+            <SelectContent>
+              {tasks.map((task) => (
+                <SelectItem key={task.id} value={task.id}>
+                  {task.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="mt-3">
+        <Label htmlFor="finance-document-upload">Upload finance document</Label>
+        <Input key={fileInputKey} id="finance-document-upload" type="file" multiple className="mt-2" disabled={!selectedTaskId || uploadFile.isPending} onChange={(event) => onSelectFiles(event.target.files)} />
+      </div>
+      {selectedFiles.length > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {selectedFiles.map((file, index) => (
+            <li key={`${file.name}-${file.lastModified}-${index}`} className="flex items-center justify-between gap-3 rounded-md border bg-surface px-3 py-2 text-sm">
+              <span className="min-w-0 truncate text-muted-foreground">{file.name}</span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setSelectedFiles((files) => files.filter((_file, fileIndex) => fileIndex !== index))}>
+                Remove
+              </Button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {uploadFile.error ? <p className="mt-3 text-sm text-error">{dashboardErrorMessage(uploadFile.error)}</p> : null}
+      <div className="mt-3 flex justify-end">
+        <Button type="button" disabled={!selectedTaskId || selectedFiles.length === 0 || uploadFile.isPending} onClick={onUpload}>
+          {uploadFile.isPending ? "Uploading..." : "Upload"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -759,6 +1032,22 @@ function formatFileCategory(value: ProjectFile["file_category"]) {
     return "Finance";
   }
   return "Reference";
+}
+
+function buildPieSegments(phases: DashboardPhase[], totalSpent: number) {
+  let offset = 0;
+  return phases
+    .filter((phase) => phase.budget_spent > 0 && totalSpent > 0)
+    .map((phase) => {
+      const percent = (phase.budget_spent / totalSpent) * 100;
+      const segment = {
+        phase,
+        percent,
+        offset: -offset,
+      };
+      offset += percent;
+      return segment;
+    });
 }
 
 function formatCurrency(value: number) {

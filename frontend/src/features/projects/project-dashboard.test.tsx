@@ -17,7 +17,10 @@ const mocks = vi.hoisted(() => ({
   useProjectMembersQuery: vi.fn(),
   useProjectQuery: vi.fn(),
   useRemovePhaseMemberMutation: vi.fn(),
+  useTasksQuery: vi.fn(),
+  useUpdatePhaseBudgetMutation: vi.fn(),
   useUpdateProjectBudgetMutation: vi.fn(),
+  useUploadTaskFileMutation: vi.fn(),
   useAuth: vi.fn(),
 }));
 
@@ -61,7 +64,10 @@ vi.mock("./hooks", () => ({
   useProjectMembersQuery: mocks.useProjectMembersQuery,
   useProjectQuery: mocks.useProjectQuery,
   useRemovePhaseMemberMutation: mocks.useRemovePhaseMemberMutation,
+  useTasksQuery: mocks.useTasksQuery,
+  useUpdatePhaseBudgetMutation: mocks.useUpdatePhaseBudgetMutation,
   useUpdateProjectBudgetMutation: mocks.useUpdateProjectBudgetMutation,
+  useUploadTaskFileMutation: mocks.useUploadTaskFileMutation,
 }));
 
 const projectId = "11111111-1111-4111-8111-111111111111";
@@ -103,6 +109,10 @@ const dashboard = {
       display_order: 1,
       objectives: null,
       progress: 50,
+      budget_allocated: 500,
+      budget_spent: 125,
+      budget_remaining: 375,
+      budget_utilisation: 0.25,
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
       archived_at: null,
@@ -120,6 +130,10 @@ const dashboard = {
       display_order: 2,
       objectives: null,
       progress: 10,
+      budget_allocated: 250,
+      budget_spent: 75,
+      budget_remaining: 175,
+      budget_utilisation: 0.3,
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
       archived_at: null,
@@ -201,7 +215,10 @@ describe("ProjectDashboardPage", () => {
       isLoading: false,
     });
     mocks.useDownloadProjectFileMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
+    mocks.useTasksQuery.mockReturnValue({ data: [], isLoading: false });
+    mocks.useUpdatePhaseBudgetMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useUpdateProjectBudgetMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
+    mocks.useUploadTaskFileMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useRemovePhaseMemberMutation.mockReturnValue({ error: null, isPending: false, mutate: vi.fn() });
   });
 

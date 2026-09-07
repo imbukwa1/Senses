@@ -119,7 +119,6 @@ class ProjectBudgetUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     allocated: Decimal | None = None
-    spent: Decimal | None = None
 
 
 class UserSummaryResponse(BaseModel):
@@ -191,6 +190,13 @@ class PhaseUpdateRequest(BaseModel):
     objectives: str | None = None
 
 
+class PhaseBudgetUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    allocated: Decimal | None = None
+    spent: Decimal | None = None
+
+
 class PhaseReorderRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -215,6 +221,10 @@ class PhaseResponse(BaseModel):
     status: str
     display_order: int
     objectives: str | None
+    budget_allocated: Decimal
+    budget_spent: Decimal
+    budget_remaining: Decimal
+    budget_utilisation: Decimal
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
@@ -434,6 +444,10 @@ class DashboardPhaseResponse(BaseModel):
     display_order: int
     objectives: str | None
     progress: Decimal
+    budget_allocated: Decimal
+    budget_spent: Decimal
+    budget_remaining: Decimal
+    budget_utilisation: Decimal
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
@@ -551,7 +565,7 @@ def get_project_budget(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> ProjectBudgetResponse:
     ensure_project_access(session, current_user.id, project_id)
-    ensure_project_budget_role(session, current_user.id, project_id)
+    ensure_project_budget_view_role(session, current_user.id, project_id)
     return project_budget_to_response(fetch_project_budget_or_404(session, project_id))
 
 
@@ -563,7 +577,7 @@ def update_project_budget(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> ProjectBudgetResponse:
     ensure_project_access(session, current_user.id, project_id)
-    ensure_project_budget_role(session, current_user.id, project_id)
+    ensure_project_budget_edit_role(session, current_user.id, project_id)
     values = payload.model_dump(exclude_unset=True)
     if not values:
         return project_budget_to_response(fetch_project_budget_or_404(session, project_id))
@@ -580,10 +594,7 @@ def update_project_budget(
             detail=f"Budget values cannot be negative: {', '.join(negative_fields)}",
         )
 
-    field_map = {
-        "allocated": "budget_allocated",
-        "spent": "budget_spent",
-    }
+    field_map = {"allocated": "budget_allocated"}
     set_clause = ", ".join(f"{field_map[field]} = %s" for field in values)
     params = [*values.values(), project_id]
     row = session.fetch_one(
@@ -804,6 +815,66 @@ def get_phase(
     if phase is None:
         raise_phase_not_found()
     return phase_to_response(fetch_project_phase_or_404(session, project_id, phase["id"]))
+
+
+@router.get("/{project_id}/phases/{phase_id}/budget", response_model=PhaseResponse)
+def get_phase_budget(
+    project_id: UUID,
+    phase_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> PhaseResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_budget_view_role(session, current_user.id, project_id)
+    return phase_to_response(fetch_project_phase_or_404(session, project_id, phase_id))
+
+
+@router.patch("/{project_id}/phases/{phase_id}/budget", response_model=PhaseResponse)
+def update_phase_budget(
+    project_id: UUID,
+    phase_id: UUID,
+    payload: PhaseBudgetUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> PhaseResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_budget_edit_role(session, current_user.id, project_id)
+    values = payload.model_dump(exclude_unset=True)
+    if not values:
+        return phase_to_response(fetch_project_phase_or_404(session, project_id, phase_id))
+    null_fields = sorted(field for field, value in values.items() if value is None)
+    if null_fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Budget values cannot be null: {', '.join(null_fields)}",
+        )
+    negative_fields = sorted(field for field, value in values.items() if value is not None and value < 0)
+    if negative_fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Budget values cannot be negative: {', '.join(negative_fields)}",
+        )
+
+    field_map = {
+        "allocated": "budget_allocated",
+        "spent": "budget_spent",
+    }
+    set_clause = ", ".join(f"{field_map[field]} = %s" for field in values)
+    params = [*values.values(), project_id, phase_id]
+    row = session.fetch_one(
+        f"""
+        UPDATE phases
+        SET {set_clause}
+        WHERE project_id = %s
+          AND id = %s
+          AND archived_at IS NULL
+        RETURNING id
+        """,
+        params,
+    )
+    if row is None:
+        raise_phase_not_found()
+    return phase_to_response(fetch_project_phase_or_404(session, project_id, phase_id))
 
 
 @router.get("/{project_id}/phases/{phase_id}/members", response_model=list[PhaseMemberResponse])
@@ -2024,6 +2095,8 @@ def fetch_dashboard_phases(session: DatabaseSession, project_id: UUID, user_id: 
           phases.status,
           phases.display_order,
           phases.objectives,
+          phases.budget_allocated,
+          phases.budget_spent,
           calculate_average_progress(ARRAY_AGG(task_progress.progress)) AS progress,
           phases.created_at,
           phases.updated_at,
@@ -2580,8 +2653,16 @@ def ensure_project_lead(session: DatabaseSession, user_id: UUID, project_id: UUI
         )
 
 
-def ensure_project_budget_role(session: DatabaseSession, user_id: UUID, project_id: UUID) -> None:
+def ensure_project_budget_view_role(session: DatabaseSession, user_id: UUID, project_id: UUID) -> None:
     if fetch_project_member_role(session, user_id, project_id) not in {"PM", "Finance"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=PROJECT_BUDGET_ROLE_REQUIRED_DETAIL,
+        )
+
+
+def ensure_project_budget_edit_role(session: DatabaseSession, user_id: UUID, project_id: UUID) -> None:
+    if fetch_project_member_role(session, user_id, project_id) != "Finance":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=PROJECT_BUDGET_ROLE_REQUIRED_DETAIL,
@@ -2613,9 +2694,15 @@ def ensure_task_file_upload_allowed(
     task: Row,
     file_category: TaskFileCategory,
 ) -> None:
-    if fetch_project_member_role(session, user_id, project_id) == "PM":
+    project_role = fetch_project_member_role(session, user_id, project_id)
+    if file_category == "finance" and project_role == "Finance":
         return
-    if file_category == "finance" and fetch_project_member_role(session, user_id, project_id) == "Finance":
+    if file_category == "finance":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=TASK_FILE_UPLOAD_FORBIDDEN_DETAIL,
+        )
+    if project_role == "PM":
         return
     if file_category == "work_submission" and (
         task["owner_id"] == user_id or fetch_task_supporter(session, task["id"], user_id) is not None
@@ -2665,20 +2752,27 @@ def ensure_task_status_update_allowed(
 def fetch_project_budget_or_404(session: DatabaseSession, project_id: UUID) -> Row:
     row = session.fetch_one(
         """
+        WITH phase_totals AS (
+          SELECT COALESCE(SUM(budget_spent), 0) AS spent
+          FROM phases
+          WHERE project_id = %s
+            AND archived_at IS NULL
+        )
         SELECT
-          id AS project_id,
-          budget_allocated AS allocated,
-          budget_spent AS spent,
-          budget_allocated - budget_spent AS remaining,
+          projects.id AS project_id,
+          projects.budget_allocated AS allocated,
+          phase_totals.spent AS spent,
+          projects.budget_allocated - phase_totals.spent AS remaining,
           CASE
-            WHEN budget_allocated > 0 THEN budget_spent / budget_allocated
+            WHEN projects.budget_allocated > 0 THEN phase_totals.spent / projects.budget_allocated
             ELSE 0
           END AS utilisation
         FROM projects
-        WHERE id = %s
-          AND archived_at IS NULL
+        CROSS JOIN phase_totals
+        WHERE projects.id = %s
+          AND projects.archived_at IS NULL
         """,
-        (project_id,),
+        (project_id, project_id),
     )
     if row is None:
         raise_project_not_found()
@@ -2765,10 +2859,16 @@ def fetch_project_health_reasons(session: DatabaseSession | None, project_id: UU
             AND phases.status <> 'Completed'
         ),
         project_budget AS (
-          SELECT budget_allocated, budget_spent
+          SELECT
+            projects.budget_allocated,
+            COALESCE(SUM(phases.budget_spent), 0) AS budget_spent
           FROM projects
-          WHERE id = %(project_id)s
-            AND archived_at IS NULL
+          LEFT JOIN phases
+            ON phases.project_id = projects.id
+           AND phases.archived_at IS NULL
+          WHERE projects.id = %(project_id)s
+            AND projects.archived_at IS NULL
+          GROUP BY projects.id, projects.budget_allocated
         ),
         project_deadline AS (
           SELECT end_date, status
@@ -2837,6 +2937,8 @@ def phase_to_response(row: Row) -> PhaseResponse:
     return PhaseResponse(
         **row,
         owner=user_summary_from_row(row, "owner"),
+        budget_remaining=row["budget_allocated"] - row["budget_spent"],
+        budget_utilisation=phase_budget_utilisation(row),
     )
 
 
@@ -2916,7 +3018,16 @@ def dashboard_phase_to_response(row: Row) -> DashboardPhaseResponse:
     return DashboardPhaseResponse(
         **row,
         owner=user_summary_from_row(row, "owner"),
+        budget_remaining=row["budget_allocated"] - row["budget_spent"],
+        budget_utilisation=phase_budget_utilisation(row),
     )
+
+
+def phase_budget_utilisation(row: Row) -> Decimal:
+    allocated = row["budget_allocated"]
+    if allocated > 0:
+        return row["budget_spent"] / allocated
+    return Decimal("0")
 
 
 def user_summary_from_row(row: Row, prefix: str) -> UserSummaryResponse | None:

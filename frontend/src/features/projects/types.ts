@@ -95,6 +95,10 @@ export type DashboardPhase = {
   display_order: number;
   objectives: string | null;
   progress: number;
+  budget_allocated: number;
+  budget_spent: number;
+  budget_remaining: number;
+  budget_utilisation: number;
   created_at: string;
   updated_at: string;
   archived_at: string | null;
@@ -123,6 +127,10 @@ export type PhaseResponse = {
   status: PhaseStatus;
   display_order: number;
   objectives: string | null;
+  budget_allocated: number;
+  budget_spent: number;
+  budget_remaining: number;
+  budget_utilisation: number;
   created_at: string;
   updated_at: string;
   archived_at: string | null;
@@ -233,6 +241,10 @@ export type ProjectBudget = {
 };
 
 export type ProjectBudgetMutationPayload = {
+  allocated?: number;
+};
+
+export type PhaseBudgetMutationPayload = {
   allocated?: number;
   spent?: number;
 };

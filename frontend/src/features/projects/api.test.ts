@@ -266,10 +266,10 @@ describe("project API mutations", () => {
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse(projectBudget))
-      .mockResolvedValueOnce(jsonResponse({ ...projectBudget, spent: 400, remaining: 600, utilisation: 0.4 }));
+      .mockResolvedValueOnce(jsonResponse({ ...projectBudget, allocated: 1200, remaining: 950, utilisation: 0.2083333333 }));
 
     const fetched = await getProjectBudget("token", project.id);
-    const updated = await updateProjectBudget("token", project.id, { spent: 400 });
+    const updated = await updateProjectBudget("token", project.id, { allocated: 1200 });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -283,12 +283,12 @@ describe("project API mutations", () => {
       `http://localhost:8000/projects/${project.id}/budget`,
       expect.objectContaining({
         method: "PATCH",
-        body: JSON.stringify({ spent: 400 }),
+        body: JSON.stringify({ allocated: 1200 }),
         headers: expect.objectContaining({ Authorization: "Bearer token" }),
       }),
     );
     expect(fetched).toEqual(projectBudget);
-    expect(updated.spent).toBe(400);
+    expect(updated.allocated).toBe(1200);
   });
 
   it("lists project files with task and phase context", async () => {

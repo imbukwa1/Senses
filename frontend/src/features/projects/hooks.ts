@@ -42,13 +42,14 @@ import {
   setCurrentPhase,
   updateChecklistItem,
   updatePhase,
+  updatePhaseBudget,
   updateProject,
   updateProjectBudget,
   updateTask,
   updateTaskStatus,
   uploadTaskFile,
 } from "./api";
-import type { PhaseMutationPayload, ProjectBudgetMutationPayload, ProjectMutationPayload, Task, TaskMutationPayload } from "./types";
+import type { PhaseBudgetMutationPayload, PhaseMutationPayload, ProjectBudgetMutationPayload, ProjectMutationPayload, Task, TaskFile, TaskMutationPayload } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
 export const attentionQueryKey = ["attention", "list"] as const;
@@ -230,6 +231,22 @@ export function useUpdateProjectBudgetMutation(projectId: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: projectBudgetQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: attentionQueryKey });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdatePhaseBudgetMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ phaseId, payload }: { phaseId: string; payload: PhaseBudgetMutationPayload }) =>
+      updatePhaseBudget(requireToken(token), projectId, phaseId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectBudgetQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: attentionQueryKey });
+      invalidateProjectDashboardQueries(queryClient, projectId);
     },
     onError: authFailureHandler(logout),
   });
@@ -562,7 +579,7 @@ export function useUploadTaskFileMutation(projectId: string, phaseId: string, ta
       taskIdOverride,
     }: {
       file: File;
-      fileCategory?: "reference" | "work_submission";
+      fileCategory?: TaskFile["file_category"];
       taskIdOverride?: string;
     }) => uploadTaskFile(requireToken(token), projectId, phaseId, taskIdOverride ?? taskId, file, fileCategory),
     onSuccess: (_data, variables) => {

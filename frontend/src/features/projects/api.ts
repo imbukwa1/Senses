@@ -29,6 +29,7 @@ import {
 import type {
   PhaseMutationPayload,
   AttentionItem,
+  PhaseBudgetMutationPayload,
   PhaseMember,
   MyWorkItem,
   ProjectFile,
@@ -153,6 +154,18 @@ export async function updateProjectBudget(token: string, projectId: string, payl
   }
 
   return result.data;
+}
+
+export async function updatePhaseBudget(token: string, projectId: string, phaseId: string, payload: PhaseBudgetMutationPayload): Promise<PhaseResponse> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/phases/${phaseId}/budget`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parsePhase(data);
 }
 
 export async function createProject(token: string, payload: ProjectMutationPayload): Promise<ProjectSummary> {
