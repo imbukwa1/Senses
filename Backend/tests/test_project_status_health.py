@@ -172,7 +172,8 @@ def test_project_health_reasons_are_derived_from_existing_work() -> None:
         active_phase = _create_phase(database, project["id"], user["id"], "Active Health Phase", display_order=2)
         _create_task(database, active_phase["id"], user["id"], "Overdue Health Task", due_date=today - timedelta(days=1))
         _create_task(database, active_phase["id"], user["id"], "Blocked Health Task", task_status="Blocked")
-        _set_budget(database, project["id"], allocated="100.00", spent="150.00")
+        _set_project_budget(database, project["id"], allocated="100.00")
+        _set_phase_budget(database, active_phase["id"], spent="150.00")
 
         app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
 
@@ -323,16 +324,27 @@ def _create_task(database: Database, phase_id, owner_id, name: str, due_date=Non
         )
 
 
-def _set_budget(database: Database, project_id, *, allocated: str, spent: str) -> None:
+def _set_project_budget(database: Database, project_id, *, allocated: str) -> None:
     with database.session() as session:
         session.execute(
             """
             UPDATE projects
-            SET budget_allocated = %s,
-                budget_spent = %s
+            SET budget_allocated = %s
             WHERE id = %s
             """,
-            (allocated, spent, project_id),
+            (allocated, project_id),
+        )
+
+
+def _set_phase_budget(database: Database, phase_id, *, spent: str) -> None:
+    with database.session() as session:
+        session.execute(
+            """
+            UPDATE phases
+            SET budget_spent = %s
+            WHERE id = %s
+            """,
+            (spent, phase_id),
         )
 
 

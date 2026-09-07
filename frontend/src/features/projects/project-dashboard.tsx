@@ -42,7 +42,7 @@ import { PhaseManagementDialog } from "./phase-management-dialog";
 import { PhaseTasks } from "./phase-tasks";
 import { ProjectFormDialog } from "./project-form-dialog";
 import { ProjectMembersDialog } from "./project-members-dialog";
-import type { DashboardDeliverable, DashboardPhase, PhaseMember, ProjectDashboard, ProjectFile, ProjectMember, UpcomingDeadline } from "./types";
+import type { DashboardDeliverable, DashboardPhase, PhaseMember, ProjectBudget, ProjectDashboard, ProjectFile, ProjectMember, UpcomingDeadline } from "./types";
 
 export function ProjectDashboardPage() {
   const { projectId } = useParams();
@@ -256,7 +256,7 @@ function BudgetSection({ canEdit, projectId }: { canEdit: boolean; projectId: st
         <div>
           <CardTitle className="flex items-center gap-2">
             <DollarSign className="size-5 text-success" aria-hidden="true" />
-            Project Budget Summary
+            Project Budget
           </CardTitle>
           <CardDescription>Project allocated budget with phase spending totals.</CardDescription>
         </div>
@@ -302,6 +302,7 @@ function BudgetMetric({ label, tone = "default", value }: { label: string; value
 }
 
 function PhaseBudgetsSection({ canEdit, phases, projectId }: { canEdit: boolean; phases: DashboardPhase[]; projectId: string }) {
+  const budgetQuery = useProjectBudgetQuery(projectId);
   const updatePhaseBudget = useUpdatePhaseBudgetMutation(projectId);
   const [drafts, setDrafts] = useState<Record<string, { allocated: string; spent: string }>>({});
   const phaseBudgetRows = phases.map((phase) => ({
@@ -348,7 +349,7 @@ function PhaseBudgetsSection({ canEdit, phases, projectId }: { canEdit: boolean;
         <CardTitle>Phase Budgets</CardTitle>
         <CardDescription>Allocated and spent values by phase.</CardDescription>
       </CardHeader>
-      <CardContent className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
+      <CardContent className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[42rem] text-sm">
             <thead>
@@ -398,30 +399,43 @@ function PhaseBudgetsSection({ canEdit, phases, projectId }: { canEdit: boolean;
           </table>
           {updatePhaseBudget.error ? <p className="mt-3 text-sm text-error">{dashboardErrorMessage(updatePhaseBudget.error)}</p> : null}
         </div>
-        <PhaseBudgetPie phases={phases} />
+        <PhaseBudgetPie budget={budgetQuery.data ?? null} isLoading={budgetQuery.isLoading} phases={phases} />
       </CardContent>
     </Card>
   );
 }
 
-function PhaseBudgetPie({ phases }: { phases: DashboardPhase[] }) {
+function PhaseBudgetPie({ budget, isLoading, phases }: { budget: ProjectBudget | null; isLoading: boolean; phases: DashboardPhase[] }) {
+  const allocated = budget?.allocated ?? 0;
   const totalSpent = phases.reduce((sum, phase) => sum + phase.budget_spent, 0);
+  const unutilized = Math.max(allocated - totalSpent, 0);
   const colors = ["#b91c1c", "#2563eb", "#16a34a", "#ca8a04", "#7c3aed", "#0891b2"];
-  const segments = buildPieSegments(phases, totalSpent);
+  const segments = buildPieSegments(phases, allocated, totalSpent);
 
   return (
     <div className="rounded-md border bg-background p-4">
-      <p className="text-sm font-semibold text-foreground">Spending Distribution</p>
-      {totalSpent > 0 ? (
-        <svg viewBox="0 0 120 120" className="mx-auto mt-4 size-44" role="img" aria-label="Phase spending distribution">
+      <p className="text-sm font-semibold text-foreground">Total Project Utilisation</p>
+      {isLoading ? <LoadingState label="Loading project utilisation" /> : null}
+      {!isLoading && allocated > 0 ? (
+        <svg viewBox="0 0 120 120" className="mx-auto mt-4 size-44" role="img" aria-label="Total project utilisation by phase">
+          <circle
+            cx="60"
+            cy="60"
+            r="42"
+            fill="transparent"
+            stroke="#d1d5db"
+            strokeDasharray="100 0"
+            strokeWidth="22"
+            transform="rotate(-90 60 60)"
+          />
           {segments.map((segment, index) => (
             <circle
-              key={segment.phase.id}
+              key={segment.id}
               cx="60"
               cy="60"
               r="42"
               fill="transparent"
-              stroke={colors[index % colors.length]}
+              stroke={segment.kind === "unutilized" ? "#d1d5db" : colors[index % colors.length]}
               strokeDasharray={`${segment.percent} ${100 - segment.percent}`}
               strokeDashoffset={segment.offset}
               strokeWidth="22"
@@ -430,18 +444,25 @@ function PhaseBudgetPie({ phases }: { phases: DashboardPhase[] }) {
           ))}
         </svg>
       ) : (
-        <div className="mt-4 flex aspect-square items-center justify-center rounded-full border text-sm text-muted-foreground">No spending</div>
+        !isLoading ? <div className="mt-4 flex aspect-square items-center justify-center rounded-full border text-sm text-muted-foreground">No budget allocated</div> : null
       )}
       <div className="mt-4 space-y-2">
-        {phases.map((phase, index) => (
+        {phases.filter((phase) => phase.budget_spent > 0).map((phase, index) => (
           <div key={phase.id} className="flex items-center justify-between gap-3 text-xs">
             <span className="flex min-w-0 items-center gap-2">
               <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
-              <span className="truncate text-muted-foreground">{phase.name}</span>
+              <span className="truncate text-muted-foreground">{phase.name} spent</span>
             </span>
-            <span className="font-medium text-foreground">{formatCurrency(phase.budget_spent)}</span>
+            <span className="font-medium text-foreground">{allocated > 0 ? formatPercent(phase.budget_spent / allocated) : "0%"}</span>
           </div>
         ))}
+        <div className="flex items-center justify-between gap-3 text-xs">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="size-2 shrink-0 rounded-full bg-slate-300" />
+            <span className="truncate text-muted-foreground">Unutilized</span>
+          </span>
+          <span className="font-medium text-foreground">{allocated > 0 ? formatPercent(unutilized / allocated) : "0%"}</span>
+        </div>
       </div>
     </div>
   );
@@ -478,7 +499,7 @@ function FinanceDocumentUpload({ phases, projectId }: { phases: DashboardPhase[]
   const [selectedPhaseId, setSelectedPhaseId] = useState(phases[0]?.id ?? "");
   const selectedPhase = phases.find((phase) => phase.id === selectedPhaseId);
   const tasksQuery = useTasksQuery(projectId, selectedPhaseId, Boolean(selectedPhaseId));
-  const tasks = tasksQuery.data ?? [];
+  const tasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
   const [selectedTaskId, setSelectedTaskId] = useState("");
   const [fileInputKey, setFileInputKey] = useState(0);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -1034,20 +1055,45 @@ function formatFileCategory(value: ProjectFile["file_category"]) {
   return "Reference";
 }
 
-function buildPieSegments(phases: DashboardPhase[], totalSpent: number) {
+type PieSegment = {
+  id: string;
+  kind: "phase" | "unutilized";
+  percent: number;
+  offset: number;
+};
+
+function buildPieSegments(phases: DashboardPhase[], allocated: number, totalSpent: number): PieSegment[] {
+  if (allocated <= 0) {
+    return [];
+  }
+
   let offset = 0;
-  return phases
+  const segments: PieSegment[] = phases
     .filter((phase) => phase.budget_spent > 0 && totalSpent > 0)
     .map((phase) => {
-      const percent = (phase.budget_spent / totalSpent) * 100;
+      const remainingPercent = Math.max(100 - offset, 0);
+      const percent = Math.min((phase.budget_spent / allocated) * 100, remainingPercent);
       const segment = {
-        phase,
+        id: phase.id,
+        kind: "phase" as const,
         percent,
         offset: -offset,
       };
       offset += percent;
       return segment;
     });
+
+  const unutilizedPercent = Math.max(((allocated - totalSpent) / allocated) * 100, 0);
+  if (unutilizedPercent > 0) {
+    segments.push({
+      id: "unutilized",
+      kind: "unutilized",
+      percent: unutilizedPercent,
+      offset: -offset,
+    });
+  }
+
+  return segments;
 }
 
 function formatCurrency(value: number) {

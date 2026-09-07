@@ -253,7 +253,12 @@ describe("ProjectDashboardPage", () => {
     expect(screen.queryByRole("button", { name: "People" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();
-    expect(screen.getByText("Budget")).toBeInTheDocument();
+    expect(screen.getByText("Project Budget")).toBeInTheDocument();
+    expect(screen.getByText("Total Project Utilisation")).toBeInTheDocument();
+    expect(screen.getByText("Discovery spent")).toBeInTheDocument();
+    expect(screen.getByText("Implementation spent")).toBeInTheDocument();
+    expect(screen.getByText("Unutilized")).toBeInTheDocument();
+    expect(screen.getByText("80%")).toBeInTheDocument();
   });
 });
 
