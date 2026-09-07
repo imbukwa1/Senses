@@ -212,7 +212,7 @@ function TaskFilesSection({
     }
 
     try {
-      await uploadFile.mutateAsync(selectedFile);
+      await uploadFile.mutateAsync({ file: selectedFile });
       setSelectedFile(null);
       setFileInputKey((key) => key + 1);
     } catch {

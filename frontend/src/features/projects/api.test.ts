@@ -9,6 +9,7 @@ import {
   listAttention,
   listMyWork,
   listPhaseMembers,
+  uploadTaskFile,
   updateProjectBudget,
 } from "./api";
 
@@ -247,6 +248,38 @@ describe("project API mutations", () => {
     );
     expect(fetched).toEqual(projectBudget);
     expect(updated.spent).toBe(400);
+  });
+
+  it("uploads reference files through the existing task file endpoint", async () => {
+    const file = new File(["brief"], "brief.pdf", { type: "application/pdf" });
+    const uploaded = {
+      id: "66666666-6666-4666-8666-666666666666",
+      task_id: myWorkItem.task_id,
+      file_name: "brief.pdf",
+      file_type: "application/pdf",
+      file_size: 5,
+      file_category: "reference",
+      uploaded_by: member.user_id,
+      uploader_name: member.name,
+      uploader_email: member.email,
+      created_at: "2026-01-01T00:00:00Z",
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(uploaded));
+
+    const result = await uploadTaskFile("token", project.id, phaseId, myWorkItem.task_id, file, "reference");
+    const request = fetchMock.mock.calls[0]?.[1];
+    const body = request?.body as FormData;
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:8000/projects/${project.id}/phases/${phaseId}/tasks/${myWorkItem.task_id}/files`,
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
+    expect(body.get("file_category")).toBe("reference");
+    expect(body.get("file")).toBe(file);
+    expect(result.file_category).toBe("reference");
   });
 });
 

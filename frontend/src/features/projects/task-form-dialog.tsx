@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Save } from "lucide-react";
+import { Paperclip, Save, X } from "lucide-react";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
@@ -24,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
-import { useCreateTaskMutation, useProjectMembersQuery, useTaskSupportersQuery, useUpdateTaskMutation } from "./hooks";
+import { useCreateTaskMutation, useProjectMembersQuery, useTaskSupportersQuery, useUpdateTaskMutation, useUploadTaskFileMutation } from "./hooks";
 import type { DashboardPhase, ProjectMember, Task, TaskMutationPayload, TaskSupporter } from "./types";
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -59,10 +59,16 @@ type TaskFormDialogProps = {
 
 export function TaskFormDialog({ children, mode, phase, projectId, task }: TaskFormDialogProps) {
   const [open, setOpen] = useState(false);
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [referenceFiles, setReferenceFiles] = useState<File[]>([]);
+  const [referenceUploadError, setReferenceUploadError] = useState<string | null>(null);
+  const [savedCreateTaskId, setSavedCreateTaskId] = useState<string | null>(null);
+  const [savedCreateSupporterIds, setSavedCreateSupporterIds] = useState<string[]>([]);
   const membersQuery = useProjectMembersQuery(projectId, open);
   const supportersQuery = useTaskSupportersQuery(projectId, phase.id, task?.id ?? "", open && Boolean(task));
   const createTask = useCreateTaskMutation(projectId, phase.id);
   const updateTask = useUpdateTaskMutation(projectId, phase.id, task?.id ?? "");
+  const uploadReferenceFile = useUploadTaskFileMutation(projectId, phase.id, task?.id ?? savedCreateTaskId ?? "");
   const mutation = mode === "create" ? createTask : updateTask;
   const memberOptions = buildUserOptions(membersQuery.data ?? [], task, supportersQuery.data ?? []);
   const supporterIds = supportersQuery.data?.map((supporter) => supporter.user_id) ?? [];
@@ -85,26 +91,79 @@ export function TaskFormDialog({ children, mode, phase, projectId, task }: TaskF
   function handleOpenChange(nextOpen: boolean) {
     if (!nextOpen) {
       mutation.reset();
+      uploadReferenceFile.reset();
       reset(taskToFormValues(task, memberOptions, supporterIds));
+      setReferenceFiles([]);
+      setReferenceUploadError(null);
+      setSavedCreateTaskId(null);
+      setSavedCreateSupporterIds([]);
+      setFileInputKey((key) => key + 1);
     }
     setOpen(nextOpen);
   }
 
   async function onSubmit(values: TaskFormValues) {
+    setReferenceUploadError(null);
+    let taskSaved = false;
     try {
       const payload = toPayload(values);
+      let savedTaskId = task?.id ?? savedCreateTaskId;
       if (mode === "create") {
-        await createTask.mutateAsync({ payload, supporterIds: values.supporter_ids });
+        if (savedTaskId) {
+          await updateTask.mutateAsync({
+            payload,
+            supporterIds: values.supporter_ids,
+            currentSupporterIds: savedCreateSupporterIds,
+            taskIdOverride: savedTaskId,
+          });
+          taskSaved = true;
+        } else {
+          const createdTask = await createTask.mutateAsync({ payload, supporterIds: values.supporter_ids });
+          savedTaskId = createdTask.id;
+          setSavedCreateTaskId(savedTaskId);
+          taskSaved = true;
+        }
+        setSavedCreateSupporterIds(values.supporter_ids);
       } else {
-        await updateTask.mutateAsync({
+        const updatedTask = await updateTask.mutateAsync({
           payload,
           supporterIds: values.supporter_ids,
           currentSupporterIds: supporterIds,
         });
+        savedTaskId = updatedTask.id;
+        taskSaved = true;
       }
+      if (savedTaskId) {
+        await uploadReferenceFiles(savedTaskId);
+      }
+      setReferenceFiles([]);
+      setSavedCreateTaskId(null);
+      setSavedCreateSupporterIds([]);
       setOpen(false);
-    } catch {
+    } catch (error) {
+      if (taskSaved || savedCreateTaskId) {
+        setReferenceUploadError(referenceFileErrorMessage(error instanceof Error ? error : null));
+      }
       return;
+    }
+  }
+
+  function handleReferenceFileSelection(files: FileList | null) {
+    setReferenceUploadError(null);
+    if (!files?.length) {
+      return;
+    }
+    setReferenceFiles((currentFiles) => [...currentFiles, ...Array.from(files)]);
+    setFileInputKey((key) => key + 1);
+  }
+
+  function removeReferenceFile(index: number) {
+    setReferenceFiles((currentFiles) => currentFiles.filter((_file, fileIndex) => fileIndex !== index));
+  }
+
+  async function uploadReferenceFiles(taskId: string) {
+    for (const file of referenceFiles) {
+      await uploadReferenceFile.mutateAsync({ file, fileCategory: "reference", taskIdOverride: taskId });
     }
   }
 
@@ -120,6 +179,7 @@ export function TaskFormDialog({ children, mode, phase, projectId, task }: TaskF
         </DialogHeader>
         <form className="space-y-5" noValidate onSubmit={handleSubmit(onSubmit)}>
           {serverError ? <InlineErrorMessage message={serverError} /> : null}
+          {referenceUploadError ? <InlineErrorMessage message={referenceUploadError} /> : null}
           {membersQuery.error ? <InlineErrorMessage message="Project members could not be loaded for owner/supporter selection." /> : null}
           <div className="rounded-md border bg-background px-3 py-2 text-sm">
             <span className="font-medium text-foreground">Phase:</span> <span className="text-muted-foreground">{phase.name}</span>
@@ -238,6 +298,38 @@ export function TaskFormDialog({ children, mode, phase, projectId, task }: TaskF
               )}
             </FormField>
           </div>
+          <section className="rounded-md border bg-background p-4">
+            <div className="flex items-center gap-2">
+              <Paperclip className="size-4 text-primary" aria-hidden="true" />
+              <h3 className="text-sm font-semibold text-foreground">Files needed for this task</h3>
+            </div>
+            <div className="mt-3">
+              <label className="text-sm font-medium text-foreground" htmlFor={`task-reference-files-${phase.id}-${task?.id ?? "new"}`}>
+                Add reference file
+              </label>
+              <Input
+                key={fileInputKey}
+                id={`task-reference-files-${phase.id}-${task?.id ?? "new"}`}
+                type="file"
+                multiple
+                className="mt-2"
+                disabled={isPending || uploadReferenceFile.isPending}
+                onChange={(event) => handleReferenceFileSelection(event.target.files)}
+              />
+            </div>
+            {referenceFiles.length > 0 ? (
+              <ul className="mt-3 space-y-2">
+                {referenceFiles.map((file, index) => (
+                  <li key={`${file.name}-${file.lastModified}-${index}`} className="flex items-center justify-between gap-3 rounded-md border bg-surface px-3 py-2 text-sm">
+                    <span className="min-w-0 truncate text-muted-foreground">{file.name}</span>
+                    <Button type="button" variant="ghost" size="icon" onClick={() => removeReferenceFile(index)} aria-label={`Remove ${file.name}`}>
+                      <X className="size-4" aria-hidden="true" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
           {selectedSupporters.length > 0 ? <p className="text-xs text-muted-foreground">{selectedSupporters.length} supporter(s) selected.</p> : null}
           <DialogFooter>
             <DialogClose asChild>
@@ -245,9 +337,9 @@ export function TaskFormDialog({ children, mode, phase, projectId, task }: TaskF
                 Cancel
               </Button>
             </DialogClose>
-            <Button type="submit" disabled={isPending || isLoadingUsers || memberOptions.length === 0} className="bg-brand-red text-white hover:bg-brand-red/90">
+            <Button type="submit" disabled={isPending || uploadReferenceFile.isPending || isLoadingUsers || memberOptions.length === 0} className="bg-brand-red text-white hover:bg-brand-red/90">
               <Save className="size-4" aria-hidden="true" />
-              {isPending ? "Saving..." : mode === "create" ? "Add Task" : "Save Changes"}
+              {isPending || uploadReferenceFile.isPending ? "Saving..." : mode === "create" ? "Add Task" : "Save Changes"}
             </Button>
           </DialogFooter>
         </form>
@@ -351,5 +443,14 @@ function taskMutationErrorMessage(error: Error) {
     conflict: "The supporter is already assigned to this task.",
     forbidden: "You do not have access to manage tasks for this project.",
     notFound: "The project, phase, task, owner, or supporter could not be found.",
+  });
+}
+
+function referenceFileErrorMessage(error: Error | null) {
+  return userFacingErrorMessage(error, {
+    action: "the reference files",
+    conflict: "The task was saved, but one or more reference files could not be attached.",
+    forbidden: "The task was saved, but you are not allowed to attach reference files.",
+    notFound: "The task was saved, but the reference file destination could not be found.",
   });
 }

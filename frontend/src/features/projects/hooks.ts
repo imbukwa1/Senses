@@ -368,20 +368,23 @@ export function useUpdateTaskMutation(projectId: string, phaseId: string, taskId
       currentSupporterIds,
       payload,
       supporterIds,
+      taskIdOverride,
     }: {
       payload: TaskMutationPayload;
       supporterIds: string[];
       currentSupporterIds: string[];
+      taskIdOverride?: string;
     }) => {
       const authToken = requireToken(token);
-      const task = await updateTask(authToken, projectId, phaseId, taskId, payload);
+      const targetTaskId = taskIdOverride ?? taskId;
+      const task = await updateTask(authToken, projectId, phaseId, targetTaskId, payload);
       const desiredIds = uniqueIds(supporterIds);
       const currentIds = uniqueIds(currentSupporterIds);
       const toAdd = desiredIds.filter((userId) => !currentIds.includes(userId));
       const toRemove = currentIds.filter((userId) => !desiredIds.includes(userId));
 
-      await Promise.all(toAdd.map((userId) => addTaskSupporter(authToken, projectId, phaseId, taskId, userId)));
-      await Promise.all(toRemove.map((userId) => removeTaskSupporter(authToken, projectId, phaseId, taskId, userId)));
+      await Promise.all(toAdd.map((userId) => addTaskSupporter(authToken, projectId, phaseId, targetTaskId, userId)));
+      await Promise.all(toRemove.map((userId) => removeTaskSupporter(authToken, projectId, phaseId, targetTaskId, userId)));
       return task;
     },
     onSuccess: () => {
@@ -511,9 +514,17 @@ export function useUploadTaskFileMutation(projectId: string, phaseId: string, ta
   const { logout, token } = useAuth();
 
   return useMutation({
-    mutationFn: (file: File) => uploadTaskFile(requireToken(token), projectId, phaseId, taskId, file),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: taskFilesQueryKey(projectId, phaseId, taskId) });
+    mutationFn: ({
+      file,
+      fileCategory = "work_submission",
+      taskIdOverride,
+    }: {
+      file: File;
+      fileCategory?: "reference" | "work_submission";
+      taskIdOverride?: string;
+    }) => uploadTaskFile(requireToken(token), projectId, phaseId, taskIdOverride ?? taskId, file, fileCategory),
+    onSuccess: (_data, variables) => {
+      void queryClient.invalidateQueries({ queryKey: taskFilesQueryKey(projectId, phaseId, variables.taskIdOverride ?? taskId) });
     },
     onError: authFailureHandler(logout),
   });
