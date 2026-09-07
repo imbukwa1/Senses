@@ -409,40 +409,23 @@ function PhaseBudgetPie({ budget, isLoading, phases }: { budget: ProjectBudget |
   const allocated = budget?.allocated ?? 0;
   const totalSpent = phases.reduce((sum, phase) => sum + phase.budget_spent, 0);
   const unutilized = Math.max(allocated - totalSpent, 0);
-  const colors = ["#b91c1c", "#2563eb", "#16a34a", "#ca8a04", "#7c3aed", "#0891b2"];
+  const colors = ["#2c5aa0", "#3d8a43", "#7c3aed", "#ca8a04", "#0891b2", "#0f766e"];
   const segments = buildPieSegments(phases, allocated, totalSpent);
+  const donutBackground = buildDonutBackground(segments);
 
   return (
-    <div className="rounded-md border bg-background p-4">
+    <div className="p-2">
       <p className="text-sm font-semibold text-foreground">Total Project Utilisation</p>
       {isLoading ? <LoadingState label="Loading project utilisation" /> : null}
       {!isLoading && allocated > 0 ? (
-        <svg viewBox="0 0 120 120" className="mx-auto mt-4 size-44" role="img" aria-label="Total project utilisation by phase">
-          <circle
-            cx="60"
-            cy="60"
-            r="42"
-            fill="transparent"
-            stroke="#d1d5db"
-            strokeDasharray="100 0"
-            strokeWidth="22"
-            transform="rotate(-90 60 60)"
-          />
-          {segments.map((segment, index) => (
-            <circle
-              key={segment.id}
-              cx="60"
-              cy="60"
-              r="42"
-              fill="transparent"
-              stroke={segment.kind === "unutilized" ? "#d1d5db" : colors[index % colors.length]}
-              strokeDasharray={`${segment.percent} ${100 - segment.percent}`}
-              strokeDashoffset={segment.offset}
-              strokeWidth="22"
-              transform="rotate(-90 60 60)"
-            />
-          ))}
-        </svg>
+        <div
+          className="relative mx-auto mt-4 size-52 rounded-full"
+          role="img"
+          aria-label="Total project utilisation by phase"
+          style={{ background: donutBackground }}
+        >
+          <div className="absolute inset-14 rounded-full bg-background" />
+        </div>
       ) : (
         !isLoading ? <div className="mt-4 flex aspect-square items-center justify-center rounded-full border text-sm text-muted-foreground">No budget allocated</div> : null
       )}
@@ -1059,7 +1042,8 @@ type PieSegment = {
   id: string;
   kind: "phase" | "unutilized";
   percent: number;
-  offset: number;
+  start: number;
+  end: number;
 };
 
 function buildPieSegments(phases: DashboardPhase[], allocated: number, totalSpent: number): PieSegment[] {
@@ -1077,7 +1061,8 @@ function buildPieSegments(phases: DashboardPhase[], allocated: number, totalSpen
         id: phase.id,
         kind: "phase" as const,
         percent,
-        offset: -offset,
+        start: offset,
+        end: offset + percent,
       };
       offset += percent;
       return segment;
@@ -1089,11 +1074,26 @@ function buildPieSegments(phases: DashboardPhase[], allocated: number, totalSpen
       id: "unutilized",
       kind: "unutilized",
       percent: unutilizedPercent,
-      offset: -offset,
+      start: offset,
+      end: offset + unutilizedPercent,
     });
   }
 
   return segments;
+}
+
+function buildDonutBackground(segments: PieSegment[]) {
+  if (segments.length === 0) {
+    return "#d1d5db";
+  }
+
+  const colors = ["#2c5aa0", "#3d8a43", "#7c3aed", "#ca8a04", "#0891b2", "#0f766e"];
+  return `conic-gradient(${segments
+    .map((segment, index) => {
+      const color = segment.kind === "unutilized" ? "#b85622" : colors[index % colors.length];
+      return `${color} ${segment.start}% ${segment.end}%`;
+    })
+    .join(", ")})`;
 }
 
 function formatCurrency(value: number) {
