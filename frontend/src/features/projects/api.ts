@@ -12,6 +12,7 @@ import {
   myWorkItemsSchema,
   projectBudgetSchema,
   projectDashboardSchema,
+  projectFilesSchema,
   projectMemberSchema,
   projectMembersSchema,
   projectSummariesSchema,
@@ -30,6 +31,7 @@ import type {
   AttentionItem,
   PhaseMember,
   MyWorkItem,
+  ProjectFile,
   ProjectBudget,
   ProjectBudgetMutationPayload,
   PhaseResponse,
@@ -105,6 +107,34 @@ export async function getProjectBudget(token: string, projectId: string): Promis
   }
 
   return result.data;
+}
+
+export async function listProjectFiles(token: string, projectId: string): Promise<ProjectFile[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/files`, {}, token);
+  const result = projectFilesSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project file data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function downloadProjectFile(token: string, projectId: string, fileId: string): Promise<DownloadedTaskFile> {
+  const response = await fetch(`${apiBaseUrl()}/projects/${projectId}/files/${fileId}/download`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new ApiError(await safeFileErrorMessage(response), response.status);
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: parseDownloadFileName(response.headers.get("content-disposition")) ?? "attachment",
+  };
 }
 
 export async function updateProjectBudget(token: string, projectId: string, payload: ProjectBudgetMutationPayload): Promise<ProjectBudget> {

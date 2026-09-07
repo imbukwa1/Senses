@@ -31,7 +31,7 @@ PhaseStatus = Literal["Not Started", "In Progress", "Completed"]
 TaskStatus = Literal["Not Started", "In Progress", "Blocked", "Completed"]
 PriorityLevel = Literal["Low", "Medium", "High"]
 ProjectMemberRole = Literal["PM", "Team Member", "Finance"]
-TaskFileCategory = Literal["reference", "work_submission"]
+TaskFileCategory = Literal["reference", "work_submission", "finance"]
 UserFacingProjectHealth = Literal["On track", "Needs attention", "At risk", "Completed"]
 
 PROJECT_NOT_FOUND_DETAIL = "Project not found"
@@ -370,6 +370,13 @@ class TaskFileResponse(BaseModel):
     created_at: datetime
 
 
+class ProjectFileResponse(TaskFileResponse):
+    project_id: UUID
+    phase_id: UUID
+    phase_name: str
+    task_name: str
+
+
 class ProjectMemberResponse(BaseModel):
     project_id: UUID
     user_id: UUID
@@ -593,6 +600,41 @@ def update_project_budget(
         raise_project_not_found()
 
     return project_budget_to_response(fetch_project_budget_or_404(session, project_id))
+
+
+@router.get("/{project_id}/files", response_model=list[ProjectFileResponse])
+def list_project_files(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectFileResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    can_view_finance_files = project_file_finance_visible(session, current_user.id, project_id)
+    return [
+        project_file_to_response(row)
+        for row in fetch_project_files(session, project_id, include_finance=can_view_finance_files)
+    ]
+
+
+@router.get("/{project_id}/files/{file_id}/download")
+def download_project_file(
+    request: Request,
+    project_id: UUID,
+    file_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> Response:
+    ensure_project_access(session, current_user.id, project_id)
+    metadata = fetch_project_file_or_404(session, project_id, file_id)
+    ensure_project_file_visible(session, current_user.id, project_id, metadata)
+    stored_file = get_file_storage(request).download(metadata["storage_key"])
+    content_type = metadata["file_type"] or stored_file.content_type or "application/octet-stream"
+    quoted_name = quote(metadata["file_name"])
+    return Response(
+        content=stored_file.content,
+        media_type=content_type,
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted_name}"},
+    )
 
 
 @router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
@@ -1425,7 +1467,11 @@ def list_task_files(
 ) -> list[TaskFileResponse]:
     ensure_project_access(session, current_user.id, project_id)
     fetch_project_task_or_404(session, project_id, phase_id, task_id)
-    return [task_file_to_response(row) for row in fetch_task_files(session, task_id)]
+    return [
+        task_file_to_response(row)
+        for row in fetch_task_files(session, task_id)
+        if project_file_visible(session, current_user.id, project_id, row)
+    ]
 
 
 @router.get("/{project_id}/phases/{phase_id}/tasks/{task_id}/files/{file_id}/download")
@@ -1441,6 +1487,7 @@ def download_task_file(
     ensure_project_access(session, current_user.id, project_id)
     fetch_project_task_or_404(session, project_id, phase_id, task_id)
     metadata = fetch_task_file_or_404(session, task_id, file_id)
+    ensure_project_file_visible(session, current_user.id, project_id, metadata)
     stored_file = get_file_storage(request).download(metadata["storage_key"])
     content_type = metadata["file_type"] or stored_file.content_type or "application/octet-stream"
     quoted_name = quote(metadata["file_name"])
@@ -2444,6 +2491,71 @@ def fetch_task_file_or_404(session: DatabaseSession, task_id: UUID, file_id: UUI
     return file_metadata
 
 
+def fetch_project_files(session: DatabaseSession, project_id: UUID, include_finance: bool) -> list[Row]:
+    finance_filter = "" if include_finance else "AND task_files.file_category <> 'finance'"
+    return session.fetch_all(
+        f"""
+        SELECT
+          task_files.id,
+          task_files.task_id,
+          task_files.uploaded_by,
+          users.name AS uploader_name,
+          users.email AS uploader_email,
+          task_files.file_name,
+          task_files.storage_key,
+          task_files.file_type,
+          task_files.file_size,
+          task_files.file_category,
+          task_files.created_at,
+          phases.project_id,
+          phases.id AS phase_id,
+          phases.name AS phase_name,
+          tasks.name AS task_name
+        FROM task_files
+        JOIN tasks ON tasks.id = task_files.task_id
+        JOIN phases ON phases.id = tasks.phase_id
+        JOIN users ON users.id = task_files.uploaded_by
+        WHERE phases.project_id = %s
+          {finance_filter}
+        ORDER BY task_files.created_at DESC, task_files.id DESC
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_file_or_404(session: DatabaseSession, project_id: UUID, file_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT
+          task_files.id,
+          task_files.task_id,
+          task_files.uploaded_by,
+          users.name AS uploader_name,
+          users.email AS uploader_email,
+          task_files.file_name,
+          task_files.storage_key,
+          task_files.file_type,
+          task_files.file_size,
+          task_files.file_category,
+          task_files.created_at,
+          phases.project_id,
+          phases.id AS phase_id,
+          phases.name AS phase_name,
+          tasks.name AS task_name
+        FROM task_files
+        JOIN tasks ON tasks.id = task_files.task_id
+        JOIN phases ON phases.id = tasks.phase_id
+        JOIN users ON users.id = task_files.uploaded_by
+        WHERE phases.project_id = %s
+          AND task_files.id = %s
+        """,
+        (project_id, file_id),
+    )
+    if row is None:
+        raise_task_file_not_found()
+    return row
+
+
 def ensure_phase_in_project(session: DatabaseSession, project_id: UUID, phase_id: UUID) -> None:
     if fetch_project_phase(session, project_id, phase_id) is None:
         raise_phase_not_found()
@@ -2476,6 +2588,24 @@ def ensure_project_budget_role(session: DatabaseSession, user_id: UUID, project_
         )
 
 
+def project_file_finance_visible(session: DatabaseSession, user_id: UUID, project_id: UUID) -> bool:
+    return fetch_project_member_role(session, user_id, project_id) in {"PM", "Finance"}
+
+
+def project_file_visible(session: DatabaseSession, user_id: UUID, project_id: UUID, file_metadata: Row) -> bool:
+    return file_metadata["file_category"] != "finance" or project_file_finance_visible(session, user_id, project_id)
+
+
+def ensure_project_file_visible(
+    session: DatabaseSession,
+    user_id: UUID,
+    project_id: UUID,
+    file_metadata: Row,
+) -> None:
+    if not project_file_visible(session, user_id, project_id, file_metadata):
+        raise_task_file_not_found()
+
+
 def ensure_task_file_upload_allowed(
     session: DatabaseSession,
     user_id: UUID,
@@ -2484,6 +2614,8 @@ def ensure_task_file_upload_allowed(
     file_category: TaskFileCategory,
 ) -> None:
     if fetch_project_member_role(session, user_id, project_id) == "PM":
+        return
+    if file_category == "finance" and fetch_project_member_role(session, user_id, project_id) == "Finance":
         return
     if file_category == "work_submission" and (
         task["owner_id"] == user_id or fetch_task_supporter(session, task["id"], user_id) is not None
@@ -2746,6 +2878,10 @@ def task_comment_to_response(row: Row) -> TaskCommentResponse:
 
 def task_file_to_response(row: Row) -> TaskFileResponse:
     return TaskFileResponse(**row)
+
+
+def project_file_to_response(row: Row) -> ProjectFileResponse:
+    return ProjectFileResponse(**row)
 
 
 def dashboard_project_to_response(row: Row, session: DatabaseSession | None = None, user_id: UUID | None = None) -> DashboardProjectResponse:

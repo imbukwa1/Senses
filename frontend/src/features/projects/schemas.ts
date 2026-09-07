@@ -261,8 +261,17 @@ export const taskFileSchema = z.object({
   file_name: z.string().min(1),
   file_type: z.string().nullable(),
   file_size: z.number(),
-  file_category: z.enum(["reference", "work_submission"]),
+  file_category: z.enum(["reference", "work_submission", "finance"]),
   created_at: z.string().min(1),
 });
 
 export const taskFilesSchema = z.array(taskFileSchema);
+
+export const projectFileSchema = taskFileSchema.extend({
+  project_id: z.uuid(),
+  phase_id: z.uuid(),
+  phase_name: z.string().min(1),
+  task_name: z.string().min(1),
+});
+
+export const projectFilesSchema = z.array(projectFileSchema);

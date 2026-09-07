@@ -1,4 +1,4 @@
-import { AlertTriangle, Archive, CalendarDays, CheckCircle2, Clock, DollarSign, Edit, ListChecks, Save, UserPlus, Users, X } from "lucide-react";
+import { AlertTriangle, Archive, CalendarDays, CheckCircle2, Clock, DollarSign, Download, Edit, FileText, ListChecks, Save, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -24,9 +24,11 @@ import {
   useAddPhaseMemberMutation,
   useArchiveProjectMutation,
   useAttentionQuery,
+  useDownloadProjectFileMutation,
   usePhaseMembersQuery,
   useProjectBudgetQuery,
   useProjectDashboardQuery,
+  useProjectFilesQuery,
   useProjectMembersQuery,
   useProjectQuery,
   useRemovePhaseMemberMutation,
@@ -36,7 +38,7 @@ import { PhaseManagementDialog } from "./phase-management-dialog";
 import { PhaseTasks } from "./phase-tasks";
 import { ProjectFormDialog } from "./project-form-dialog";
 import { ProjectMembersDialog } from "./project-members-dialog";
-import type { DashboardDeliverable, DashboardPhase, PhaseMember, ProjectDashboard, ProjectMember, UpcomingDeadline } from "./types";
+import type { DashboardDeliverable, DashboardPhase, PhaseMember, ProjectDashboard, ProjectFile, ProjectMember, UpcomingDeadline } from "./types";
 
 export function ProjectDashboardPage() {
   const { projectId } = useParams();
@@ -179,6 +181,8 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
         </Card>
       ) : null}
 
+      <ProjectFilesSection projectId={projectId} />
+
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.45fr)]">
         <PhasesSection projectId={projectId} phases={dashboard.phases} currentPhaseId={dashboard.project.current_phase_id} />
         <DeadlinesSection deadlines={dashboard.upcoming_deadlines} />
@@ -285,6 +289,84 @@ function BudgetMetric({ label, tone = "default", value }: { label: string; value
     <div className="rounded-md border bg-background p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={tone === "error" ? "mt-1 text-lg font-semibold text-error" : "mt-1 text-lg font-semibold text-foreground"}>{value}</p>
+    </div>
+  );
+}
+
+function ProjectFilesSection({ projectId }: { projectId: string }) {
+  const filesQuery = useProjectFilesQuery(projectId);
+
+  if (filesQuery.isLoading) {
+    return <LoadingState label="Loading project files" />;
+  }
+
+  if (filesQuery.isError) {
+    return <ErrorState title="Files could not be loaded" message={dashboardErrorMessage(filesQuery.error)} />;
+  }
+
+  const files = filesQuery.data ?? [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Files</CardTitle>
+        <CardDescription>Files uploaded inside this project.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {files.length === 0 ? (
+          <EmptyState title="No files uploaded yet." />
+        ) : (
+          <div className="divide-y rounded-md border bg-surface">
+            {files.map((file) => (
+              <ProjectFileRow key={file.id} file={file} projectId={projectId} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProjectFileRow({ file, projectId }: { file: ProjectFile; projectId: string }) {
+  const downloadFile = useDownloadProjectFileMutation(projectId);
+  const downloadError = downloadFile.error ? dashboardErrorMessage(downloadFile.error) : null;
+
+  async function onDownload() {
+    try {
+      const downloadedFile = await downloadFile.mutateAsync(file.id);
+      const objectUrl = URL.createObjectURL(downloadedFile.blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = downloadedFile.fileName || file.file_name;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      return;
+    }
+  }
+
+  return (
+    <div className="px-3 py-3">
+      {downloadError ? <p className="mb-2 text-sm text-error">{downloadError}</p> : null}
+      <div className="flex items-start gap-3">
+        <FileText className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-foreground">{file.file_name}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {file.phase_name} / {file.task_name} / {formatFileCategory(file.file_category)}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Uploaded by {file.uploader_name} on {formatDateTime(file.created_at)}
+          </p>
+        </div>
+        <Button type="button" variant="outline" size="sm" disabled={downloadFile.isPending} onClick={onDownload} aria-label={`Download ${file.file_name}`}>
+          <Download className="size-4" aria-hidden="true" />
+          {downloadFile.isPending ? "Downloading..." : "Download"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -651,6 +733,32 @@ function formatDate(value: string) {
 
 function formatOptionalDate(value: string | null) {
   return value ? formatDate(value) : "No date";
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function formatFileCategory(value: ProjectFile["file_category"]) {
+  if (value === "work_submission") {
+    return "Work submission";
+  }
+  if (value === "finance") {
+    return "Finance";
+  }
+  return "Reference";
 }
 
 function formatCurrency(value: number) {

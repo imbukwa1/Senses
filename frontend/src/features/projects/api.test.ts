@@ -5,10 +5,12 @@ import {
   addProjectMember,
   archiveProject,
   createProject,
+  downloadProjectFile,
   getProjectBudget,
   listAttention,
   listMyWork,
   listPhaseMembers,
+  listProjectFiles,
   uploadTaskFile,
   updateProjectBudget,
   updateTaskStatus,
@@ -122,6 +124,23 @@ const projectBudget = {
   spent: 250,
   remaining: 750,
   utilisation: 0.25,
+};
+
+const projectFile = {
+  id: "77777777-7777-4777-8777-777777777777",
+  task_id: myWorkItem.task_id,
+  uploaded_by: member.user_id,
+  uploader_name: member.name,
+  uploader_email: member.email,
+  file_name: "finance-report.pdf",
+  file_type: "application/pdf",
+  file_size: 9,
+  file_category: "finance",
+  created_at: "2026-09-07T07:03:00Z",
+  project_id: project.id,
+  phase_id: phaseId,
+  phase_name: "Discovery",
+  task_name: myWorkItem.task_name,
 };
 
 describe("project API mutations", () => {
@@ -270,6 +289,41 @@ describe("project API mutations", () => {
     );
     expect(fetched).toEqual(projectBudget);
     expect(updated.spent).toBe(400);
+  });
+
+  it("lists project files with task and phase context", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([projectFile]));
+
+    const files = await listProjectFiles("token", project.id);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:8000/projects/${project.id}/files`,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
+    expect(files).toEqual([projectFile]);
+  });
+
+  it("downloads project files through the aggregate download endpoint", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("content", {
+        status: 200,
+        headers: {
+          "Content-Disposition": "attachment; filename*=UTF-8''finance-report.pdf",
+        },
+      }),
+    );
+
+    const downloaded = await downloadProjectFile("token", project.id, projectFile.id);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:8000/projects/${project.id}/files/${projectFile.id}/download`,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
+    expect(downloaded.fileName).toBe("finance-report.pdf");
   });
 
   it("uploads reference files through the existing task file endpoint", async () => {

@@ -280,8 +280,15 @@ export type TaskFile = {
   file_name: string;
   file_type: string | null;
   file_size: number;
-  file_category: "reference" | "work_submission";
+  file_category: "reference" | "work_submission" | "finance";
   created_at: string;
+};
+
+export type ProjectFile = TaskFile & {
+  project_id: string;
+  phase_id: string;
+  phase_name: string;
+  task_name: string;
 };
 
 export type DownloadedTaskFile = {

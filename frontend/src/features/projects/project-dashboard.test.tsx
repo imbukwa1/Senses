@@ -9,9 +9,11 @@ const mocks = vi.hoisted(() => ({
   currentRole: "Team Member" as ProjectMember["role"],
   useArchiveProjectMutation: vi.fn(),
   useAttentionQuery: vi.fn(),
+  useDownloadProjectFileMutation: vi.fn(),
   usePhaseMembersQuery: vi.fn(),
   useProjectBudgetQuery: vi.fn(),
   useProjectDashboardQuery: vi.fn(),
+  useProjectFilesQuery: vi.fn(),
   useProjectMembersQuery: vi.fn(),
   useProjectQuery: vi.fn(),
   useRemovePhaseMemberMutation: vi.fn(),
@@ -51,9 +53,11 @@ vi.mock("./hooks", () => ({
   useAddPhaseMemberMutation: () => ({ error: null, isPending: false, mutateAsync: vi.fn() }),
   useArchiveProjectMutation: mocks.useArchiveProjectMutation,
   useAttentionQuery: mocks.useAttentionQuery,
+  useDownloadProjectFileMutation: mocks.useDownloadProjectFileMutation,
   usePhaseMembersQuery: mocks.usePhaseMembersQuery,
   useProjectBudgetQuery: mocks.useProjectBudgetQuery,
   useProjectDashboardQuery: mocks.useProjectDashboardQuery,
+  useProjectFilesQuery: mocks.useProjectFilesQuery,
   useProjectMembersQuery: mocks.useProjectMembersQuery,
   useProjectQuery: mocks.useProjectQuery,
   useRemovePhaseMemberMutation: mocks.useRemovePhaseMemberMutation,
@@ -174,6 +178,29 @@ describe("ProjectDashboardPage", () => {
       isError: false,
       isLoading: false,
     });
+    mocks.useProjectFilesQuery.mockReturnValue({
+      data: [
+        {
+          id: "file-1",
+          task_id: "task-1",
+          uploaded_by: "pm-1",
+          uploader_name: "Priya PM",
+          uploader_email: "pm@senseshub.com",
+          file_name: "brief.pdf",
+          file_type: "application/pdf",
+          file_size: 1024,
+          file_category: "reference",
+          created_at: "2026-09-07T07:03:00Z",
+          project_id: projectId,
+          phase_id: "phase-1",
+          phase_name: "Discovery",
+          task_name: "Review field plan",
+        },
+      ],
+      isError: false,
+      isLoading: false,
+    });
+    mocks.useDownloadProjectFileMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useUpdateProjectBudgetMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useRemovePhaseMemberMutation.mockReturnValue({ error: null, isPending: false, mutate: vi.fn() });
   });
@@ -185,8 +212,13 @@ describe("ProjectDashboardPage", () => {
     expect(screen.getByText("Make field communication clearer.")).toBeInTheDocument();
     expect(screen.getByText("Discovery")).toBeInTheDocument();
     expect(screen.getByText("Implementation")).toBeInTheDocument();
+    expect(screen.getByText("Files")).toBeInTheDocument();
+    expect(screen.getByText("brief.pdf")).toBeInTheDocument();
+    expect(screen.getByText("Discovery / Review field plan / Reference")).toBeInTheDocument();
+    expect(screen.getByText(/Uploaded by Priya PM on/)).toBeInTheDocument();
     expect(screen.queryByText("Current Phase")).not.toBeInTheDocument();
     expect(screen.queryByText(projectId)).not.toBeInTheDocument();
+    expect(screen.queryByText(/storage key/i)).not.toBeInTheDocument();
   });
 
   it("hides PM management controls from Team Member and Finance roles", () => {

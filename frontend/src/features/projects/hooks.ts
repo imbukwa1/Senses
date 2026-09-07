@@ -17,6 +17,7 @@ import {
   createProject,
   createTaskComment,
   createTask,
+  downloadProjectFile,
   downloadTaskFile,
   getChecklist,
   getProject,
@@ -25,6 +26,7 @@ import {
   listAttention,
   listMyWork,
   listPhaseMembers,
+  listProjectFiles,
   listProjectMembers,
   listProjects,
   listTaskComments,
@@ -53,6 +55,7 @@ export const attentionQueryKey = ["attention", "list"] as const;
 export const myWorkQueryKey = ["my-work", "list"] as const;
 export const projectQueryKey = (projectId: string) => ["projects", projectId] as const;
 export const projectBudgetQueryKey = (projectId: string) => ["projects", projectId, "budget"] as const;
+export const projectFilesQueryKey = (projectId: string) => ["projects", projectId, "files"] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
 export const projectMembersQueryKey = (projectId: string) => ["projects", projectId, "members"] as const;
 export const phaseMembersQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "members"] as const;
@@ -189,6 +192,33 @@ export function useProjectBudgetQuery(projectId: string, enabled = true) {
   }, [logout, query.error]);
 
   return query;
+}
+
+export function useProjectFilesQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectFilesQueryKey(projectId),
+    queryFn: () => listProjectFiles(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useDownloadProjectFileMutation(projectId: string) {
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (fileId: string) => downloadProjectFile(requireToken(token), projectId, fileId),
+    onError: authFailureHandler(logout),
+  });
 }
 
 export function useUpdateProjectBudgetMutation(projectId: string) {

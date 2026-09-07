@@ -188,6 +188,80 @@ def test_file_category_separates_reference_and_work_submission_files() -> None:
         database.close()
 
 
+def test_project_files_aggregate_context_and_hide_finance_files_from_team_members() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Project Files PM", _unique_email("files.projectpm"))
+        finance = _create_auth_user(database, "Project Files Finance", _unique_email("files.projectfinance"))
+        team_member = _create_auth_user(database, "Project Files Team", _unique_email("files.projectteam"))
+        project = _create_project(database, pm["id"], "Project Files Project")
+        phase = _create_phase(database, project["id"], pm["id"], "Project Files Phase", 1)
+        task = _create_task(database, phase["id"], pm["id"], "Project Files Task")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], finance["id"], "Finance")
+        _add_project_member(database, project["id"], team_member["id"], "Team Member")
+        storage = FakeFileStorage()
+        app = create_app(
+            settings=_settings(database_url=os.getenv("DATABASE_URL")),
+            database=database,
+            file_storage=storage,
+        )
+
+        with TestClient(app) as client:
+            pm_token = _login(client, pm["email"])
+            finance_token = _login(client, finance["email"])
+            team_token = _login(client, team_member["email"])
+            reference = _upload_file(client, project["id"], phase["id"], task["id"], pm_token, "brief.pdf", b"brief", file_category="reference")
+            finance_file = _upload_file(client, project["id"], phase["id"], task["id"], finance_token, "invoice.pdf", b"invoice", file_category="finance")
+            pm_files = client.get(f"/projects/{project['id']}/files", headers=_auth_header(pm_token))
+            finance_files = client.get(f"/projects/{project['id']}/files", headers=_auth_header(finance_token))
+            team_files = client.get(f"/projects/{project['id']}/files", headers=_auth_header(team_token))
+            team_task_files = client.get(_files_url(project["id"], phase["id"], task["id"]), headers=_auth_header(team_token))
+            team_finance_download = client.get(
+                f"/projects/{project['id']}/files/{finance_file.json()['id']}/download",
+                headers=_auth_header(team_token),
+            )
+            pm_finance_download = client.get(
+                f"/projects/{project['id']}/files/{finance_file.json()['id']}/download",
+                headers=_auth_header(pm_token),
+            )
+            finance_download = client.get(
+                f"/projects/{project['id']}/files/{finance_file.json()['id']}/download",
+                headers=_auth_header(finance_token),
+            )
+
+        assert reference.status_code == 201
+        assert finance_file.status_code == 201
+        assert finance_file.json()["file_category"] == "finance"
+        assert pm_files.status_code == 200
+        assert finance_files.status_code == 200
+        assert team_files.status_code == 200
+        assert [(row["file_name"], row["file_category"]) for row in pm_files.json()] == [
+            ("invoice.pdf", "finance"),
+            ("brief.pdf", "reference"),
+        ]
+        assert [row["file_name"] for row in finance_files.json()] == ["invoice.pdf", "brief.pdf"]
+        assert [row["file_name"] for row in team_files.json()] == ["brief.pdf"]
+        assert [row["file_name"] for row in team_task_files.json()] == ["brief.pdf"]
+        project_file = pm_files.json()[0]
+        assert project_file["phase_id"] == str(phase["id"])
+        assert project_file["phase_name"] == "Project Files Phase"
+        assert project_file["task_id"] == str(task["id"])
+        assert project_file["task_name"] == "Project Files Task"
+        assert project_file["uploaded_by"] == str(finance["id"])
+        assert project_file["uploader_name"] == "Project Files Finance"
+        assert project_file["created_at"]
+        assert "storage_key" not in project_file
+        assert team_finance_download.status_code == 404
+        assert pm_finance_download.status_code == 200
+        assert pm_finance_download.content == b"invoice"
+        assert finance_download.status_code == 200
+        assert finance_download.content == b"invoice"
+    finally:
+        database.close()
+
+
 def test_team_member_can_upload_work_to_owned_or_supported_task_only() -> None:
     database = _database_from_env()
     database.connect()
