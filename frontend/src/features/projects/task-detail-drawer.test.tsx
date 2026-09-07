@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   useTaskFilesQuery: vi.fn(),
   useTaskSupportersQuery: vi.fn(),
   useUpdateChecklistItemMutation: vi.fn(),
+  useUpdateTaskStatusMutation: vi.fn(),
   useUpdateTaskMutation: vi.fn(),
   useUploadTaskFileMutation: vi.fn(),
 }));
@@ -35,6 +36,7 @@ vi.mock("./hooks", () => ({
   useTaskFilesQuery: mocks.useTaskFilesQuery,
   useTaskSupportersQuery: mocks.useTaskSupportersQuery,
   useUpdateChecklistItemMutation: mocks.useUpdateChecklistItemMutation,
+  useUpdateTaskStatusMutation: mocks.useUpdateTaskStatusMutation,
   useUpdateTaskMutation: mocks.useUpdateTaskMutation,
   useUploadTaskFileMutation: mocks.useUploadTaskFileMutation,
 }));
@@ -132,6 +134,7 @@ describe("TaskDetailDrawer", () => {
     mocks.useRemoveChecklistItemMutation.mockReturnValue({ error: null, isPending: false, mutate: vi.fn() });
     mocks.useSetChecklistItemCompletionMutation.mockReturnValue({ error: null, isPending: false, mutate: vi.fn() });
     mocks.useUpdateChecklistItemMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
+    mocks.useUpdateTaskStatusMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useUpdateTaskMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useUploadTaskFileMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
   });
@@ -162,5 +165,40 @@ describe("TaskDetailDrawer", () => {
     expect(screen.queryByText(/storage key/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/backend/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/deliverable/i)).not.toBeInTheDocument();
+  });
+
+  it("does not show Mark done to supporter-only users", async () => {
+    mocks.useAuth.mockReturnValue({ user: { id: "supporter-1", name: "Supporter User", email: "supporter@senseshub.com" } });
+    mocks.useTaskSupportersQuery.mockReturnValue({
+      data: [{ task_id: task.id, user_id: "supporter-1", name: "Supporter User", email: "supporter@senseshub.com", added_at: "2026-01-01T00:00:00Z" }],
+      isLoading: false,
+    });
+
+    render(
+      <TaskDetailDrawer isProjectPm={false} phase={phase} projectId={phase.project_id} task={task}>
+        <button type="button">View supporter task</button>
+      </TaskDetailDrawer>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "View supporter task" }));
+
+    expect(await screen.findByRole("heading", { name: "What you need to do" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mark done" })).not.toBeInTheDocument();
+  });
+
+  it("marks the task done through the status-only mutation for the owner", async () => {
+    const updateStatus = { error: null, isPending: false, mutateAsync: vi.fn() };
+    mocks.useUpdateTaskStatusMutation.mockReturnValue(updateStatus);
+
+    render(
+      <TaskDetailDrawer isProjectPm={false} phase={phase} projectId={phase.project_id} task={task}>
+        <button type="button">View owner task</button>
+      </TaskDetailDrawer>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "View owner task" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Mark done" }));
+
+    expect(updateStatus.mutateAsync).toHaveBeenCalledWith("Completed");
   });
 });

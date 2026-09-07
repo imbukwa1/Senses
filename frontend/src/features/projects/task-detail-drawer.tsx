@@ -29,7 +29,7 @@ import {
   useTaskFilesQuery,
   useTaskSupportersQuery,
   useUploadTaskFileMutation,
-  useUpdateTaskMutation,
+  useUpdateTaskStatusMutation,
   useUpdateChecklistItemMutation,
 } from "./hooks";
 import { TaskFormDialog } from "./task-form-dialog";
@@ -66,26 +66,14 @@ export function TaskDetailDrawer({
   const commentsQuery = useTaskCommentsQuery(projectId, phase.id, task.id, open);
   const filesQuery = useTaskFilesQuery(projectId, phase.id, task.id, open);
   const supportersQuery = useTaskSupportersQuery(projectId, phase.id, task.id, open);
-  const updateTask = useUpdateTaskMutation(projectId, phase.id, task.id);
+  const updateTaskStatus = useUpdateTaskStatusMutation(projectId, phase.id, task.id);
   const checklist = checklistQuery.data;
   const taskProgress = checklist?.summary.progress;
   const supporters = supportersQuery.data ?? [];
-  const canMarkDone = task.status !== "Completed" && (isProjectPm || task.owner_id === user?.id || supporters.some((supporter) => supporter.user_id === user?.id));
+  const canMarkDone = task.status !== "Completed" && (isProjectPm || task.owner_id === user?.id);
 
   async function markDone() {
-    await updateTask.mutateAsync({
-      currentSupporterIds: supporters.map((supporter) => supporter.user_id),
-      supporterIds: supporters.map((supporter) => supporter.user_id),
-      payload: {
-        name: task.name,
-        description: task.description,
-        owner_id: task.owner_id,
-        priority: task.priority,
-        status: "Completed",
-        start_date: task.start_date,
-        due_date: task.due_date,
-      },
-    });
+    await updateTaskStatus.mutateAsync("Completed");
   }
 
   return (
@@ -114,15 +102,15 @@ export function TaskDetailDrawer({
                 </TaskFormDialog>
               ) : null}
               {canMarkDone ? (
-                <Button type="button" size="sm" disabled={updateTask.isPending} onClick={markDone}>
+                <Button type="button" size="sm" disabled={updateTaskStatus.isPending} onClick={markDone}>
                   <CheckCircle2 className="size-4" aria-hidden="true" />
-                  {updateTask.isPending ? "Saving..." : "Mark done"}
+                  {updateTaskStatus.isPending ? "Saving..." : "Mark done"}
                 </Button>
               ) : null}
             </div>
           </div>
           <div className="flex-1 space-y-5 overflow-y-auto p-6">
-            {updateTask.error ? <InlineErrorMessage message={taskErrorMessage(updateTask.error)} /> : null}
+            {updateTaskStatus.error ? <InlineErrorMessage message={taskErrorMessage(updateTaskStatus.error)} /> : null}
             <TaskMetadata task={task} phase={phase} supporters={supporters} supportersLoading={supportersQuery.isLoading} />
             {task.description ? (
               <section className="rounded-md border bg-background p-4">

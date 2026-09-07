@@ -43,9 +43,10 @@ import {
   updateProject,
   updateProjectBudget,
   updateTask,
+  updateTaskStatus,
   uploadTaskFile,
 } from "./api";
-import type { PhaseMutationPayload, ProjectBudgetMutationPayload, ProjectMutationPayload, TaskMutationPayload } from "./types";
+import type { PhaseMutationPayload, ProjectBudgetMutationPayload, ProjectMutationPayload, Task, TaskMutationPayload } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
 export const attentionQueryKey = ["attention", "list"] as const;
@@ -391,6 +392,17 @@ export function useUpdateTaskMutation(projectId: string, phaseId: string, taskId
       invalidateTaskQueries(queryClient, projectId, phaseId);
       void queryClient.invalidateQueries({ queryKey: taskSupportersQueryKey(projectId, phaseId, taskId) });
     },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateTaskStatusMutation(projectId: string, phaseId: string, taskId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (nextStatus: Task["status"]) => updateTaskStatus(requireToken(token), projectId, phaseId, taskId, nextStatus),
+    onSuccess: () => invalidateTaskQueries(queryClient, projectId, phaseId),
     onError: authFailureHandler(logout),
   });
 }

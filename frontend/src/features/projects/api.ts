@@ -349,6 +349,18 @@ export async function updateTask(token: string, projectId: string, phaseId: stri
   return parseTask(data);
 }
 
+export async function updateTaskStatus(token: string, projectId: string, phaseId: string, taskId: string, status: Task["status"]): Promise<Task> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/status`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    },
+    token,
+  );
+  return parseTask(data);
+}
+
 export async function listTaskSupporters(token: string, projectId: string, phaseId: string, taskId: string): Promise<TaskSupporter[]> {
   const data = await apiRequest<unknown>(`/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/supporters`, {}, token);
   const result = taskSupportersSchema.safeParse(data);

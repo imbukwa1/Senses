@@ -1067,7 +1067,7 @@ def update_task_status(
 ) -> TaskResponse:
     ensure_project_access(session, current_user.id, project_id)
     current_task = fetch_project_task_or_404(session, project_id, phase_id, task_id)
-    ensure_task_work_allowed(session, current_user.id, project_id, current_task)
+    ensure_task_status_update_allowed(session, current_user.id, project_id, current_task)
     task = session.fetch_one(
         """
         UPDATE tasks
@@ -2505,6 +2505,23 @@ def ensure_task_work_allowed(
     if fetch_project_member_role(session, user_id, project_id) == "PM":
         return
     if task["owner_id"] == user_id or fetch_task_supporter(session, task["id"], user_id) is not None:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You cannot update this task",
+    )
+
+
+def ensure_task_status_update_allowed(
+    session: DatabaseSession,
+    user_id: UUID,
+    project_id: UUID,
+    task: Row,
+) -> None:
+    if fetch_project_member_role(session, user_id, project_id) == "PM":
+        return
+    if task["owner_id"] == user_id:
         return
 
     raise HTTPException(

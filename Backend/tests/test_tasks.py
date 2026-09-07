@@ -367,7 +367,7 @@ def test_task_assignment_management_requires_pm_role() -> None:
         database.close()
 
 
-def test_only_assigned_users_or_pm_can_update_task_status() -> None:
+def test_only_task_owner_or_pm_can_update_task_status() -> None:
     database = _database_from_env()
     database.connect()
     try:
@@ -394,6 +394,16 @@ def test_only_assigned_users_or_pm_can_update_task_status() -> None:
                 headers=_auth_header(owner_token),
                 json={"status": "In Progress"},
             )
+            owner_completed = client.patch(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}/status",
+                headers=_auth_header(owner_token),
+                json={"status": "Completed"},
+            )
+            owner_admin_update = client.patch(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}",
+                headers=_auth_header(owner_token),
+                json={"priority": "High", "due_date": "2026-02-01"},
+            )
             supporter_update = client.patch(
                 f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}/status",
                 headers=_auth_header(supporter_token),
@@ -406,7 +416,12 @@ def test_only_assigned_users_or_pm_can_update_task_status() -> None:
             )
 
         assert owner_update.status_code == 200
-        assert supporter_update.status_code == 200
+        assert owner_update.json()["status"] == "In Progress"
+        assert owner_completed.status_code == 200
+        assert owner_completed.json()["status"] == "Completed"
+        assert owner_completed.json()["completed_at"] is not None
+        assert owner_admin_update.status_code == 403
+        assert supporter_update.status_code == 403
         assert unrelated_update.status_code == 403
     finally:
         database.close()

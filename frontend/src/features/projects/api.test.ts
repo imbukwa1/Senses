@@ -11,6 +11,7 @@ import {
   listPhaseMembers,
   uploadTaskFile,
   updateProjectBudget,
+  updateTaskStatus,
 } from "./api";
 
 const project = {
@@ -73,6 +74,27 @@ const myWorkItem = {
   relationship: "owner",
   overdue: false,
   action_label: "Due today",
+};
+
+const task = {
+  id: myWorkItem.task_id,
+  project_id: project.id,
+  phase_id: phaseId,
+  name: myWorkItem.task_name,
+  description: "Draft the implementation plan.",
+  owner_id: member.user_id,
+  owner: {
+    id: member.user_id,
+    name: member.name,
+    email: member.email,
+  },
+  priority: "Medium",
+  status: "Completed",
+  start_date: null,
+  due_date: myWorkItem.due_date,
+  completed_at: "2026-09-05T12:00:00Z",
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-09-05T12:00:00Z",
 };
 
 const attentionItem = {
@@ -280,6 +302,22 @@ describe("project API mutations", () => {
     expect(body.get("file_category")).toBe("reference");
     expect(body.get("file")).toBe(file);
     expect(result.file_category).toBe("reference");
+  });
+
+  it("updates task status through the narrow status endpoint", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(task));
+
+    const result = await updateTaskStatus("token", project.id, phaseId, task.id, "Completed");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `http://localhost:8000/projects/${project.id}/phases/${phaseId}/tasks/${task.id}/status`,
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ status: "Completed" }),
+        headers: expect.objectContaining({ Authorization: "Bearer token" }),
+      }),
+    );
+    expect(result.status).toBe("Completed");
   });
 });
 
