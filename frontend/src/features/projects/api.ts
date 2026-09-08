@@ -43,6 +43,8 @@ import type {
   ProjectBudgetMutationPayload,
   PhaseResponse,
   ProjectDashboard,
+  ProjectSetupDetailsPayload,
+  ProjectSetupDetailsSection,
   ProjectMember,
   ProjectMutationPayload,
   ProjectSetup,
@@ -384,6 +386,29 @@ export async function updateProjectSetupSection(
 ): Promise<ProjectSetup> {
   const data = await apiRequest<unknown>(
     `/projects/${projectId}/setup/sections/${sectionKey}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectSetupSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function updateProjectSetupDetails(
+  token: string,
+  projectId: string,
+  section: ProjectSetupDetailsSection,
+  payload: ProjectSetupDetailsPayload,
+): Promise<ProjectSetup> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/${section}`,
     {
       method: "PATCH",
       body: JSON.stringify(payload),

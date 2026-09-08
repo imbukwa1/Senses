@@ -55,6 +55,7 @@ import {
   updatePhaseBudget,
   updateProject,
   updateProjectBudget,
+  updateProjectSetupDetails,
   updateProjectSetupSection,
   updateTask,
   updateTaskStatus,
@@ -68,6 +69,8 @@ import type {
   PhaseMutationPayload,
   ProjectBudgetMutationPayload,
   ProjectMutationPayload,
+  ProjectSetupDetailsPayload,
+  ProjectSetupDetailsSection,
   ProjectSetupSectionStatusPayload,
   Task,
   TaskFile,
@@ -489,6 +492,23 @@ export function useUpdateProjectSetupSectionMutation(projectId: string) {
       updateProjectSetupSection(requireToken(token), projectId, sectionKey, payload),
     onSuccess: (setup) => {
       queryClient.setQueryData(projectSetupQueryKey(projectId), setup);
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateProjectSetupDetailsMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ section, payload }: { section: ProjectSetupDetailsSection; payload: ProjectSetupDetailsPayload }) =>
+      updateProjectSetupDetails(requireToken(token), projectId, section, payload),
+    onSuccess: (setup) => {
+      queryClient.setQueryData(projectSetupQueryKey(projectId), setup);
+      void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectsQueryKey });
       void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
     },
     onError: authFailureHandler(logout),

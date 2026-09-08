@@ -61,6 +61,7 @@ PROJECT_SETUP_SECTIONS: tuple[tuple[str, str, bool], ...] = (
     ("phase0_completion", "Phase 0 Completion", False),
 )
 PROJECT_SETUP_SECTION_KEYS = {key for key, _label, _optional in PROJECT_SETUP_SECTIONS}
+DATA_DERIVED_PROJECT_SETUP_SECTION_KEYS = {"project_overview", "scope", "objectives_outcomes", "work_plan"}
 
 PROJECT_NOT_FOUND_DETAIL = "Project not found"
 PHASE_NOT_FOUND_DETAIL = "Phase not found"
@@ -524,6 +525,87 @@ class ProjectSetupSectionStatusUpdateRequest(BaseModel):
     status: ProjectSetupSectionStatus
 
 
+class ProjectSetupOverviewUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1)
+    start_date: date
+    end_date: date
+    project_location_area: str | None = Field(default=None, max_length=255)
+
+
+class ProjectSetupScopeUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope_in: str | None = None
+    scope_out: str | None = None
+    scope_boundaries: str | None = None
+    scope_notes: str | None = None
+
+
+class ProjectSetupObjectivesUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    objectives: str | None = None
+    expected_outcomes: str | None = None
+    success_criteria: str | None = None
+    key_indicators: str | None = None
+
+
+class ProjectSetupWorkPlanUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    work_plan_details: str | None = None
+    start_date: date
+    end_date: date
+    key_activities: str | None = None
+
+
+class ProjectSetupLeadResponse(BaseModel):
+    id: UUID
+    name: str
+    email: str
+
+
+class ProjectSetupOverviewResponse(BaseModel):
+    name: str
+    code: str
+    description: str
+    project_lead: ProjectSetupLeadResponse
+    start_date: date
+    end_date: date
+    project_location_area: str | None
+
+
+class ProjectSetupScopeResponse(BaseModel):
+    scope_in: str | None
+    scope_out: str | None
+    scope_boundaries: str | None
+    scope_notes: str | None
+
+
+class ProjectSetupObjectivesResponse(BaseModel):
+    objectives: str | None
+    expected_outcomes: str | None
+    success_criteria: str | None
+    key_indicators: str | None
+
+
+class ProjectSetupWorkPlanResponse(BaseModel):
+    work_plan_details: str | None
+    planned_start: date
+    planned_completion: date
+    key_activities: str | None
+
+
+class ProjectSetupDetailsResponse(BaseModel):
+    project_overview: ProjectSetupOverviewResponse
+    scope: ProjectSetupScopeResponse
+    objectives_outcomes: ProjectSetupObjectivesResponse
+    work_plan: ProjectSetupWorkPlanResponse
+
+
 class ProjectSetupSectionResponse(BaseModel):
     key: str
     label: str
@@ -546,6 +628,7 @@ class ProjectSetupResponse(BaseModel):
     title: str = "Project Management Plan"
     summary: ProjectSetupSummaryResponse
     sections: list[ProjectSetupSectionResponse]
+    details: ProjectSetupDetailsResponse
 
 
 class ProjectMemberResponse(BaseModel):
@@ -763,8 +846,8 @@ def update_project_budget(
         f"""
         UPDATE projects
         SET {set_clause}
-        WHERE id = %s
-          AND archived_at IS NULL
+        WHERE projects.id = %s
+          AND projects.archived_at IS NULL
         RETURNING id
         """,
         params,
@@ -1185,6 +1268,14 @@ def update_project_setup_section(
     section_definition = next(section for section in PROJECT_SETUP_SECTIONS if section[0] == section_key)
     if payload.status == "Not Applicable" and not section_definition[2]:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Only optional setup sections can be marked Not Applicable")
+    if section_key in DATA_DERIVED_PROJECT_SETUP_SECTION_KEYS and payload.status == "Complete":
+        project = fetch_project_setup_project(session, project_id)
+        if project is None:
+            raise_project_not_found()
+        live = fetch_project_setup_live_counts(session, project_id)
+        live_status, _live_count, _live_source = project_setup_live_status(section_key, project, live, [])
+        if live_status != "Complete":
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Complete the required section fields before marking it Complete")
 
     session.execute(
         """
@@ -1195,6 +1286,153 @@ def update_project_setup_section(
                       updated_by = EXCLUDED.updated_by
         """,
         (project_id, section_key, payload.status, current_user.id),
+    )
+    return build_project_setup_response(session, project_id)
+
+
+@router.patch("/{project_id}/setup/project-overview", response_model=ProjectSetupResponse)
+def update_project_setup_overview(
+    project_id: UUID,
+    payload: ProjectSetupOverviewUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    name = payload.name.strip()
+    description = payload.description.strip()
+    if not name or not description:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Project name and purpose are required")
+    if payload.end_date < payload.start_date:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Project end date cannot be before the start date")
+    project = fetch_project_setup_project(session, project_id)
+    if project is None:
+        raise_project_not_found()
+
+    session.execute(
+        """
+        UPDATE projects
+        SET name = %s,
+            description = %s,
+            start_date = %s,
+            end_date = %s,
+            project_location_area = %s,
+            updated_at = NOW()
+        WHERE projects.id = %s
+          AND projects.archived_at IS NULL
+        """,
+        (
+            name,
+            description,
+            payload.start_date,
+            payload.end_date,
+            normalize_optional_text(payload.project_location_area),
+            project_id,
+        ),
+    )
+    return build_project_setup_response(session, project_id)
+
+
+@router.patch("/{project_id}/setup/scope", response_model=ProjectSetupResponse)
+def update_project_setup_scope(
+    project_id: UUID,
+    payload: ProjectSetupScopeUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+
+    session.execute(
+        """
+        UPDATE projects
+        SET scope_in = %s,
+            scope_out = %s,
+            scope_boundaries = %s,
+            scope_notes = %s,
+            updated_at = NOW()
+        WHERE id = %s
+          AND archived_at IS NULL
+        """,
+        (
+            normalize_optional_text(payload.scope_in),
+            normalize_optional_text(payload.scope_out),
+            normalize_optional_text(payload.scope_boundaries),
+            normalize_optional_text(payload.scope_notes),
+            project_id,
+        ),
+    )
+    return build_project_setup_response(session, project_id)
+
+
+@router.patch("/{project_id}/setup/objectives-outcomes", response_model=ProjectSetupResponse)
+def update_project_setup_objectives_outcomes(
+    project_id: UUID,
+    payload: ProjectSetupObjectivesUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+
+    session.execute(
+        """
+        UPDATE projects
+        SET objectives = %s,
+            expected_outcomes = %s,
+            success_criteria = %s,
+            key_indicators = %s,
+            updated_at = NOW()
+        WHERE id = %s
+          AND archived_at IS NULL
+        """,
+        (
+            normalize_optional_text(payload.objectives),
+            normalize_optional_text(payload.expected_outcomes),
+            normalize_optional_text(payload.success_criteria),
+            normalize_optional_text(payload.key_indicators),
+            project_id,
+        ),
+    )
+    return build_project_setup_response(session, project_id)
+
+
+@router.patch("/{project_id}/setup/work-plan", response_model=ProjectSetupResponse)
+def update_project_setup_work_plan(
+    project_id: UUID,
+    payload: ProjectSetupWorkPlanUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if payload.end_date < payload.start_date:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Planned completion cannot be before planned start")
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+
+    session.execute(
+        """
+        UPDATE projects
+        SET start_date = %s,
+            end_date = %s,
+            work_plan_details = %s,
+            key_activities = %s,
+            updated_at = NOW()
+        WHERE id = %s
+          AND archived_at IS NULL
+        """,
+        (
+            payload.start_date,
+            payload.end_date,
+            normalize_optional_text(payload.work_plan_details),
+            normalize_optional_text(payload.key_activities),
+            project_id,
+        ),
     )
     return build_project_setup_response(session, project_id)
 
@@ -3762,7 +4000,9 @@ def build_project_setup_response(session: DatabaseSession, project_id: UUID) -> 
         override = overrides.get(key)
         override_status = override["status"] if override else None
         live_status, live_count, live_source = project_setup_live_status(key, project, live, raw_sections)
-        if override_status == "Not Applicable":
+        if key in DATA_DERIVED_PROJECT_SETUP_SECTION_KEYS:
+            resolved_status = live_status
+        elif override_status == "Not Applicable":
             resolved_status = "Not Applicable"
         elif live_status != "Not Started":
             resolved_status = live_status
@@ -3795,18 +4035,79 @@ def build_project_setup_response(session: DatabaseSession, project_id: UUID) -> 
             percent_complete=percent_complete,
         ),
         sections=raw_sections,
+        details=project_setup_details_to_response(project),
     )
 
 
 def fetch_project_setup_project(session: DatabaseSession, project_id: UUID) -> Row | None:
     return session.fetch_one(
         """
-        SELECT id, name, description, objectives, funder_partner, project_type, start_date, end_date, status
+        SELECT
+          projects.id,
+          projects.code,
+          projects.name,
+          projects.description,
+          projects.objectives,
+          projects.funder_partner,
+          projects.project_type,
+          projects.start_date,
+          projects.end_date,
+          projects.status,
+          projects.project_lead_id,
+          project_leads.name AS project_lead_name,
+          project_leads.email AS project_lead_email,
+          projects.project_location_area,
+          projects.scope_in,
+          projects.scope_out,
+          projects.scope_boundaries,
+          projects.scope_notes,
+          projects.expected_outcomes,
+          projects.success_criteria,
+          projects.key_indicators,
+          projects.work_plan_details,
+          projects.key_activities
         FROM projects
+        JOIN users AS project_leads ON project_leads.id = projects.project_lead_id
         WHERE id = %s
           AND archived_at IS NULL
         """,
         (project_id,),
+    )
+
+
+def project_setup_details_to_response(project: Row) -> ProjectSetupDetailsResponse:
+    return ProjectSetupDetailsResponse(
+        project_overview=ProjectSetupOverviewResponse(
+            name=project["name"],
+            code=project["code"],
+            description=project["description"],
+            project_lead=ProjectSetupLeadResponse(
+                id=project["project_lead_id"],
+                name=project["project_lead_name"],
+                email=project["project_lead_email"],
+            ),
+            start_date=project["start_date"],
+            end_date=project["end_date"],
+            project_location_area=project.get("project_location_area"),
+        ),
+        scope=ProjectSetupScopeResponse(
+            scope_in=project.get("scope_in"),
+            scope_out=project.get("scope_out"),
+            scope_boundaries=project.get("scope_boundaries"),
+            scope_notes=project.get("scope_notes"),
+        ),
+        objectives_outcomes=ProjectSetupObjectivesResponse(
+            objectives=project.get("objectives"),
+            expected_outcomes=project.get("expected_outcomes"),
+            success_criteria=project.get("success_criteria"),
+            key_indicators=project.get("key_indicators"),
+        ),
+        work_plan=ProjectSetupWorkPlanResponse(
+            work_plan_details=project.get("work_plan_details"),
+            planned_start=project["start_date"],
+            planned_completion=project["end_date"],
+            key_activities=project.get("key_activities"),
+        ),
     )
 
 
@@ -3898,19 +4199,25 @@ def project_setup_live_status(
         has_core = all(project.get(field) for field in ("name", "description", "start_date", "end_date", "status"))
         return ("Complete" if has_core else "In Progress", 1 if has_core else 0, "projects")
     if section_key == "scope":
-        has_scope = bool(project.get("description"))
-        has_context = bool(project.get("project_type") or project.get("funder_partner"))
-        return project_setup_status_from_count(2 if has_scope and has_context else int(has_scope), 2, "projects")
+        required_count = count_present(project, ("scope_in", "scope_out", "scope_boundaries"))
+        if required_count == 3:
+            return "Complete", required_count, "projects.scope_*"
+        optional_count = count_present(project, ("scope_notes",))
+        return ("In Progress" if required_count or optional_count else "Not Started", required_count + optional_count, "projects.scope_*")
     if section_key == "objectives_outcomes":
-        return project_setup_status_from_count(int(bool(project.get("objectives"))), 1, "projects.objectives")
+        required_count = count_present(project, ("objectives", "expected_outcomes", "success_criteria"))
+        if required_count == 3:
+            return "Complete", required_count, "projects.objectives/outcomes"
+        optional_count = count_present(project, ("key_indicators",))
+        return ("In Progress" if required_count or optional_count else "Not Started", required_count + optional_count, "projects.objectives/outcomes")
     if section_key == "work_plan":
+        required_count = count_present(project, ("work_plan_details", "start_date", "end_date", "key_activities"))
+        if required_count == 4:
+            return "Complete", required_count, "projects.work_plan/start_date/end_date"
         phase_count = int(live.get("phase_count") or 0)
         task_count = int(live.get("task_count") or 0)
-        if phase_count and task_count:
-            return "Complete", phase_count + task_count, "phases/tasks"
-        if phase_count:
-            return "In Progress", phase_count, "phases"
-        return "Not Started", 0, "phases/tasks"
+        live_count = required_count + phase_count + task_count
+        return ("In Progress" if live_count else "Not Started", live_count, "projects/phases/tasks")
     if section_key == "phases":
         return project_setup_status_from_count(int(live.get("phase_count") or 0), 1, "phases")
     if section_key == "milestones":
@@ -3956,6 +4263,17 @@ def project_setup_status_from_count(count: int, complete_threshold: int, source:
     if count > 0:
         return "In Progress", count, source
     return "Not Started", 0, source
+
+
+def count_present(row: Row, fields: tuple[str, ...]) -> int:
+    return sum(1 for field in fields if bool(row.get(field)))
+
+
+def normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
 
 
 def project_to_response(row: Row, session: DatabaseSession | None = None, user_id: UUID | None = None) -> ProjectResponse:

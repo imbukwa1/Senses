@@ -187,16 +187,59 @@ export type ProjectSetupSummary = {
   percent_complete: number;
 };
 
+export type ProjectSetupOverviewDetails = {
+  name: string;
+  code: string;
+  description: string;
+  project_lead: ProjectLead;
+  start_date: string;
+  end_date: string;
+  project_location_area: string | null;
+};
+
+export type ProjectSetupScopeDetails = {
+  scope_in: string | null;
+  scope_out: string | null;
+  scope_boundaries: string | null;
+  scope_notes: string | null;
+};
+
+export type ProjectSetupObjectivesDetails = {
+  objectives: string | null;
+  expected_outcomes: string | null;
+  success_criteria: string | null;
+  key_indicators: string | null;
+};
+
+export type ProjectSetupWorkPlanDetails = {
+  work_plan_details: string | null;
+  planned_start: string;
+  planned_completion: string;
+  key_activities: string | null;
+};
+
+export type ProjectSetupDetails = {
+  project_overview: ProjectSetupOverviewDetails;
+  scope: ProjectSetupScopeDetails;
+  objectives_outcomes: ProjectSetupObjectivesDetails;
+  work_plan: ProjectSetupWorkPlanDetails;
+};
+
 export type ProjectSetup = {
   project_id: string;
   title: string;
   summary: ProjectSetupSummary;
   sections: ProjectSetupSection[];
+  details: ProjectSetupDetails;
 };
 
 export type ProjectSetupSectionStatusPayload = {
   status: ProjectSetupStatus;
 };
+
+export type ProjectSetupDetailsSection = "project-overview" | "scope" | "objectives-outcomes" | "work-plan";
+
+export type ProjectSetupDetailsPayload = Record<string, string | null>;
 
 export type Task = {
   id: string;

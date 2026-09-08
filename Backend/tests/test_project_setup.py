@@ -15,7 +15,16 @@ def test_project_setup_reads_live_project_data_and_optional_statuses() -> None:
     database.connect()
     try:
         pm = _create_auth_user(database, "Setup PM", _unique_email("setup.pm"))
-        project = _create_project(database, pm["id"], "Live Setup Project", objectives="Use live project data.")
+        project = _create_project(
+            database,
+            pm["id"],
+            "Live Setup Project",
+            objectives="Use live project data.",
+            expected_outcomes="Setup is visible.",
+            success_criteria="Sections are data driven.",
+            work_plan_details="Use the live project workflow.",
+            key_activities="Inspect\nValidate",
+        )
         phase = _create_phase(database, project["id"], pm["id"], "Implementation")
         task = _create_task(database, phase["id"], pm["id"], "Build setup shell")
         _create_deliverable(database, task["id"], "Validate setup")
@@ -38,6 +47,7 @@ def test_project_setup_reads_live_project_data_and_optional_statuses() -> None:
         assert len(body["sections"]) == 22
         assert _section(body, "project_overview")["status"] == "Complete"
         assert _section(body, "objectives_outcomes")["status"] == "Complete"
+        assert _section(body, "work_plan")["status"] == "Complete"
         assert _section(body, "phases")["status"] == "Complete"
         assert _section(body, "deliverables")["status"] == "Complete"
         assert body["summary"]["percent_complete"] < 100
@@ -94,6 +104,129 @@ def test_project_setup_editing_is_pm_only_and_never_blocks_project_work() -> Non
         database.close()
 
 
+def test_project_setup_first_sections_update_live_project_data_and_completion() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Setup Detail PM", _unique_email("setup.detail.pm"))
+        project = _create_project(database, pm["id"], "Setup Detail Project")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        app = create_app(settings=_settings(os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            token = _login(client, pm["email"])
+            overview = client.patch(
+                f"/projects/{project['id']}/setup/project-overview",
+                headers=_auth_header(token),
+                json={
+                    "name": "Updated Detail Project",
+                    "description": "Updated project purpose.",
+                    "start_date": "2026-02-01",
+                    "end_date": "2026-11-30",
+                    "project_location_area": "Nairobi",
+                },
+            )
+            readonly_code = client.patch(
+                f"/projects/{project['id']}/setup/project-overview",
+                headers=_auth_header(token),
+                json={
+                    "name": "Updated Detail Project",
+                    "code": "SHOULD-NOT-CHANGE",
+                    "description": "Updated project purpose.",
+                    "start_date": "2026-02-01",
+                    "end_date": "2026-11-30",
+                },
+            )
+            scope = client.patch(
+                f"/projects/{project['id']}/setup/scope",
+                headers=_auth_header(token),
+                json={
+                    "scope_in": "Discovery and delivery",
+                    "scope_out": "Long-term operations",
+                    "scope_boundaries": "Pilot geography only",
+                    "scope_notes": "Review after launch",
+                },
+            )
+            objectives = client.patch(
+                f"/projects/{project['id']}/setup/objectives-outcomes",
+                headers=_auth_header(token),
+                json={
+                    "objectives": "Improve reporting",
+                    "expected_outcomes": "Teams can track delivery",
+                    "success_criteria": "Weekly dashboards are current",
+                    "key_indicators": "Completion rate",
+                },
+            )
+            work_plan = client.patch(
+                f"/projects/{project['id']}/setup/work-plan",
+                headers=_auth_header(token),
+                json={
+                    "work_plan_details": "Run setup and implementation in parallel.",
+                    "start_date": "2026-02-01",
+                    "end_date": "2026-11-30",
+                    "key_activities": "Plan\nBuild\nReview",
+                },
+            )
+            dashboard = client.get(f"/projects/{project['id']}/dashboard", headers=_auth_header(token))
+
+        assert overview.status_code == 200
+        assert overview.json()["details"]["project_overview"]["code"] == project["code"]
+        assert readonly_code.status_code == 422
+        assert scope.status_code == 200
+        assert objectives.status_code == 200
+        assert work_plan.status_code == 200
+        setup = work_plan.json()
+        assert _section(setup, "project_overview")["status"] == "Complete"
+        assert _section(setup, "scope")["status"] == "Complete"
+        assert _section(setup, "objectives_outcomes")["status"] == "Complete"
+        assert _section(setup, "work_plan")["status"] == "Complete"
+        assert setup["summary"]["complete_sections"] >= 4
+        assert dashboard.status_code == 200
+        assert dashboard.json()["project"]["name"] == "Updated Detail Project"
+        assert dashboard.json()["project"]["start_date"] == "2026-02-01"
+        assert dashboard.json()["project"]["end_date"] == "2026-11-30"
+    finally:
+        database.close()
+
+
+def test_project_setup_first_section_completion_is_data_driven_and_pm_only() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Setup Derived PM", _unique_email("setup.derived.pm"))
+        team = _create_auth_user(database, "Setup Derived Team", _unique_email("setup.derived.team"))
+        project = _create_project(database, pm["id"], "Setup Derived Project")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], team["id"], "Team Member")
+        app = create_app(settings=_settings(os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            pm_token = _login(client, pm["email"])
+            team_token = _login(client, team["email"])
+            draft_scope = client.patch(
+                f"/projects/{project['id']}/setup/scope",
+                headers=_auth_header(pm_token),
+                json={"scope_in": "Included"},
+            )
+            premature_complete = client.patch(
+                f"/projects/{project['id']}/setup/sections/scope",
+                headers=_auth_header(pm_token),
+                json={"status": "Complete"},
+            )
+            team_edit = client.patch(
+                f"/projects/{project['id']}/setup/scope",
+                headers=_auth_header(team_token),
+                json={"scope_in": "Denied", "scope_out": "Denied", "scope_boundaries": "Denied"},
+            )
+
+        assert draft_scope.status_code == 200
+        assert _section(draft_scope.json(), "scope")["status"] == "In Progress"
+        assert premature_complete.status_code == 422
+        assert team_edit.status_code == 403
+    finally:
+        database.close()
+
+
 def _section(setup: dict, key: str) -> dict:
     return next(section for section in setup["sections"] if section["key"] == key)
 
@@ -115,7 +248,16 @@ def _create_auth_user(database: Database, name: str, email: str, password: str =
         return user
 
 
-def _create_project(database: Database, lead_id, name: str, objectives: str | None = None) -> dict:
+def _create_project(
+    database: Database,
+    lead_id,
+    name: str,
+    objectives: str | None = None,
+    expected_outcomes: str | None = None,
+    success_criteria: str | None = None,
+    work_plan_details: str | None = None,
+    key_activities: str | None = None,
+) -> dict:
     with database.session() as session:
         return session.fetch_one(
             """
@@ -127,12 +269,26 @@ def _create_project(database: Database, lead_id, name: str, objectives: str | No
               start_date,
               end_date,
               status,
-              objectives
+              objectives,
+              expected_outcomes,
+              success_criteria,
+              work_plan_details,
+              key_activities
             )
-            VALUES (%s, %s, %s, %s, DATE '2026-01-01', DATE '2026-12-31', 'Planning', %s)
+            VALUES (%s, %s, %s, %s, DATE '2026-01-01', DATE '2026-12-31', 'Planning', %s, %s, %s, %s, %s)
             RETURNING *
             """,
-            ("PRJ-2026-001", name, f"{name} description", lead_id, objectives),
+            (
+                f"PRJ-{uuid4().hex[:8].upper()}",
+                name,
+                f"{name} description",
+                lead_id,
+                objectives,
+                expected_outcomes,
+                success_criteria,
+                work_plan_details,
+                key_activities,
+            ),
         )
 
 

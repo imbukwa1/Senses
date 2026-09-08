@@ -154,6 +154,36 @@ export const projectSetupSectionSchema = z.object({
   updated_at: z.string().nullable(),
 });
 
+export const projectSetupDetailsSchema = z.object({
+  project_overview: z.object({
+    name: z.string().min(1),
+    code: z.string().min(1),
+    description: z.string().min(1),
+    project_lead: userSummarySchema,
+    start_date: z.string().min(1),
+    end_date: z.string().min(1),
+    project_location_area: z.string().nullable(),
+  }),
+  scope: z.object({
+    scope_in: z.string().nullable(),
+    scope_out: z.string().nullable(),
+    scope_boundaries: z.string().nullable(),
+    scope_notes: z.string().nullable(),
+  }),
+  objectives_outcomes: z.object({
+    objectives: z.string().nullable(),
+    expected_outcomes: z.string().nullable(),
+    success_criteria: z.string().nullable(),
+    key_indicators: z.string().nullable(),
+  }),
+  work_plan: z.object({
+    work_plan_details: z.string().nullable(),
+    planned_start: z.string().min(1),
+    planned_completion: z.string().min(1),
+    key_activities: z.string().nullable(),
+  }),
+});
+
 export const projectSetupSchema = z.object({
   project_id: z.uuid(),
   title: z.string().min(1),
@@ -163,6 +193,7 @@ export const projectSetupSchema = z.object({
     percent_complete: z.number(),
   }),
   sections: z.array(projectSetupSectionSchema),
+  details: projectSetupDetailsSchema,
 });
 
 export const projectDashboardSchema = z.object({
