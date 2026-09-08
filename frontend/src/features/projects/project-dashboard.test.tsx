@@ -1,12 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectDashboardPage } from "./project-dashboard";
 import type { ProjectMember } from "./types";
 
 const mocks = vi.hoisted(() => ({
   currentRole: "Team Member" as ProjectMember["role"],
+  rolesByProject: {} as Record<string, ProjectMember["role"]>,
   useArchiveProjectMutation: vi.fn(),
   useAttentionQuery: vi.fn(),
   useDownloadProjectFileMutation: vi.fn(),
@@ -26,6 +27,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/components/common/confirm-action", () => ({
   ConfirmAction: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("@/features/users/user-search-select", () => ({
+  UserSearchSelect: ({ label }: { label: string }) => <label>{label}</label>,
 }));
 
 vi.mock("./phase-management-dialog", () => ({
@@ -71,6 +76,7 @@ vi.mock("./hooks", () => ({
 }));
 
 const projectId = "11111111-1111-4111-8111-111111111111";
+const teamProjectId = "22222222-2222-4222-8222-222222222222";
 
 const dashboard = {
   project: {
@@ -167,32 +173,59 @@ const projectDetail = {
 };
 
 describe("ProjectDashboardPage", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
     mocks.currentRole = "Team Member";
+    mocks.rolesByProject = {};
     mocks.useAuth.mockReturnValue({ user: { id: "user-1", name: "Team User", email: "team@senseshub.com" } });
-    mocks.useProjectDashboardQuery.mockReturnValue({ data: dashboard, isLoading: false, isError: false });
-    mocks.useProjectQuery.mockReturnValue({ data: projectDetail, isLoading: false });
-    mocks.useProjectMembersQuery.mockImplementation(() => ({
+    mocks.useProjectDashboardQuery.mockImplementation((requestedProjectId: string) => ({
+      data: projectDashboardFor(requestedProjectId),
+      isLoading: false,
+      isError: false,
+    }));
+    mocks.useProjectQuery.mockImplementation((requestedProjectId: string) => ({ data: projectDetailFor(requestedProjectId), isLoading: false }));
+    mocks.useProjectMembersQuery.mockImplementation((requestedProjectId: string) => ({
       data: [
         {
-          project_id: projectId,
+          project_id: requestedProjectId,
           user_id: "user-1",
           name: "Team User",
           email: "team@senseshub.com",
-          role: mocks.currentRole,
+          role: mocks.rolesByProject[requestedProjectId] ?? mocks.currentRole,
           joined_at: "2026-01-01T00:00:00Z",
         },
       ],
     }));
     mocks.usePhaseMembersQuery.mockReturnValue({ data: [], isLoading: false, isError: false });
     mocks.useArchiveProjectMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
-    mocks.useAttentionQuery.mockReturnValue({ data: [{ project_id: projectId }], isError: false });
+    mocks.useAttentionQuery.mockReturnValue({
+      data: [
+        {
+          type: "task",
+          reason: "Review field plan is overdue",
+          project_id: projectId,
+          project_name: "Inclusive Speech Tech",
+          project_code: "PRJ-2026-001",
+          phase_id: "phase-1",
+          phase_name: "Discovery",
+          task_id: "task-1",
+          task_name: "Review field plan",
+          assigned_person: { id: "lead-1", name: "Priya PM", email: "pm@senseshub.com" },
+          due_date: "2026-09-07",
+          severity: "Needs attention",
+        },
+      ],
+      isError: false,
+    });
     mocks.useProjectBudgetQuery.mockReturnValue({
       data: { project_id: projectId, allocated: 1000, spent: 200, remaining: 800, utilisation: 0.2 },
       isError: false,
       isLoading: false,
     });
-    mocks.useProjectFilesQuery.mockReturnValue({
+    mocks.useProjectFilesQuery.mockImplementation((requestedProjectId: string) => ({
       data: [
         {
           id: "file-1",
@@ -205,7 +238,7 @@ describe("ProjectDashboardPage", () => {
           file_size: 1024,
           file_category: "reference",
           created_at: "2026-09-07T07:03:00Z",
-          project_id: projectId,
+          project_id: requestedProjectId,
           phase_id: "phase-1",
           phase_name: "Discovery",
           task_name: "Review field plan",
@@ -213,7 +246,7 @@ describe("ProjectDashboardPage", () => {
       ],
       isError: false,
       isLoading: false,
-    });
+    }));
     mocks.useDownloadProjectFileMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useTasksQuery.mockReturnValue({ data: [], isLoading: false });
     mocks.useUpdatePhaseBudgetMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
@@ -260,14 +293,66 @@ describe("ProjectDashboardPage", () => {
     expect(screen.getByText("Unutilized")).toBeInTheDocument();
     expect(screen.getByText("80%")).toBeInTheDocument();
   });
+
+  it("uses the opened project's membership role for PM and Team Member modes", () => {
+    mocks.rolesByProject = {
+      [projectId]: "PM",
+      [teamProjectId]: "Team Member",
+    };
+
+    const { unmount } = renderProject(projectId);
+
+    expect(screen.getByText("Management Workspace")).toBeInTheDocument();
+    expect(screen.getByText("PM")).toBeInTheDocument();
+    expect(screen.getByText("Attention Items")).toBeInTheDocument();
+    expect(screen.getByText("Active Phases")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "People" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage" })).toBeInTheDocument();
+    expect(screen.getAllByText(/PM controls/)).toHaveLength(2);
+
+    unmount();
+    renderProject(teamProjectId);
+
+    expect(screen.getByText("Team Member")).toBeInTheDocument();
+    expect(screen.getByText("Your Work")).toBeInTheDocument();
+    expect(screen.queryByText("Management Workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("Attention Items")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "People" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();
+    expect(screen.getAllByText(/Work view/)).toHaveLength(2);
+  });
 });
 
-function renderProject() {
-  render(
-    <MemoryRouter initialEntries={[`/projects/${projectId}`]}>
+function renderProject(targetProjectId = projectId) {
+  return render(
+    <MemoryRouter initialEntries={[`/projects/${targetProjectId}`]}>
       <Routes>
         <Route path="/projects/:projectId" element={<ProjectDashboardPage />} />
       </Routes>
     </MemoryRouter>,
   );
+}
+
+function projectDashboardFor(targetProjectId: string) {
+  return {
+    ...dashboard,
+    project: {
+      ...dashboard.project,
+      id: targetProjectId,
+      code: targetProjectId === teamProjectId ? "PRJ-2026-002" : dashboard.project.code,
+      name: targetProjectId === teamProjectId ? "Community Access Rollout" : dashboard.project.name,
+    },
+    phases: dashboard.phases.map((phase) => ({ ...phase, project_id: targetProjectId })),
+  };
+}
+
+function projectDetailFor(targetProjectId: string) {
+  return {
+    ...projectDetail,
+    id: targetProjectId,
+    code: targetProjectId === teamProjectId ? "PRJ-2026-002" : projectDetail.code,
+    name: targetProjectId === teamProjectId ? "Community Access Rollout" : projectDetail.name,
+  };
 }

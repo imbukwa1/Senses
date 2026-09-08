@@ -20,6 +20,7 @@ import { ApiError } from "@/features/auth/api";
 import { useAuth } from "@/features/auth/hooks";
 import { UserSearchSelect } from "@/features/users/user-search-select";
 import { userFacingErrorMessage } from "@/lib/api-errors";
+import { cn } from "@/lib/utils";
 
 import {
   useAddPhaseMemberMutation,
@@ -42,7 +43,7 @@ import { PhaseManagementDialog } from "./phase-management-dialog";
 import { PhaseTasks } from "./phase-tasks";
 import { ProjectFormDialog } from "./project-form-dialog";
 import { ProjectMembersDialog } from "./project-members-dialog";
-import type { DashboardDeliverable, DashboardPhase, PhaseMember, ProjectBudget, ProjectDashboard, ProjectFile, ProjectMember, UpcomingDeadline } from "./types";
+import type { AttentionItem, DashboardDeliverable, DashboardPhase, PhaseMember, ProjectBudget, ProjectDashboard, ProjectFile, ProjectMember, UpcomingDeadline } from "./types";
 
 export function ProjectDashboardPage() {
   const { projectId } = useParams();
@@ -80,36 +81,93 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
   }
 
   const editProject = projectQuery.data;
-  const currentMember = projectMembersQuery.data?.find((member) => member.user_id === user?.id);
+  const projectMembers = projectMembersQuery.data ?? [];
+  const currentMember = projectMembers.find((member) => member.user_id === user?.id);
   const isProjectPm = currentMember?.role === "PM";
   const canViewFinance = currentMember?.role === "PM" || currentMember?.role === "Finance";
   const canEditFinance = currentMember?.role === "Finance";
   const projectAttention = (attentionQuery.data ?? []).filter((item) => item.project_id === projectId);
+  const roleBadgeLabel = currentMember?.role ?? "Project Member";
+  const activePhases = dashboard.phases.filter((phase) => phase.status === "In Progress");
+  const phaseSectionTitle = isProjectPm ? "Active Phases" : "Your Work";
+  const phaseSectionDescription = isProjectPm
+    ? "Phase activity, task status, and people assigned in this project."
+    : "Relevant phases, assigned work, dates, files, and comments are available from each task.";
+  const summaryCards = (
+    <div className="grid gap-4 lg:grid-cols-4">
+      <SummaryCard management={isProjectPm} title="Status">
+        <StatusBadge value={dashboard.project.status} />
+      </SummaryCard>
+      <SummaryCard management={isProjectPm} title="Health">
+        <div className="space-y-2">
+          <HealthBadge label={dashboard.project.health_label} />
+          {dashboard.project.health_reasons.length > 0 ? (
+            <p className="text-sm text-muted-foreground">{dashboard.project.health_reasons[0]}</p>
+          ) : null}
+        </div>
+      </SummaryCard>
+      <SummaryCard management={isProjectPm} title="Overall Progress">
+        <ProgressValue value={dashboard.project.overall_progress} label="Overall project progress" />
+      </SummaryCard>
+      <SummaryCard management={isProjectPm} title="Attention">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className={projectAttention.length > 0 ? "size-4 text-brand-red" : "size-4 text-muted-foreground"} aria-hidden="true" />
+          <span className="text-sm font-semibold text-foreground">
+            {projectAttention.length} item{projectAttention.length === 1 ? "" : "s"}
+          </span>
+        </div>
+      </SummaryCard>
+    </div>
+  );
+  const phasesAndDeadlines = (
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.45fr)]">
+      <PhasesSection
+        currentPhaseId={dashboard.project.current_phase_id}
+        description={phaseSectionDescription}
+        isProjectPm={isProjectPm}
+        phases={dashboard.phases}
+        projectMembers={projectMembers}
+        projectId={projectId}
+        title={phaseSectionTitle}
+      />
+      <DeadlinesSection deadlines={dashboard.upcoming_deadlines} />
+    </div>
+  );
 
   return (
-    <div className="space-y-5">
-      <Card>
+    <div className={cn("space-y-5", isProjectPm && "rounded-md border border-neutral-900/10 bg-neutral-950/5 p-3 sm:p-4")}>
+      <Card className={cn(isProjectPm && "overflow-hidden border-neutral-900 bg-neutral-950 text-white shadow-none")}>
+        {isProjectPm ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-neutral-900 px-5 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="border-transparent bg-brand-red text-white">PM</Badge>
+              <span className="text-sm font-medium text-white/80">Management Workspace</span>
+            </div>
+            <span className="text-xs text-white/60">{activePhases.length} active phase{activePhases.length === 1 ? "" : "s"}</span>
+          </div>
+        ) : null}
         <CardHeader className="gap-4 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="font-mono">
+              <Badge variant="outline" className={cn("font-mono", isProjectPm && "border-white/20 text-white")}>
                 {dashboard.project.code}
               </Badge>
+              {!isProjectPm ? <Badge variant="secondary">{roleBadgeLabel}</Badge> : null}
               {dashboard.project.priority ? <StatusBadge value={dashboard.project.priority} /> : null}
             </div>
-            <CardTitle className="mt-3 text-xl">{dashboard.project.name}</CardTitle>
-            <CardDescription className="mt-2 max-w-3xl">{dashboard.project.description}</CardDescription>
+            <CardTitle className={cn("mt-3 text-xl", isProjectPm && "text-white")}>{dashboard.project.name}</CardTitle>
+            <CardDescription className={cn("mt-2 max-w-3xl", isProjectPm && "text-white/70")}>{dashboard.project.description}</CardDescription>
           </div>
           {isProjectPm ? (
             <div className="flex shrink-0 flex-wrap gap-2">
               <ProjectFormDialog mode="edit" project={editProject} open={editOpen} onOpenChange={setEditOpen}>
-                <Button type="button" variant="outline" size="sm" disabled={projectQuery.isLoading || !editProject}>
+                <Button type="button" size="sm" className="bg-brand-red text-white hover:bg-brand-red/90" disabled={projectQuery.isLoading || !editProject}>
                   <Edit className="size-4" aria-hidden="true" />
                   Edit
                 </Button>
               </ProjectFormDialog>
               <ProjectMembersDialog project={projectForMembers(dashboard)} open={membersOpen} onOpenChange={setMembersOpen}>
-                <Button type="button" variant="outline" size="sm">
+                <Button type="button" variant="outline" size="sm" className="border-white/25 bg-white/10 text-white hover:bg-white/15 hover:text-white">
                   <Users className="size-4" aria-hidden="true" />
                   People
                 </Button>
@@ -127,7 +185,7 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
                   }
                 }}
               >
-                <Button type="button" variant="ghost" size="sm" disabled={archiveProject.isPending}>
+                <Button type="button" variant="ghost" size="sm" className="text-white/80 hover:bg-white/10 hover:text-white" disabled={archiveProject.isPending}>
                   <Archive className="size-4" aria-hidden="true" />
                   {archiveProject.isPending ? "Archiving..." : "Archive"}
                 </Button>
@@ -141,39 +199,27 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
           </CardContent>
         ) : null}
         <CardContent>
-          <dl className="grid gap-x-8 md:grid-cols-2">
-            <MetadataRow label="Project Lead" value={`${dashboard.project.project_lead.name} (${dashboard.project.project_lead.email})`} />
-            <MetadataRow label="Dates" value={`${formatDate(dashboard.project.start_date)} - ${formatDate(dashboard.project.end_date)}`} />
-          </dl>
+          <ProjectMetaRows
+            management={isProjectPm}
+            lead={`${dashboard.project.project_lead.name} (${dashboard.project.project_lead.email})`}
+            dates={`${formatDate(dashboard.project.start_date)} - ${formatDate(dashboard.project.end_date)}`}
+          />
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-4">
-        <SummaryCard title="Status">
-          <StatusBadge value={dashboard.project.status} />
-        </SummaryCard>
-        <SummaryCard title="Health">
-          <div className="space-y-2">
-            <HealthBadge label={dashboard.project.health_label} />
-            {dashboard.project.health_reasons.length > 0 ? (
-              <p className="text-sm text-muted-foreground">{dashboard.project.health_reasons[0]}</p>
-            ) : null}
-          </div>
-        </SummaryCard>
-        <SummaryCard title="Overall Progress">
-          <ProgressValue value={dashboard.project.overall_progress} label="Overall project progress" />
-        </SummaryCard>
-        <SummaryCard title="Attention">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className={projectAttention.length > 0 ? "size-4 text-warning" : "size-4 text-muted-foreground"} aria-hidden="true" />
-            <span className="text-sm font-semibold text-foreground">
-              {projectAttention.length} item{projectAttention.length === 1 ? "" : "s"}
-            </span>
-          </div>
-        </SummaryCard>
-      </div>
+      {summaryCards}
+
+      {isProjectPm ? <AttentionItemsSection items={projectAttention} /> : null}
+
+      {isProjectPm ? phasesAndDeadlines : null}
 
       {canViewFinance ? <ProjectFinanceSection canEdit={canEditFinance} phases={dashboard.phases} projectId={projectId} /> : null}
+
+      {!isProjectPm ? phasesAndDeadlines : null}
+
+      <ProjectChecklistSection deliverables={dashboard.deliverables} />
+
+      <ProjectFilesSection projectId={projectId} />
 
       {editProject?.objectives ? (
         <Card>
@@ -185,26 +231,79 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
           </CardContent>
         </Card>
       ) : null}
-
-      <ProjectFilesSection projectId={projectId} />
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(20rem,0.45fr)]">
-        <PhasesSection projectId={projectId} phases={dashboard.phases} currentPhaseId={dashboard.project.current_phase_id} />
-        <DeadlinesSection deadlines={dashboard.upcoming_deadlines} />
-      </div>
-
-      <ProjectChecklistSection deliverables={dashboard.deliverables} />
     </div>
   );
 }
 
-function SummaryCard({ children, title }: { title: string; children: React.ReactNode }) {
+function ProjectMetaRows({ dates, lead, management }: { dates: string; lead: string; management: boolean }) {
+  if (!management) {
+    return (
+      <dl className="grid gap-x-8 md:grid-cols-2">
+        <MetadataRow label="Project Lead" value={lead} />
+        <MetadataRow label="Dates" value={dates} />
+      </dl>
+    );
+  }
+
   return (
-    <Card>
+    <dl className="grid gap-x-8 md:grid-cols-2">
+      <div className="flex items-start justify-between gap-4 border-b border-white/10 py-3">
+        <dt className="text-sm text-white/60">Project Lead</dt>
+        <dd className="text-right text-sm font-medium text-white">{lead}</dd>
+      </div>
+      <div className="flex items-start justify-between gap-4 border-b border-white/10 py-3 last:border-b-0">
+        <dt className="text-sm text-white/60">Dates</dt>
+        <dd className="text-right text-sm font-medium text-white">{dates}</dd>
+      </div>
+    </dl>
+  );
+}
+
+function SummaryCard({ children, management = false, title }: { title: string; children: React.ReactNode; management?: boolean }) {
+  return (
+    <Card className={cn(management && "border-brand-red/25 shadow-none ring-1 ring-brand-red/10")}>
       <CardHeader className="pb-3">
-        <CardDescription>{title}</CardDescription>
+        <CardDescription className={cn(management && "font-medium text-brand-red")}>{title}</CardDescription>
       </CardHeader>
       <CardContent>{children}</CardContent>
+    </Card>
+  );
+}
+
+function AttentionItemsSection({ items }: { items: AttentionItem[] }) {
+  return (
+    <Card className="border-brand-red/20">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <AlertTriangle className="size-5 text-brand-red" aria-hidden="true" />
+          Attention Items
+        </CardTitle>
+        <CardDescription>Open project risks and overdue work that need management attention.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {items.length === 0 ? (
+          <EmptyState title="No attention items." />
+        ) : (
+          <div className="space-y-3">
+            {items.map((item) => (
+              <div key={`${item.type}-${item.phase_id ?? "project"}-${item.task_id ?? item.project_id}-${item.reason}`} className="rounded-md border border-brand-red/15 bg-brand-red/5 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="border-transparent bg-brand-red text-white">{item.severity}</Badge>
+                  <Badge variant="outline">{formatEntityType(item.type)}</Badge>
+                </div>
+                <p className="mt-2 text-sm font-medium text-foreground">{item.task_name ?? item.phase_name ?? item.project_name}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{item.reason}</p>
+                {item.assigned_person || item.due_date ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {item.assigned_person ? item.assigned_person.name : "Unassigned"}
+                    {item.due_date ? ` / Due ${formatDate(item.due_date)}` : ""}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }
@@ -648,23 +747,33 @@ function ProjectFileRow({ file, projectId }: { file: ProjectFile; projectId: str
   );
 }
 
-function PhasesSection({ currentPhaseId, phases, projectId }: { projectId: string; phases: DashboardPhase[]; currentPhaseId: string | null }) {
-  const { user } = useAuth();
-  const projectMembersQuery = useProjectMembersQuery(projectId, true);
-  const projectMembers = projectMembersQuery.data ?? [];
-  const currentMember = projectMembers.find((member) => member.user_id === user?.id);
-  const isProjectPm = currentMember?.role === "PM";
-
+function PhasesSection({
+  currentPhaseId,
+  description,
+  isProjectPm,
+  phases,
+  projectId,
+  projectMembers,
+  title,
+}: {
+  projectId: string;
+  phases: DashboardPhase[];
+  currentPhaseId: string | null;
+  description: string;
+  isProjectPm: boolean;
+  projectMembers: ProjectMember[];
+  title: string;
+}) {
   return (
-    <Card>
+    <Card className={cn(isProjectPm && "border-brand-red/20")}>
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
         <div>
-          <CardTitle>Phases</CardTitle>
-          <CardDescription>Open a phase to see its people and tasks.</CardDescription>
+          <CardTitle>{title}</CardTitle>
+          <CardDescription>{description}</CardDescription>
         </div>
         {isProjectPm ? (
           <PhaseManagementDialog projectId={projectId} phases={phases} currentPhaseId={currentPhaseId}>
-            <Button type="button" variant="outline" size="sm">
+            <Button type="button" size="sm" className="bg-brand-red text-white hover:bg-brand-red/90">
               <ListChecks className="size-4" aria-hidden="true" />
               Manage
             </Button>
@@ -677,7 +786,11 @@ function PhasesSection({ currentPhaseId, phases, projectId }: { projectId: strin
         ) : (
           <div className="space-y-3">
             {phases.map((phase) => (
-              <details key={phase.id} className="rounded-md border bg-background p-4" open={phase.status === "In Progress" || phase.id === currentPhaseId}>
+              <details
+                key={phase.id}
+                className={cn("rounded-md border bg-background p-4", isProjectPm && (phase.status === "In Progress" || phase.id === currentPhaseId) && "border-brand-red/25 bg-brand-red/5")}
+                open={phase.status === "In Progress" || phase.id === currentPhaseId}
+              >
                 <summary className="cursor-pointer list-none">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
