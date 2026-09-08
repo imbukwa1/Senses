@@ -1,10 +1,11 @@
-import { Check, CheckCircle2, Circle, ClipboardList, Eye, FileClock, Save, XCircle } from "lucide-react";
+import { Check, CheckCircle2, Circle, ClipboardList, Edit, Eye, FileClock, Plus, Save, UserPlus, Users, X, XCircle } from "lucide-react";
 import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/common/empty-state";
 import { ErrorState } from "@/components/common/error-state";
 import { LoadingState } from "@/components/common/loading-state";
+import { StatusBadge } from "@/components/common/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,8 +17,28 @@ import { Textarea } from "@/components/ui/textarea";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 import { cn } from "@/lib/utils";
 
-import { useProjectSetupQuery, useUpdateProjectSetupDetailsMutation, useUpdateProjectSetupSectionMutation } from "./hooks";
-import type { ProjectSetup, ProjectSetupDetailsPayload, ProjectSetupDetailsSection, ProjectSetupSection, ProjectSetupStatus } from "./types";
+import {
+  useAddPhaseMemberMutation,
+  usePhaseMembersQuery,
+  useProjectMembersQuery,
+  useProjectSetupQuery,
+  useRemovePhaseMemberMutation,
+  useUpdateProjectSetupDetailsMutation,
+  useUpdateProjectSetupSectionMutation,
+} from "./hooks";
+import { PhaseFormDialog } from "./phase-form-dialog";
+import { PhaseTasks } from "./phase-tasks";
+import { ProjectMembersDialog } from "./project-members-dialog";
+import type {
+  DashboardPhase,
+  ProjectDashboard,
+  ProjectMember,
+  ProjectSetup,
+  ProjectSetupDetailsPayload,
+  ProjectSetupDetailsSection,
+  ProjectSetupSection,
+  ProjectSetupStatus,
+} from "./types";
 
 const SETUP_STATUSES: ProjectSetupStatus[] = ["Complete", "In Progress", "Not Started", "Not Applicable"];
 
@@ -79,8 +100,9 @@ export function ProjectSetupPrompt({
   );
 }
 
-export function ProjectSetupPanel({ canEdit, projectId }: { projectId: string; canEdit: boolean }) {
+export function ProjectSetupPanel({ canEdit, dashboard, projectId }: { projectId: string; canEdit: boolean; dashboard: ProjectDashboard }) {
   const setupQuery = useProjectSetupQuery(projectId);
+  const membersQuery = useProjectMembersQuery(projectId, true);
   const updateDetails = useUpdateProjectSetupDetailsMutation(projectId);
   const updateSection = useUpdateProjectSetupSectionMutation(projectId);
   const setup = setupQuery.data;
@@ -185,6 +207,10 @@ export function ProjectSetupPanel({ canEdit, projectId }: { projectId: string; c
             isSaving: updateDetails.isPending,
             onMarkComplete,
             onSaveDetails,
+            dashboard,
+            members: membersQuery.data ?? [],
+            membersError: membersQuery.error,
+            membersLoading: membersQuery.isLoading,
             setup,
             statusPending: updateSection.isPending,
           })}
@@ -215,7 +241,11 @@ function SetupProgress({ setup }: { setup: ProjectSetup }) {
 function renderFirstPassSection({
   activeSection,
   canEdit,
+  dashboard,
   isSaving,
+  members,
+  membersError,
+  membersLoading,
   onMarkComplete,
   onSaveDetails,
   setup,
@@ -223,7 +253,11 @@ function renderFirstPassSection({
 }: {
   activeSection: ProjectSetupSection;
   canEdit: boolean;
+  dashboard: ProjectDashboard;
   isSaving: boolean;
+  members: ProjectMember[];
+  membersError: Error | null;
+  membersLoading: boolean;
   onMarkComplete: (section: ProjectSetupSection) => Promise<void>;
   onSaveDetails: (section: ProjectSetupDetailsSection, payload: ProjectSetupDetailsPayload) => Promise<void>;
   setup: ProjectSetup;
@@ -274,6 +308,20 @@ function renderFirstPassSection({
         onSave={(payload) => onSaveDetails("work-plan", payload)}
         statusPending={statusPending}
         setup={setup}
+      />
+    );
+  }
+  if (activeSection.key === "phases") {
+    return <Phase0PhasesSection canEdit={canEdit} dashboard={dashboard} members={members} projectId={setup.project_id} />;
+  }
+  if (activeSection.key === "people_governance") {
+    return (
+      <Phase0PeopleSection
+        canEdit={canEdit}
+        dashboard={dashboard}
+        members={members}
+        membersError={membersError}
+        membersLoading={membersLoading}
       />
     );
   }
@@ -421,6 +469,213 @@ function WorkPlanForm({ canEdit, isSaving, onMarkComplete, onSave, setup, status
   );
 }
 
+function Phase0PhasesSection({
+  canEdit,
+  dashboard,
+  members,
+  projectId,
+}: {
+  canEdit: boolean;
+  dashboard: ProjectDashboard;
+  members: ProjectMember[];
+  projectId: string;
+}) {
+  const phases = dashboard.phases;
+  const nextDisplayOrder = Math.max(0, ...phases.map((phase) => phase.display_order)) + 1;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-foreground">Live Project Phases</p>
+          <p className="text-sm text-muted-foreground">This section uses the same phases, phase members and tasks as the normal project view.</p>
+        </div>
+        {canEdit ? (
+          <PhaseFormDialog mode="create" projectId={projectId} nextDisplayOrder={nextDisplayOrder}>
+            <Button type="button" className="bg-brand-red text-white hover:bg-brand-red/90">
+              <Plus className="size-4" aria-hidden="true" />
+              Add Phase
+            </Button>
+          </PhaseFormDialog>
+        ) : null}
+      </div>
+
+      {phases.length === 0 ? <EmptyState title="No phases have been added to this project." /> : null}
+      <div className="space-y-3">
+        {phases.map((phase) => (
+          <div key={phase.id} className="rounded-md border bg-background">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b p-4">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-base font-semibold text-foreground">{phase.name}</h4>
+                  <StatusBadge value={phase.status} />
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">{phase.description || "No phase purpose recorded."}</p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {formatSetupDate(phase.start_date)} - {formatSetupDate(phase.end_date)}
+                </p>
+              </div>
+              {canEdit ? (
+                <PhaseFormDialog mode="edit" projectId={projectId} phase={phase} nextDisplayOrder={phase.display_order}>
+                  <Button type="button" variant="outline" size="sm">
+                    <Edit className="size-4" aria-hidden="true" />
+                    Edit Phase
+                  </Button>
+                </PhaseFormDialog>
+              ) : null}
+            </div>
+            <div className="space-y-4 p-4">
+              <PhaseMemberManager canEdit={canEdit} members={members} phase={phase} projectId={projectId} />
+              <PhaseTasks isProjectPm={canEdit} phase={phase} projectId={projectId} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Phase0PeopleSection({
+  canEdit,
+  dashboard,
+  members,
+  membersError,
+  membersLoading,
+}: {
+  canEdit: boolean;
+  dashboard: ProjectDashboard;
+  members: ProjectMember[];
+  membersError: Error | null;
+  membersLoading: boolean;
+}) {
+  const [membersDialogOpen, setMembersDialogOpen] = useState(false);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-foreground">Live Project People</p>
+          <p className="text-sm text-muted-foreground">Membership and roles come from the project member list used across SENSES.</p>
+        </div>
+        {canEdit ? (
+          <ProjectMembersDialog open={membersDialogOpen} onOpenChange={setMembersDialogOpen} project={dashboard.project}>
+            <Button type="button" className="bg-brand-red text-white hover:bg-brand-red/90">
+              <UserPlus className="size-4" aria-hidden="true" />
+              Manage People
+            </Button>
+          </ProjectMembersDialog>
+        ) : null}
+      </div>
+
+      {membersLoading ? <LoadingState label="Loading project members" /> : null}
+      {membersError ? <ErrorState title="Project members could not be loaded" message={userFacingErrorMessage(membersError, { action: "project members" })} /> : null}
+      {!membersLoading && !membersError && members.length === 0 ? <EmptyState title="No project members found." /> : null}
+      {!membersLoading && !membersError && members.length > 0 ? (
+        <div className="divide-y rounded-md border bg-background">
+          {members.map((member) => (
+            <div key={member.user_id} className="flex flex-wrap items-center justify-between gap-3 p-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-foreground">{member.name}</p>
+                <p className="truncate text-xs text-muted-foreground">{member.email}</p>
+              </div>
+              <Badge variant="outline">{member.role}</Badge>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PhaseMemberManager({
+  canEdit,
+  members,
+  phase,
+  projectId,
+}: {
+  canEdit: boolean;
+  members: ProjectMember[];
+  phase: DashboardPhase;
+  projectId: string;
+}) {
+  const phaseMembersQuery = usePhaseMembersQuery(projectId, phase.id, true);
+  const addPhaseMember = useAddPhaseMemberMutation(projectId, phase.id);
+  const removePhaseMember = useRemovePhaseMemberMutation(projectId, phase.id);
+  const [selectedUserId, setSelectedUserId] = useState("none");
+  const phaseMembers = phaseMembersQuery.data ?? [];
+  const availableMembers = members.filter((member) => !phaseMembers.some((phaseMember) => phaseMember.user_id === member.user_id));
+
+  async function addSelectedMember() {
+    if (selectedUserId === "none") {
+      return;
+    }
+    try {
+      await addPhaseMember.mutateAsync(selectedUserId);
+      setSelectedUserId("none");
+    } catch {
+      return;
+    }
+  }
+
+  return (
+    <div className="rounded-md border bg-surface p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <Users className="size-4 text-muted-foreground" aria-hidden="true" />
+          Phase Members
+        </div>
+        {canEdit ? (
+          <div className="flex min-w-0 flex-1 justify-end gap-2 sm:max-w-md">
+            <Select value={selectedUserId} onValueChange={setSelectedUserId} disabled={addPhaseMember.isPending || availableMembers.length === 0}>
+              <SelectTrigger aria-label={`Assign member to ${phase.name}`} className="min-w-0 flex-1">
+                <SelectValue placeholder="Select member" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Select member</SelectItem>
+                {availableMembers.map((member) => (
+                  <SelectItem key={member.user_id} value={member.user_id}>
+                    {member.name} - {member.role}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button type="button" variant="outline" disabled={selectedUserId === "none" || addPhaseMember.isPending} onClick={() => void addSelectedMember()}>
+              Add
+            </Button>
+          </div>
+        ) : null}
+      </div>
+      {phaseMembersQuery.isLoading ? <LoadingState label="Loading phase members" /> : null}
+      {phaseMembersQuery.isError ? (
+        <p className="mt-3 text-sm text-error">{userFacingErrorMessage(phaseMembersQuery.error, { action: "phase members" })}</p>
+      ) : null}
+      {addPhaseMember.error ? <p className="mt-3 text-sm text-error">{userFacingErrorMessage(addPhaseMember.error, { action: "phase members" })}</p> : null}
+      {removePhaseMember.error ? <p className="mt-3 text-sm text-error">{userFacingErrorMessage(removePhaseMember.error, { action: "phase members" })}</p> : null}
+      {!phaseMembersQuery.isLoading && !phaseMembersQuery.isError ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {phaseMembers.length === 0 ? <p className="text-sm text-muted-foreground">No members assigned to this phase.</p> : null}
+          {phaseMembers.map((member) => (
+            <Badge key={member.user_id} variant="outline" className="gap-1">
+              {member.name}
+              {canEdit ? (
+                <button
+                  type="button"
+                  className="rounded-full p-0.5 text-muted-foreground hover:text-error"
+                  disabled={removePhaseMember.isPending}
+                  onClick={() => removePhaseMember.mutate(member.user_id)}
+                  aria-label={`Remove ${member.name} from ${phase.name}`}
+                >
+                  <X className="size-3" aria-hidden="true" />
+                </button>
+              ) : null}
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 type FirstPassFormProps = {
   canEdit: boolean;
   isSaving: boolean;
@@ -509,6 +764,24 @@ async function handleSubmit<TPayload extends ProjectSetupDetailsPayload>(
 ) {
   event.preventDefault();
   await onSave(payload);
+}
+
+function formatSetupDate(value: string | null) {
+  if (!value) {
+    return "No date";
+  }
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
 }
 
 function SetupStatusIcon({ status }: { status: ProjectSetupStatus }) {

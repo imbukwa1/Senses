@@ -35,7 +35,7 @@ const addMemberSchema = z.object({
 type AddMemberValues = z.infer<typeof addMemberSchema>;
 
 type ProjectMembersDialogProps = {
-  project: ProjectSummary;
+  project: Pick<ProjectSummary, "id" | "code">;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;

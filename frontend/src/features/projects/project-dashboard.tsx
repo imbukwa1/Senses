@@ -271,7 +271,7 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
       ) : activeProjectTab === "workspace" ? (
         <ProjectWorkspace canManage={isProjectPm} projectId={projectId} />
       ) : (
-        <ProjectSetupPanel canEdit={isProjectPm} projectId={projectId} />
+        <ProjectSetupPanel canEdit={isProjectPm} dashboard={dashboard} projectId={projectId} />
       )}
     </div>
   );

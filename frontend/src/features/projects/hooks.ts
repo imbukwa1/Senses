@@ -880,6 +880,7 @@ export function useDownloadTaskFileMutation(projectId: string, phaseId: string, 
 function invalidateProjectDashboardQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string) {
   void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
   void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
+  void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
 }
 
 function invalidateWorkspaceQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string) {
@@ -890,12 +891,14 @@ function invalidateWorkspaceQueries(queryClient: ReturnType<typeof useQueryClien
 function invalidateTaskQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string, phaseId: string) {
   void queryClient.invalidateQueries({ queryKey: tasksQueryKey(projectId, phaseId) });
   void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+  void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
 }
 
 function invalidateChecklistQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string, phaseId: string, taskId: string) {
   void queryClient.invalidateQueries({ queryKey: checklistQueryKey(projectId, phaseId, taskId) });
   void queryClient.invalidateQueries({ queryKey: tasksQueryKey(projectId, phaseId) });
   void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+  void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
 }
 
 function authFailureHandler(logout: () => void) {
@@ -933,6 +936,7 @@ export function useAddProjectMemberMutation(projectId: string) {
       addProjectMember(requireToken(token), projectId, userId, role),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: projectMembersQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: projectsQueryKey });
       void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
@@ -949,6 +953,7 @@ export function useRemoveProjectMemberMutation(projectId: string) {
     mutationFn: (userId: string) => removeProjectMember(requireToken(token), projectId, userId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: projectMembersQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: projectsQueryKey });
     },
     onError: (error) => {
@@ -985,6 +990,7 @@ export function useAddPhaseMemberMutation(projectId: string, phaseId: string) {
     mutationFn: (userId: string) => addPhaseMember(requireToken(token), projectId, phaseId, userId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: phaseMembersQueryKey(projectId, phaseId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
     },
     onError: authFailureHandler(logout),
@@ -999,6 +1005,7 @@ export function useRemovePhaseMemberMutation(projectId: string, phaseId: string)
     mutationFn: (userId: string) => removePhaseMember(requireToken(token), projectId, phaseId, userId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: phaseMembersQueryKey(projectId, phaseId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
     },
     onError: authFailureHandler(logout),
