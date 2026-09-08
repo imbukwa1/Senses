@@ -6,19 +6,54 @@ import type { WorkspaceContents, WorkspaceFolder } from "./types";
 
 const mocks = vi.hoisted(() => ({
   createFolder: vi.fn(),
+  createDocument: vi.fn(),
+  createSpreadsheet: vi.fn(),
+  deleteDocument: vi.fn(),
   deleteFolder: vi.fn(),
+  deleteSpreadsheet: vi.fn(),
   downloadFile: vi.fn(),
+  moveDocument: vi.fn(),
   moveFile: vi.fn(),
+  moveSpreadsheet: vi.fn(),
+  renameDocument: vi.fn(),
+  renameSpreadsheet: vi.fn(),
+  updateDocumentTaskLink: vi.fn(),
   updateFolder: vi.fn(),
+  updateSpreadsheetTaskLink: vi.fn(),
   workspaceError: null as Error | null,
   workspaceByFolder: {} as Record<string, WorkspaceContents>,
 }));
 
 vi.mock("./hooks", () => ({
   useCreateWorkspaceFolderMutation: () => ({ error: null, isPending: false, mutateAsync: mocks.createFolder }),
+  useCreateWorkspaceNativeResourceMutation: (_projectId: string, kind: "documents" | "spreadsheets") => ({
+    error: null,
+    isPending: false,
+    mutateAsync: kind === "documents" ? mocks.createDocument : mocks.createSpreadsheet,
+  }),
   useDeleteWorkspaceFolderMutation: () => ({ error: null, isPending: false, mutateAsync: mocks.deleteFolder }),
+  useDeleteWorkspaceNativeResourceMutation: (_projectId: string, kind: "documents" | "spreadsheets") => ({
+    error: null,
+    isPending: false,
+    mutateAsync: kind === "documents" ? mocks.deleteDocument : mocks.deleteSpreadsheet,
+  }),
   useDownloadProjectFileMutation: () => ({ error: null, isPending: false, mutateAsync: mocks.downloadFile }),
   useMoveWorkspaceFileMutation: () => ({ error: null, isPending: false, mutateAsync: mocks.moveFile }),
+  useMoveWorkspaceNativeResourceMutation: (_projectId: string, kind: "documents" | "spreadsheets") => ({
+    error: null,
+    isPending: false,
+    mutateAsync: kind === "documents" ? mocks.moveDocument : mocks.moveSpreadsheet,
+  }),
+  useRenameWorkspaceNativeResourceMutation: (_projectId: string, kind: "documents" | "spreadsheets") => ({
+    error: null,
+    isPending: false,
+    mutateAsync: kind === "documents" ? mocks.renameDocument : mocks.renameSpreadsheet,
+  }),
+  useUpdateWorkspaceNativeResourceTaskLinkMutation: (_projectId: string, kind: "documents" | "spreadsheets") => ({
+    error: null,
+    isPending: false,
+    mutateAsync: kind === "documents" ? mocks.updateDocumentTaskLink : mocks.updateSpreadsheetTaskLink,
+  }),
   useUpdateWorkspaceFolderMutation: () => ({ error: null, isPending: false, mutateAsync: mocks.updateFolder }),
   useWorkspaceContentsQuery: (_projectId: string, folderId: string | null) => ({
     data: mocks.workspaceByFolder[folderId ?? "root"],
@@ -32,6 +67,25 @@ vi.mock("./hooks", () => ({
     isError: false,
     isLoading: false,
   }),
+}));
+
+vi.mock("./workspace-native-editors", () => ({
+  WorkspaceDocumentEditor: ({ onBack, resourceId }: { onBack: () => void; resourceId: string }) => (
+    <div>
+      <p>Document editor {resourceId}</p>
+      <button type="button" onClick={onBack}>
+        Workspace
+      </button>
+    </div>
+  ),
+  WorkspaceSpreadsheetEditor: ({ onBack, resourceId }: { onBack: () => void; resourceId: string }) => (
+    <div>
+      <p>Spreadsheet editor {resourceId}</p>
+      <button type="button" onClick={onBack}>
+        Workspace
+      </button>
+    </div>
+  ),
 }));
 
 const projectId = "11111111-1111-4111-8111-111111111111";
@@ -103,10 +157,20 @@ const childSpreadsheet = {
 describe("ProjectWorkspace", () => {
   beforeEach(() => {
     mocks.createFolder.mockResolvedValue(rootFolder);
+    mocks.createDocument.mockResolvedValue(rootDocument);
+    mocks.createSpreadsheet.mockResolvedValue(childSpreadsheet);
     mocks.deleteFolder.mockResolvedValue(undefined);
+    mocks.deleteDocument.mockResolvedValue(undefined);
+    mocks.deleteSpreadsheet.mockResolvedValue(undefined);
     mocks.downloadFile.mockResolvedValue({ blob: new Blob(["content"]), fileName: "brief.pdf" });
+    mocks.moveDocument.mockResolvedValue(rootDocument);
     mocks.moveFile.mockResolvedValue(rootFile);
+    mocks.moveSpreadsheet.mockResolvedValue(childSpreadsheet);
+    mocks.renameDocument.mockResolvedValue(rootDocument);
+    mocks.renameSpreadsheet.mockResolvedValue(childSpreadsheet);
+    mocks.updateDocumentTaskLink.mockResolvedValue(rootDocument);
     mocks.updateFolder.mockResolvedValue(rootFolder);
+    mocks.updateSpreadsheetTaskLink.mockResolvedValue(childSpreadsheet);
     mocks.workspaceError = null;
     mocks.workspaceByFolder = {
       root: { folders: [rootFolder], files: [rootFile], documents: [rootDocument], spreadsheets: [] },
@@ -154,12 +218,39 @@ describe("ProjectWorkspace", () => {
     });
   });
 
+  it("creates and opens native documents in the current workspace location", async () => {
+    render(<ProjectWorkspace canManage={false} projectId={projectId} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "New Document" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Session Notes" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Document" }));
+
+    await waitFor(() => {
+      expect(mocks.createDocument).toHaveBeenCalledWith({
+        content: { type: "doc", content: [{ type: "paragraph" }] },
+        folder_id: null,
+        name: "Session Notes",
+        task_id: null,
+      });
+    });
+    expect(await screen.findByText(`Document editor ${rootDocument.id}`)).toBeInTheDocument();
+  });
+
+  it("opens existing native resources without using uploaded file behavior", () => {
+    render(<ProjectWorkspace canManage projectId={projectId} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open document Interview Notes" }));
+
+    expect(screen.getByText(`Document editor ${rootDocument.id}`)).toBeInTheDocument();
+    expect(mocks.downloadFile).not.toHaveBeenCalled();
+  });
+
   it("hides management controls for read-only project members", () => {
     render(<ProjectWorkspace canManage={false} projectId={projectId} />);
 
     expect(screen.queryByRole("button", { name: "New Folder" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Rename" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Move" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New Document" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New Spreadsheet" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Download brief.pdf" })).toBeInTheDocument();
   });
 

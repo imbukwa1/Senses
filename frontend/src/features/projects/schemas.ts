@@ -307,6 +307,8 @@ export const workspaceNativeResourceSchema = z.object({
   updated_at: z.string().min(1),
 });
 
+export const workspaceNativeResourcesSchema = z.array(workspaceNativeResourceSchema);
+
 export const workspaceContentsSchema = z.object({
   folders: z.array(workspaceFolderSchema),
   files: z.array(workspaceFileSchema),

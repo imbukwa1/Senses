@@ -1,4 +1,4 @@
-import { ChevronRight, Download, Edit, FileText, Folder, FolderPlus, MoveRight, Table2, Trash2 } from "lucide-react";
+import { ChevronRight, Download, Edit, FilePlus2, FileText, Folder, FolderPlus, MoveRight, Table2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { ConfirmAction } from "@/components/common/confirm-action";
@@ -18,14 +18,20 @@ import { cn } from "@/lib/utils";
 
 import {
   useCreateWorkspaceFolderMutation,
+  useCreateWorkspaceNativeResourceMutation,
   useDeleteWorkspaceFolderMutation,
+  useDeleteWorkspaceNativeResourceMutation,
   useDownloadProjectFileMutation,
+  useMoveWorkspaceNativeResourceMutation,
   useMoveWorkspaceFileMutation,
+  useRenameWorkspaceNativeResourceMutation,
+  useUpdateWorkspaceNativeResourceTaskLinkMutation,
   useUpdateWorkspaceFolderMutation,
   useWorkspaceContentsQuery,
   useWorkspaceFolderTreeQuery,
 } from "./hooks";
-import type { WorkspaceFile, WorkspaceFolder, WorkspaceNativeResource } from "./types";
+import { WorkspaceDocumentEditor, WorkspaceSpreadsheetEditor } from "./workspace-native-editors";
+import type { WorkspaceFile, WorkspaceFolder, WorkspaceNativeResource, WorkspaceResourceKind } from "./types";
 
 type BreadcrumbItem = {
   id: string | null;
@@ -34,10 +40,21 @@ type BreadcrumbItem = {
 
 export function ProjectWorkspace({ canManage, projectId }: { projectId: string; canManage: boolean }) {
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([{ id: null, name: "Workspace" }]);
+  const [openResource, setOpenResource] = useState<{ id: string; kind: WorkspaceResourceKind } | null>(null);
   const currentFolderId = breadcrumbs[breadcrumbs.length - 1]?.id ?? null;
   const contentsQuery = useWorkspaceContentsQuery(projectId, currentFolderId);
   const folderTreeQuery = useWorkspaceFolderTreeQuery(projectId);
   const createFolder = useCreateWorkspaceFolderMutation(projectId);
+  const createDocument = useCreateWorkspaceNativeResourceMutation(projectId, "documents");
+  const createSpreadsheet = useCreateWorkspaceNativeResourceMutation(projectId, "spreadsheets");
+  const renameDocument = useRenameWorkspaceNativeResourceMutation(projectId, "documents");
+  const renameSpreadsheet = useRenameWorkspaceNativeResourceMutation(projectId, "spreadsheets");
+  const moveDocument = useMoveWorkspaceNativeResourceMutation(projectId, "documents");
+  const moveSpreadsheet = useMoveWorkspaceNativeResourceMutation(projectId, "spreadsheets");
+  const updateDocumentTaskLink = useUpdateWorkspaceNativeResourceTaskLinkMutation(projectId, "documents");
+  const updateSpreadsheetTaskLink = useUpdateWorkspaceNativeResourceTaskLinkMutation(projectId, "spreadsheets");
+  const deleteDocument = useDeleteWorkspaceNativeResourceMutation(projectId, "documents");
+  const deleteSpreadsheet = useDeleteWorkspaceNativeResourceMutation(projectId, "spreadsheets");
   const updateFolder = useUpdateWorkspaceFolderMutation(projectId);
   const deleteFolder = useDeleteWorkspaceFolderMutation(projectId);
   const moveFile = useMoveWorkspaceFileMutation(projectId);
@@ -65,6 +82,16 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
     await createFolder.mutateAsync({ name, parent_folder_id: currentFolderId });
   }
 
+  async function onCreateNativeResource(kind: WorkspaceResourceKind, name: string, taskId: string | null) {
+    const created = await (kind === "documents" ? createDocument : createSpreadsheet).mutateAsync({
+      name,
+      content: kind === "documents" ? emptyDocumentContent() : emptySpreadsheetContent(),
+      folder_id: currentFolderId,
+      task_id: taskId,
+    });
+    setOpenResource({ id: created.id, kind });
+  }
+
   async function onRenameFolder(folderId: string, name: string) {
     await updateFolder.mutateAsync({ folderId, payload: { name } });
     setBreadcrumbs((current) => current.map((item) => (item.id === folderId ? { ...item, name } : item)));
@@ -80,6 +107,26 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
 
   async function onMoveFile(fileId: string, folderId: string | null) {
     await moveFile.mutateAsync({ fileId, folderId });
+  }
+
+  async function onRenameNativeResource(kind: WorkspaceResourceKind, resourceId: string, name: string) {
+    const mutation = kind === "documents" ? renameDocument : renameSpreadsheet;
+    await mutation.mutateAsync({ resourceId, payload: { name } });
+  }
+
+  async function onMoveNativeResource(kind: WorkspaceResourceKind, resourceId: string, folderId: string | null) {
+    const mutation = kind === "documents" ? moveDocument : moveSpreadsheet;
+    await mutation.mutateAsync({ resourceId, payload: { folder_id: folderId } });
+  }
+
+  async function onUpdateNativeResourceTaskLink(kind: WorkspaceResourceKind, resourceId: string, taskId: string | null) {
+    const mutation = kind === "documents" ? updateDocumentTaskLink : updateSpreadsheetTaskLink;
+    await mutation.mutateAsync({ resourceId, payload: { task_id: taskId } });
+  }
+
+  async function onDeleteNativeResource(kind: WorkspaceResourceKind, resourceId: string) {
+    const mutation = kind === "documents" ? deleteDocument : deleteSpreadsheet;
+    await mutation.mutateAsync(resourceId);
   }
 
   async function onDownload(file: WorkspaceFile) {
@@ -100,7 +147,30 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
     }
   }
 
-  const isBusy = createFolder.isPending || updateFolder.isPending || deleteFolder.isPending || moveFile.isPending || downloadFile.isPending;
+  const isBusy =
+    createFolder.isPending ||
+    createDocument.isPending ||
+    createSpreadsheet.isPending ||
+    updateFolder.isPending ||
+    deleteFolder.isPending ||
+    moveFile.isPending ||
+    renameDocument.isPending ||
+    renameSpreadsheet.isPending ||
+    moveDocument.isPending ||
+    moveSpreadsheet.isPending ||
+    updateDocumentTaskLink.isPending ||
+    updateSpreadsheetTaskLink.isPending ||
+    deleteDocument.isPending ||
+    deleteSpreadsheet.isPending ||
+    downloadFile.isPending;
+
+  if (openResource?.kind === "documents") {
+    return <WorkspaceDocumentEditor projectId={projectId} resourceId={openResource.id} onBack={() => setOpenResource(null)} />;
+  }
+
+  if (openResource?.kind === "spreadsheets") {
+    return <WorkspaceSpreadsheetEditor projectId={projectId} resourceId={openResource.id} onBack={() => setOpenResource(null)} />;
+  }
 
   return (
     <Card>
@@ -109,20 +179,44 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
           <CardTitle>Workspace</CardTitle>
           <CardDescription>Organize existing project files into folders and subfolders.</CardDescription>
         </div>
-        {canManage ? (
-          <FolderFormDialog title="Create Folder" description="Create a folder in the current workspace location." submitLabel="Create Folder" onSubmit={onCreateFolder}>
-            <Button type="button" size="sm">
-              <FolderPlus className="size-4" aria-hidden="true" />
-              New Folder
+        <div className="flex flex-wrap gap-2">
+          <NativeResourceFormDialog
+            title="Create Document"
+            submitLabel="Create Document"
+            onSubmit={(name, taskId) => onCreateNativeResource("documents", name, taskId)}
+          >
+            <Button type="button" size="sm" variant="outline">
+              <FilePlus2 className="size-4" aria-hidden="true" />
+              New Document
             </Button>
-          </FolderFormDialog>
-        ) : null}
+          </NativeResourceFormDialog>
+          <NativeResourceFormDialog
+            title="Create Spreadsheet"
+            submitLabel="Create Spreadsheet"
+            onSubmit={(name, taskId) => onCreateNativeResource("spreadsheets", name, taskId)}
+          >
+            <Button type="button" size="sm" variant="outline">
+              <Table2 className="size-4" aria-hidden="true" />
+              New Spreadsheet
+            </Button>
+          </NativeResourceFormDialog>
+          {canManage ? (
+            <FolderFormDialog title="Create Folder" description="Create a folder in the current workspace location." submitLabel="Create Folder" onSubmit={onCreateFolder}>
+              <Button type="button" size="sm">
+                <FolderPlus className="size-4" aria-hidden="true" />
+                New Folder
+              </Button>
+            </FolderFormDialog>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <WorkspaceBreadcrumbs items={breadcrumbs} onOpen={openBreadcrumb} />
 
         {actionError ? <InlineWorkspaceError message={actionError} /> : null}
         {createFolder.error ? <InlineWorkspaceError message={workspaceErrorMessage(createFolder.error)} /> : null}
+        {createDocument.error ? <InlineWorkspaceError message={workspaceErrorMessage(createDocument.error)} /> : null}
+        {createSpreadsheet.error ? <InlineWorkspaceError message={workspaceErrorMessage(createSpreadsheet.error)} /> : null}
         {updateFolder.error ? <InlineWorkspaceError message={workspaceErrorMessage(updateFolder.error)} /> : null}
         {deleteFolder.error ? <InlineWorkspaceError message={workspaceErrorMessage(deleteFolder.error)} /> : null}
         {moveFile.error ? <InlineWorkspaceError message={workspaceErrorMessage(moveFile.error)} /> : null}
@@ -149,10 +243,36 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
                 />
               ))}
               {documents.map((document) => (
-                <NativeResourceRow key={document.id} icon="document" label="Document" resource={document} />
+                <NativeResourceRow
+                  key={document.id}
+                  disabled={isBusy}
+                  folderTree={folderTree}
+                  icon="document"
+                  kind="documents"
+                  label="Document"
+                  onDelete={onDeleteNativeResource}
+                  onMove={onMoveNativeResource}
+                  onOpen={(resource) => setOpenResource({ id: resource.id, kind: "documents" })}
+                  onRename={onRenameNativeResource}
+                  onTaskLink={onUpdateNativeResourceTaskLink}
+                  resource={document}
+                />
               ))}
               {spreadsheets.map((spreadsheet) => (
-                <NativeResourceRow key={spreadsheet.id} icon="spreadsheet" label="Spreadsheet" resource={spreadsheet} />
+                <NativeResourceRow
+                  key={spreadsheet.id}
+                  disabled={isBusy}
+                  folderTree={folderTree}
+                  icon="spreadsheet"
+                  kind="spreadsheets"
+                  label="Spreadsheet"
+                  onDelete={onDeleteNativeResource}
+                  onMove={onMoveNativeResource}
+                  onOpen={(resource) => setOpenResource({ id: resource.id, kind: "spreadsheets" })}
+                  onRename={onRenameNativeResource}
+                  onTaskLink={onUpdateNativeResourceTaskLink}
+                  resource={spreadsheet}
+                />
               ))}
               {files.map((file) => (
                 <FileRow
@@ -173,14 +293,38 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
   );
 }
 
-function NativeResourceRow({ icon, label, resource }: { icon: "document" | "spreadsheet"; label: string; resource: WorkspaceNativeResource }) {
+function NativeResourceRow({
+  disabled,
+  folderTree,
+  icon,
+  kind,
+  label,
+  onDelete,
+  onMove,
+  onOpen,
+  onRename,
+  onTaskLink,
+  resource,
+}: {
+  disabled: boolean;
+  folderTree: WorkspaceFolder[];
+  icon: "document" | "spreadsheet";
+  kind: WorkspaceResourceKind;
+  label: string;
+  onDelete: (kind: WorkspaceResourceKind, resourceId: string) => Promise<void>;
+  onMove: (kind: WorkspaceResourceKind, resourceId: string, folderId: string | null) => Promise<void>;
+  onOpen: (resource: WorkspaceNativeResource) => void;
+  onRename: (kind: WorkspaceResourceKind, resourceId: string, name: string) => Promise<void>;
+  onTaskLink: (kind: WorkspaceResourceKind, resourceId: string, taskId: string | null) => Promise<void>;
+  resource: WorkspaceNativeResource;
+}) {
   const Icon = icon === "spreadsheet" ? Table2 : FileText;
 
   return (
     <div className="grid gap-3 border-b px-3 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-      <div className="flex min-w-0 items-start gap-3">
+      <button type="button" className="flex min-w-0 items-start gap-3 text-left" aria-label={`Open ${label.toLowerCase()} ${resource.name}`} onClick={() => onOpen(resource)}>
         <Icon className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
-        <div className="min-w-0">
+        <span className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-sm font-semibold text-foreground">{resource.name}</p>
             <Badge variant="secondary">{label}</Badge>
@@ -189,7 +333,43 @@ function NativeResourceRow({ icon, label, resource }: { icon: "document" | "spre
             {resource.task_id ? "Linked to task" : "Project workspace"}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">Updated {formatDateTime(resource.updated_at)}</p>
-        </div>
+        </span>
+      </button>
+      <div className="flex flex-wrap justify-end gap-2">
+        <FolderFormDialog
+          title={`Rename ${label}`}
+          description={`Rename this ${label.toLowerCase()} without changing its folder or task link.`}
+          initialName={resource.name}
+          submitLabel="Save"
+          onSubmit={(name) => onRename(kind, resource.id, name)}
+        >
+          <Button type="button" variant="outline" size="sm" disabled={disabled}>
+            <Edit className="size-4" aria-hidden="true" />
+            Rename
+          </Button>
+        </FolderFormDialog>
+        <MoveDialog
+          title={`Move ${label}`}
+          description={`Move this ${label.toLowerCase()} in the workspace.`}
+          currentTargetId={resource.folder_id}
+          disabled={disabled}
+          items={folderTree.map((folder) => ({ id: folder.id, label: folderPath(folderTree, folder) }))}
+          onSubmit={(folderId) => onMove(kind, resource.id, folderId)}
+        />
+        <TaskLinkDialog disabled={disabled} currentTaskId={resource.task_id} onSubmit={(taskId) => onTaskLink(kind, resource.id, taskId)} />
+        <ConfirmAction
+          title={`Delete ${label.toLowerCase()}?`}
+          description="This removes the native workspace item. Uploaded files are not affected."
+          confirmLabel="Delete"
+          onConfirm={() => {
+            void onDelete(kind, resource.id);
+          }}
+        >
+          <Button type="button" variant="outline" size="sm" disabled={disabled}>
+            <Trash2 className="size-4" aria-hidden="true" />
+            Delete
+          </Button>
+        </ConfirmAction>
       </div>
     </div>
   );
@@ -410,6 +590,128 @@ function FolderFormDialog({
   );
 }
 
+function NativeResourceFormDialog({
+  children,
+  onSubmit,
+  submitLabel,
+  title,
+}: {
+  children: React.ReactNode;
+  onSubmit: (name: string, taskId: string | null) => Promise<void>;
+  submitLabel: string;
+  title: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [taskId, setTaskId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const trimmedName = name.trim();
+  const trimmedTaskId = taskId.trim();
+
+  useEffect(() => {
+    if (open) {
+      setName("");
+      setTaskId("");
+      setError(null);
+    }
+  }, [open]);
+
+  async function submit() {
+    if (!trimmedName) {
+      setError("Name is required.");
+      return;
+    }
+    try {
+      await onSubmit(trimmedName, trimmedTaskId || null);
+      setOpen(false);
+    } catch (submitError) {
+      setError(workspaceErrorMessage(submitError));
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>Create a native workspace item in the current location.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor={`${title}-name`}>Name</Label>
+            <Input id={`${title}-name`} value={name} maxLength={200} onChange={(event) => setName(event.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor={`${title}-task`}>Task ID</Label>
+            <Input id={`${title}-task`} value={taskId} placeholder="Optional" onChange={(event) => setTaskId(event.target.value)} />
+          </div>
+          {error ? <p className="text-sm text-error">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button type="button" disabled={!trimmedName} onClick={() => void submit()}>
+            {submitLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TaskLinkDialog({ currentTaskId, disabled, onSubmit }: { currentTaskId: string | null; disabled: boolean; onSubmit: (taskId: string | null) => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [taskId, setTaskId] = useState(currentTaskId ?? "");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setTaskId(currentTaskId ?? "");
+      setError(null);
+    }
+  }, [currentTaskId, open]);
+
+  async function submit() {
+    try {
+      await onSubmit(taskId.trim() || null);
+      setOpen(false);
+    } catch (submitError) {
+      setError(workspaceErrorMessage(submitError));
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" size="sm" disabled={disabled}>
+          Link Task
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Link Task</DialogTitle>
+          <DialogDescription>Set or remove the optional task association.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="workspace-task-link">Task ID</Label>
+          <Input id="workspace-task-link" value={taskId} placeholder="Empty removes the task link" onChange={(event) => setTaskId(event.target.value)} />
+          {error ? <p className="text-sm text-error">{error}</p> : null}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={() => void submit()}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MoveDialog({
   currentTargetId,
   description,
@@ -572,4 +874,23 @@ function formatFileCategory(value: WorkspaceFile["file_category"]) {
     return "Finance";
   }
   return "Reference";
+}
+
+function emptyDocumentContent(): Record<string, unknown> {
+  return { type: "doc", content: [{ type: "paragraph" }] };
+}
+
+function emptySpreadsheetContent(): Record<string, unknown> {
+  return {
+    id: "workbook",
+    name: "Workbook",
+    sheetOrder: ["sheet-1"],
+    sheets: {
+      "sheet-1": {
+        id: "sheet-1",
+        name: "Sheet1",
+        cellData: {},
+      },
+    },
+  };
 }

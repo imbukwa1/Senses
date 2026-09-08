@@ -354,3 +354,28 @@ export type WorkspaceFolderMutationPayload = {
 export type WorkspaceFileMovePayload = {
   folder_id: string | null;
 };
+
+export type WorkspaceResourceKind = "documents" | "spreadsheets";
+
+export type WorkspaceNativeResourceMutationPayload = {
+  name: string;
+  content: Record<string, unknown>;
+  folder_id?: string | null;
+  task_id?: string | null;
+};
+
+export type WorkspaceNativeResourceContentPayload = {
+  content: Record<string, unknown>;
+};
+
+export type WorkspaceNativeResourceRenamePayload = {
+  name: string;
+};
+
+export type WorkspaceNativeResourceMovePayload = {
+  folder_id: string | null;
+};
+
+export type WorkspaceNativeResourceTaskLinkPayload = {
+  task_id: string | null;
+};

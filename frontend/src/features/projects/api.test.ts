@@ -4,18 +4,26 @@ import {
   addPhaseMember,
   addProjectMember,
   archiveProject,
+  createWorkspaceNativeResource,
   createWorkspaceFolder,
   createProject,
+  deleteWorkspaceNativeResource,
   deleteWorkspaceFolder,
   downloadProjectFile,
   getProjectBudget,
+  getWorkspaceNativeResource,
   getWorkspaceContents,
   listAttention,
   listMyWork,
   listPhaseMembers,
   listProjectFiles,
+  listWorkspaceNativeResources,
+  moveWorkspaceNativeResource,
   moveWorkspaceFile,
+  renameWorkspaceNativeResource,
   uploadTaskFile,
+  updateWorkspaceNativeResourceContent,
+  updateWorkspaceNativeResourceTaskLink,
   updateWorkspaceFolder,
   updateProjectBudget,
   updateTaskStatus,
@@ -161,6 +169,18 @@ const workspaceFolder = {
 const workspaceFile = {
   ...projectFile,
   folder_id: null,
+};
+
+const workspaceDocument = {
+  id: "99999999-9999-4999-8999-999999999999",
+  project_id: project.id,
+  folder_id: null,
+  task_id: null,
+  name: "Interview Notes",
+  content: { type: "doc", content: [{ type: "paragraph" }] },
+  created_by: member.user_id,
+  created_at: "2026-09-07T07:03:00Z",
+  updated_at: "2026-09-07T07:03:00Z",
 };
 
 describe("project API mutations", () => {
@@ -465,6 +485,81 @@ describe("project API mutations", () => {
     );
     expect(movedToFolder.folder_id).toBe(workspaceFolder.id);
     expect(movedToRoot.folder_id).toBeNull();
+  });
+
+  it("uses native workspace resource routes without touching uploaded file endpoints", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([workspaceDocument]))
+      .mockResolvedValueOnce(jsonResponse(workspaceDocument))
+      .mockResolvedValueOnce(jsonResponse(workspaceDocument))
+      .mockResolvedValueOnce(jsonResponse({ ...workspaceDocument, content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Saved" }] }] } }))
+      .mockResolvedValueOnce(jsonResponse({ ...workspaceDocument, name: "Renamed Notes" }))
+      .mockResolvedValueOnce(jsonResponse({ ...workspaceDocument, folder_id: workspaceFolder.id }))
+      .mockResolvedValueOnce(jsonResponse({ ...workspaceDocument, task_id: myWorkItem.task_id }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const listed = await listWorkspaceNativeResources("token", project.id, "documents");
+    const opened = await getWorkspaceNativeResource("token", project.id, "documents", workspaceDocument.id);
+    const created = await createWorkspaceNativeResource("token", project.id, "documents", {
+      content: workspaceDocument.content,
+      folder_id: null,
+      name: "Interview Notes",
+      task_id: null,
+    });
+    const saved = await updateWorkspaceNativeResourceContent("token", project.id, "documents", workspaceDocument.id, {
+      content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Saved" }] }] },
+    });
+    const renamed = await renameWorkspaceNativeResource("token", project.id, "documents", workspaceDocument.id, { name: "Renamed Notes" });
+    const moved = await moveWorkspaceNativeResource("token", project.id, "documents", workspaceDocument.id, { folder_id: workspaceFolder.id });
+    const linked = await updateWorkspaceNativeResourceTaskLink("token", project.id, "documents", workspaceDocument.id, { task_id: myWorkItem.task_id });
+    await deleteWorkspaceNativeResource("token", project.id, "documents", workspaceDocument.id);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, `http://localhost:8000/projects/${project.id}/workspace/documents`, expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}`, expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      `http://localhost:8000/projects/${project.id}/workspace/documents`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ content: workspaceDocument.content, folder_id: null, name: "Interview Notes", task_id: null }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}/content`,
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Saved" }] }] } }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}/name`,
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "Renamed Notes" }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      6,
+      `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}/folder`,
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ folder_id: workspaceFolder.id }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      7,
+      `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}/task-link`,
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ task_id: myWorkItem.task_id }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      8,
+      `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}`,
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(listed[0]?.id).toBe(workspaceDocument.id);
+    expect(opened.name).toBe("Interview Notes");
+    expect(created.id).toBe(workspaceDocument.id);
+    expect(saved.content).toEqual({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Saved" }] }] });
+    expect(renamed.name).toBe("Renamed Notes");
+    expect(moved.folder_id).toBe(workspaceFolder.id);
+    expect(linked.task_id).toBe(myWorkItem.task_id);
   });
 });
 

@@ -12,6 +12,7 @@ import {
   addProjectMember,
   addTaskSupporter,
   completePhase,
+  createWorkspaceNativeResource,
   createWorkspaceFolder,
   createChecklistItem,
   createPhase,
@@ -19,12 +20,14 @@ import {
   createTaskComment,
   createTask,
   deleteWorkspaceFolder,
+  deleteWorkspaceNativeResource,
   downloadProjectFile,
   downloadTaskFile,
   getChecklist,
   getProject,
   getProjectBudget,
   getProjectDashboard,
+  getWorkspaceNativeResource,
   getWorkspaceContents,
   listAttention,
   listMyWork,
@@ -44,6 +47,8 @@ import {
   setChecklistItemCompletion,
   setCurrentPhase,
   updateChecklistItem,
+  updateWorkspaceNativeResourceContent,
+  updateWorkspaceNativeResourceTaskLink,
   updateWorkspaceFolder,
   updatePhase,
   updatePhaseBudget,
@@ -51,10 +56,27 @@ import {
   updateProjectBudget,
   updateTask,
   updateTaskStatus,
+  renameWorkspaceNativeResource,
+  moveWorkspaceNativeResource,
   moveWorkspaceFile,
   uploadTaskFile,
 } from "./api";
-import type { PhaseBudgetMutationPayload, PhaseMutationPayload, ProjectBudgetMutationPayload, ProjectMutationPayload, Task, TaskFile, TaskMutationPayload, WorkspaceFolderMutationPayload } from "./types";
+import type {
+  PhaseBudgetMutationPayload,
+  PhaseMutationPayload,
+  ProjectBudgetMutationPayload,
+  ProjectMutationPayload,
+  Task,
+  TaskFile,
+  TaskMutationPayload,
+  WorkspaceNativeResourceContentPayload,
+  WorkspaceNativeResourceMovePayload,
+  WorkspaceNativeResourceMutationPayload,
+  WorkspaceNativeResourceRenamePayload,
+  WorkspaceNativeResourceTaskLinkPayload,
+  WorkspaceResourceKind,
+  WorkspaceFolderMutationPayload,
+} from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
 export const attentionQueryKey = ["attention", "list"] as const;
@@ -64,6 +86,8 @@ export const projectBudgetQueryKey = (projectId: string) => ["projects", project
 export const projectFilesQueryKey = (projectId: string) => ["projects", projectId, "files"] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
 export const workspaceContentsQueryKey = (projectId: string, folderId: string | null) => ["projects", projectId, "workspace", folderId ?? "root"] as const;
+export const workspaceNativeResourceQueryKey = (projectId: string, kind: WorkspaceResourceKind, resourceId: string) =>
+  ["projects", projectId, "workspace", kind, resourceId] as const;
 export const projectMembersQueryKey = (projectId: string) => ["projects", projectId, "members"] as const;
 export const phaseMembersQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "members"] as const;
 export const tasksQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "tasks"] as const;
@@ -315,6 +339,106 @@ export function useMoveWorkspaceFileMutation(projectId: string) {
   return useMutation({
     mutationFn: ({ fileId, folderId }: { fileId: string; folderId: string | null }) =>
       moveWorkspaceFile(requireToken(token), projectId, fileId, { folder_id: folderId }),
+    onSuccess: () => invalidateWorkspaceQueries(queryClient, projectId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useWorkspaceNativeResourceQuery(projectId: string, kind: WorkspaceResourceKind, resourceId: string | null) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: workspaceNativeResourceQueryKey(projectId, kind, resourceId ?? "missing"),
+    queryFn: () => getWorkspaceNativeResource(requireToken(token), projectId, kind, resourceId ?? ""),
+    enabled: status === "authenticated" && Boolean(token) && Boolean(resourceId),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useCreateWorkspaceNativeResourceMutation(projectId: string, kind: WorkspaceResourceKind) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: WorkspaceNativeResourceMutationPayload) => createWorkspaceNativeResource(requireToken(token), projectId, kind, payload),
+    onSuccess: () => invalidateWorkspaceQueries(queryClient, projectId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateWorkspaceNativeResourceContentMutation(projectId: string, kind: WorkspaceResourceKind, resourceId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: WorkspaceNativeResourceContentPayload) =>
+      updateWorkspaceNativeResourceContent(requireToken(token), projectId, kind, resourceId, payload),
+    onSuccess: (resource) => {
+      queryClient.setQueryData(workspaceNativeResourceQueryKey(projectId, kind, resourceId), resource);
+      invalidateWorkspaceQueries(queryClient, projectId);
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useRenameWorkspaceNativeResourceMutation(projectId: string, kind: WorkspaceResourceKind) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ resourceId, payload }: { resourceId: string; payload: WorkspaceNativeResourceRenamePayload }) =>
+      renameWorkspaceNativeResource(requireToken(token), projectId, kind, resourceId, payload),
+    onSuccess: (resource) => {
+      queryClient.setQueryData(workspaceNativeResourceQueryKey(projectId, kind, resource.id), resource);
+      invalidateWorkspaceQueries(queryClient, projectId);
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useMoveWorkspaceNativeResourceMutation(projectId: string, kind: WorkspaceResourceKind) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ resourceId, payload }: { resourceId: string; payload: WorkspaceNativeResourceMovePayload }) =>
+      moveWorkspaceNativeResource(requireToken(token), projectId, kind, resourceId, payload),
+    onSuccess: (resource) => {
+      queryClient.setQueryData(workspaceNativeResourceQueryKey(projectId, kind, resource.id), resource);
+      invalidateWorkspaceQueries(queryClient, projectId);
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateWorkspaceNativeResourceTaskLinkMutation(projectId: string, kind: WorkspaceResourceKind) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ resourceId, payload }: { resourceId: string; payload: WorkspaceNativeResourceTaskLinkPayload }) =>
+      updateWorkspaceNativeResourceTaskLink(requireToken(token), projectId, kind, resourceId, payload),
+    onSuccess: (resource) => {
+      queryClient.setQueryData(workspaceNativeResourceQueryKey(projectId, kind, resource.id), resource);
+      invalidateWorkspaceQueries(queryClient, projectId);
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useDeleteWorkspaceNativeResourceMutation(projectId: string, kind: WorkspaceResourceKind) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (resourceId: string) => deleteWorkspaceNativeResource(requireToken(token), projectId, kind, resourceId),
     onSuccess: () => invalidateWorkspaceQueries(queryClient, projectId),
     onError: authFailureHandler(logout),
   });

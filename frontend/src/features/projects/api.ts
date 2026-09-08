@@ -28,6 +28,8 @@ import {
   workspaceContentsSchema,
   workspaceFolderSchema,
   workspaceFileSchema,
+  workspaceNativeResourceSchema,
+  workspaceNativeResourcesSchema,
 } from "./schemas";
 import type {
   PhaseMutationPayload,
@@ -56,6 +58,13 @@ import type {
   WorkspaceFileMovePayload,
   WorkspaceFolder,
   WorkspaceFolderMutationPayload,
+  WorkspaceNativeResource,
+  WorkspaceNativeResourceContentPayload,
+  WorkspaceNativeResourceMovePayload,
+  WorkspaceNativeResourceMutationPayload,
+  WorkspaceNativeResourceRenamePayload,
+  WorkspaceNativeResourceTaskLinkPayload,
+  WorkspaceResourceKind,
 } from "./types";
 
 export async function listProjects(token: string): Promise<ProjectSummary[]> {
@@ -218,6 +227,121 @@ export async function moveWorkspaceFile(
   }
 
   return result.data;
+}
+
+export async function listWorkspaceNativeResources(token: string, projectId: string, kind: WorkspaceResourceKind): Promise<WorkspaceNativeResource[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/workspace/${kind}`, {}, token);
+  const result = workspaceNativeResourcesSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Workspace resource data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function getWorkspaceNativeResource(token: string, projectId: string, kind: WorkspaceResourceKind, resourceId: string): Promise<WorkspaceNativeResource> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/workspace/${kind}/${resourceId}`, {}, token);
+  return parseWorkspaceNativeResource(data);
+}
+
+export async function createWorkspaceNativeResource(
+  token: string,
+  projectId: string,
+  kind: WorkspaceResourceKind,
+  payload: WorkspaceNativeResourceMutationPayload,
+): Promise<WorkspaceNativeResource> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/workspace/${kind}`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parseWorkspaceNativeResource(data);
+}
+
+export async function updateWorkspaceNativeResourceContent(
+  token: string,
+  projectId: string,
+  kind: WorkspaceResourceKind,
+  resourceId: string,
+  payload: WorkspaceNativeResourceContentPayload,
+): Promise<WorkspaceNativeResource> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/workspace/${kind}/${resourceId}/content`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parseWorkspaceNativeResource(data);
+}
+
+export async function renameWorkspaceNativeResource(
+  token: string,
+  projectId: string,
+  kind: WorkspaceResourceKind,
+  resourceId: string,
+  payload: WorkspaceNativeResourceRenamePayload,
+): Promise<WorkspaceNativeResource> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/workspace/${kind}/${resourceId}/name`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parseWorkspaceNativeResource(data);
+}
+
+export async function moveWorkspaceNativeResource(
+  token: string,
+  projectId: string,
+  kind: WorkspaceResourceKind,
+  resourceId: string,
+  payload: WorkspaceNativeResourceMovePayload,
+): Promise<WorkspaceNativeResource> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/workspace/${kind}/${resourceId}/folder`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parseWorkspaceNativeResource(data);
+}
+
+export async function updateWorkspaceNativeResourceTaskLink(
+  token: string,
+  projectId: string,
+  kind: WorkspaceResourceKind,
+  resourceId: string,
+  payload: WorkspaceNativeResourceTaskLinkPayload,
+): Promise<WorkspaceNativeResource> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/workspace/${kind}/${resourceId}/task-link`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parseWorkspaceNativeResource(data);
+}
+
+export async function deleteWorkspaceNativeResource(token: string, projectId: string, kind: WorkspaceResourceKind, resourceId: string): Promise<void> {
+  await apiRequest<void>(
+    `/projects/${projectId}/workspace/${kind}/${resourceId}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
 }
 
 export async function updateProjectBudget(token: string, projectId: string, payload: ProjectBudgetMutationPayload): Promise<ProjectBudget> {
@@ -738,6 +862,16 @@ function parseWorkspaceFolder(data: unknown) {
 
   if (!result.success) {
     throw new ApiError("Workspace folder data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+function parseWorkspaceNativeResource(data: unknown) {
+  const result = workspaceNativeResourceSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Workspace resource data could not be loaded.", 500);
   }
 
   return result.data;
