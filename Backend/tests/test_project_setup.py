@@ -227,6 +227,82 @@ def test_project_setup_first_section_completion_is_data_driven_and_pm_only() -> 
         database.close()
 
 
+def test_project_setup_milestones_deliverables_and_resources_use_live_records() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Setup Live PM", _unique_email("setup.live.pm"))
+        team = _create_auth_user(database, "Setup Live Team", _unique_email("setup.live.team"))
+        project = _create_project(database, pm["id"], "Setup Live Project")
+        phase = _create_phase(database, project["id"], pm["id"], "Setup Live Phase")
+        task = _create_task(database, phase["id"], pm["id"], "Setup Live Task")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], team["id"], "Team Member")
+        app = create_app(settings=_settings(os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            pm_token = _login(client, pm["email"])
+            team_token = _login(client, team["email"])
+            milestone = client.post(
+                f"/projects/{project['id']}/setup/milestones",
+                headers=_auth_header(pm_token),
+                json={
+                    "name": "Launch readiness",
+                    "target_date": "2026-06-30",
+                    "responsible_user_id": str(team["id"]),
+                    "status": "In Progress",
+                },
+            )
+            deliverable = client.post(
+                f"/projects/{project['id']}/setup/deliverables",
+                headers=_auth_header(pm_token),
+                json={
+                    "task_id": str(task["id"]),
+                    "description": "Launch checklist",
+                    "owner_id": str(team["id"]),
+                    "due_date": "2026-06-15",
+                    "acceptance_criteria": "Checklist approved",
+                    "approver_id": str(pm["id"]),
+                },
+            )
+            resource = client.post(
+                f"/projects/{project['id']}/setup/resources",
+                headers=_auth_header(pm_token),
+                json={"resource_type": "Technology", "name": "Survey platform", "notes": "Existing tool"},
+            )
+            setup = client.get(f"/projects/{project['id']}/setup", headers=_auth_header(pm_token))
+            team_resource_create = client.post(
+                f"/projects/{project['id']}/setup/resources",
+                headers=_auth_header(team_token),
+                json={"resource_type": "Equipment", "name": "Denied"},
+            )
+            team_milestones = client.get(f"/projects/{project['id']}/setup/milestones", headers=_auth_header(team_token))
+            live_deliverables = client.get(f"/projects/{project['id']}/setup/deliverables", headers=_auth_header(pm_token))
+            task_checklist = client.get(
+                f"/projects/{project['id']}/phases/{phase['id']}/tasks/{task['id']}/checklist",
+                headers=_auth_header(pm_token),
+            )
+
+        assert milestone.status_code == 201
+        assert milestone.json()["responsible_user_id"] == str(team["id"])
+        assert deliverable.status_code == 201
+        assert deliverable.json()["task_id"] == str(task["id"])
+        assert deliverable.json()["owner_id"] == str(team["id"])
+        assert deliverable.json()["approver_id"] == str(pm["id"])
+        assert resource.status_code == 201
+        assert _section(setup.json(), "milestones")["status"] == "Complete"
+        assert _section(setup.json(), "deliverables")["status"] == "Complete"
+        assert _section(setup.json(), "resources")["status"] == "Complete"
+        assert team_resource_create.status_code == 403
+        assert team_milestones.status_code == 200
+        assert len(team_milestones.json()) == 1
+        assert len(live_deliverables.json()) == 1
+        assert task_checklist.status_code == 200
+        assert [item["description"] for item in task_checklist.json()["items"]] == ["Launch checklist"]
+    finally:
+        database.close()
+
+
 def _section(setup: dict, key: str) -> dict:
     return next(section for section in setup["sections"] if section["key"] == key)
 

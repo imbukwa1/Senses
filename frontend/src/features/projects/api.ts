@@ -15,6 +15,13 @@ import {
   projectFilesSchema,
   projectMemberSchema,
   projectMembersSchema,
+  projectSetupBudgetSchema,
+  projectSetupDeliverableSchema,
+  projectSetupDeliverablesSchema,
+  projectSetupMilestoneSchema,
+  projectSetupMilestonesSchema,
+  projectSetupResourceSchema,
+  projectSetupResourcesSchema,
   projectSetupSchema,
   projectSummariesSchema,
   projectSummarySchema,
@@ -43,9 +50,16 @@ import type {
   ProjectBudgetMutationPayload,
   PhaseResponse,
   ProjectDashboard,
+  ProjectSetupBudgetDetails,
   ProjectSetupDetailsPayload,
   ProjectSetupDetailsSection,
   ProjectSetupBudgetPayload,
+  ProjectSetupDeliverable,
+  ProjectSetupDeliverablePayload,
+  ProjectSetupMilestone,
+  ProjectSetupMilestonePayload,
+  ProjectSetupResource,
+  ProjectSetupResourcePayload,
   ProjectMember,
   ProjectMutationPayload,
   ProjectSetup,
@@ -128,6 +142,116 @@ export async function getProjectSetup(token: string, projectId: string): Promise
 
   if (!result.success) {
     throw new ApiError("Project setup data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function getProjectSetupBudget(token: string, projectId: string): Promise<ProjectSetupBudgetDetails> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/budget`, {}, token);
+  const result = projectSetupBudgetSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup budget data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function listProjectSetupMilestones(token: string, projectId: string): Promise<ProjectSetupMilestone[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/milestones`, {}, token);
+  const result = projectSetupMilestonesSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup milestones could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createProjectSetupMilestone(
+  token: string,
+  projectId: string,
+  payload: ProjectSetupMilestonePayload,
+): Promise<ProjectSetupMilestone> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/milestones`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectSetupMilestoneSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup milestone could not be saved.", 500);
+  }
+
+  return result.data;
+}
+
+export async function listProjectSetupDeliverables(token: string, projectId: string): Promise<ProjectSetupDeliverable[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/deliverables`, {}, token);
+  const result = projectSetupDeliverablesSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup deliverables could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createProjectSetupDeliverable(
+  token: string,
+  projectId: string,
+  payload: ProjectSetupDeliverablePayload,
+): Promise<ProjectSetupDeliverable> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/deliverables`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectSetupDeliverableSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup deliverable could not be saved.", 500);
+  }
+
+  return result.data;
+}
+
+export async function listProjectSetupResources(token: string, projectId: string): Promise<ProjectSetupResource[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/resources`, {}, token);
+  const result = projectSetupResourcesSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup resources could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createProjectSetupResource(
+  token: string,
+  projectId: string,
+  payload: ProjectSetupResourcePayload,
+): Promise<ProjectSetupResource> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/resources`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectSetupResourceSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup resource could not be saved.", 500);
   }
 
   return result.data;

@@ -35,6 +35,8 @@ ProjectMemberRole = Literal["PM", "Team Member", "Finance"]
 TaskFileCategory = Literal["reference", "work_submission", "finance"]
 UserFacingProjectHealth = Literal["On track", "Needs attention", "At risk", "Completed"]
 ProjectSetupSectionStatus = Literal["Complete", "In Progress", "Not Started", "Not Applicable"]
+ProjectSetupMilestoneStatus = Literal["Not Started", "In Progress", "Complete"]
+ProjectSetupResourceType = Literal["People", "Equipment", "Materials", "Facilities", "Technology", "Other"]
 
 PROJECT_SETUP_SECTIONS: tuple[tuple[str, str, bool], ...] = (
     ("project_overview", "Project Overview", False),
@@ -577,6 +579,34 @@ class ProjectSetupBudgetUpdateRequest(BaseModel):
     phase_allocations: list[ProjectSetupPhaseAllocationUpdateRequest] = Field(default_factory=list)
 
 
+class ProjectSetupMilestoneCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    target_date: date
+    responsible_user_id: UUID | None = None
+    status: ProjectSetupMilestoneStatus = "Not Started"
+
+
+class ProjectSetupDeliverableCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: UUID
+    description: str = Field(min_length=1)
+    owner_id: UUID | None = None
+    due_date: date | None = None
+    acceptance_criteria: str | None = None
+    approver_id: UUID | None = None
+
+
+class ProjectSetupResourceCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resource_type: ProjectSetupResourceType
+    name: str = Field(min_length=1, max_length=200)
+    notes: str | None = None
+
+
 class ProjectSetupLeadResponse(BaseModel):
     id: UUID
     name: str
@@ -617,6 +647,50 @@ class ProjectSetupWorkPlanResponse(BaseModel):
 class ProjectSetupBudgetResponse(BaseModel):
     total_project_budget: Decimal
     budget_notes: str | None
+
+
+class ProjectSetupMilestoneResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    name: str
+    target_date: date
+    responsible_user_id: UUID | None
+    responsible_person: ProjectSetupLeadResponse | None
+    status: str
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupDeliverableResponse(BaseModel):
+    id: UUID
+    task_id: UUID
+    task_name: str
+    phase_id: UUID
+    phase_name: str
+    description: str
+    owner_id: UUID | None
+    owner: ProjectSetupLeadResponse | None
+    due_date: date | None
+    acceptance_criteria: str | None
+    approver_id: UUID | None
+    approver: ProjectSetupLeadResponse | None
+    is_completed: bool
+    display_order: int
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupResourceResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    resource_type: str
+    name: str
+    notes: str | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class ProjectSetupDetailsResponse(BaseModel):
@@ -1373,8 +1447,8 @@ def update_project_setup_scope(
             scope_boundaries = %s,
             scope_notes = %s,
             updated_at = NOW()
-        WHERE id = %s
-          AND archived_at IS NULL
+        WHERE projects.id = %s
+          AND projects.archived_at IS NULL
         """,
         (
             normalize_optional_text(payload.scope_in),
@@ -1530,6 +1604,137 @@ def update_project_setup_budget(
             (allocation.allocated, project_id, allocation.phase_id),
         )
     return build_project_setup_response(session, project_id)
+
+
+@router.get("/{project_id}/setup/milestones", response_model=list[ProjectSetupMilestoneResponse])
+def list_project_setup_milestones(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupMilestoneResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [project_setup_milestone_to_response(row) for row in fetch_project_setup_milestones(session, project_id)]
+
+
+@router.post("/{project_id}/setup/milestones", response_model=ProjectSetupMilestoneResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_milestone(
+    project_id: UUID,
+    payload: ProjectSetupMilestoneCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupMilestoneResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if payload.responsible_user_id is not None:
+        fetch_project_member(session, project_id, payload.responsible_user_id)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Milestone name is required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_milestones (project_id, name, target_date, responsible_user_id, status, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (project_id, name, payload.target_date, payload.responsible_user_id, payload.status, current_user.id),
+    )
+    return project_setup_milestone_to_response(fetch_project_setup_milestone_or_404(session, project_id, row["id"]))
+
+
+@router.get("/{project_id}/setup/deliverables", response_model=list[ProjectSetupDeliverableResponse])
+def list_project_setup_deliverables(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupDeliverableResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [project_setup_deliverable_to_response(row) for row in fetch_project_setup_deliverables(session, project_id)]
+
+
+@router.post("/{project_id}/setup/deliverables", response_model=ProjectSetupDeliverableResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_deliverable(
+    project_id: UUID,
+    payload: ProjectSetupDeliverableCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupDeliverableResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    fetch_task_in_project_or_404(session, project_id, payload.task_id)
+    if payload.owner_id is not None:
+        fetch_project_member(session, project_id, payload.owner_id)
+    if payload.approver_id is not None:
+        fetch_project_member(session, project_id, payload.approver_id)
+    description = payload.description.strip()
+    if not description:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Deliverable is required")
+    display_order = next_task_deliverable_display_order(session, payload.task_id)
+    row = session.fetch_one(
+        """
+        INSERT INTO task_deliverables (
+          task_id,
+          description,
+          display_order,
+          owner_id,
+          due_date,
+          acceptance_criteria,
+          approver_id
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            payload.task_id,
+            description,
+            display_order,
+            payload.owner_id,
+            payload.due_date,
+            normalize_optional_text(payload.acceptance_criteria),
+            payload.approver_id,
+        ),
+    )
+    return project_setup_deliverable_to_response(fetch_project_setup_deliverable_or_404(session, project_id, row["id"]))
+
+
+@router.get("/{project_id}/setup/resources", response_model=list[ProjectSetupResourceResponse])
+def list_project_setup_resources(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupResourceResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [project_setup_resource_to_response(row) for row in fetch_project_setup_resources(session, project_id)]
+
+
+@router.post("/{project_id}/setup/resources", response_model=ProjectSetupResourceResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_resource(
+    project_id: UUID,
+    payload: ProjectSetupResourceCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupResourceResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Resource name is required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_resources (project_id, resource_type, name, notes, created_by)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (project_id, payload.resource_type, name, normalize_optional_text(payload.notes), current_user.id),
+    )
+    return project_setup_resource_to_response(fetch_project_setup_resource_or_404(session, project_id, row["id"]))
 
 
 @router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
@@ -4219,6 +4424,227 @@ def fetch_project_setup_section_statuses(session: DatabaseSession, project_id: U
     )
 
 
+def fetch_project_setup_milestones(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          project_milestones.id,
+          project_milestones.project_id,
+          project_milestones.name,
+          project_milestones.target_date,
+          project_milestones.responsible_user_id,
+          responsible_users.name AS responsible_user_name,
+          responsible_users.email AS responsible_user_email,
+          project_milestones.status,
+          project_milestones.created_by,
+          project_milestones.created_at,
+          project_milestones.updated_at
+        FROM project_milestones
+        LEFT JOIN users AS responsible_users
+          ON responsible_users.id = project_milestones.responsible_user_id
+        WHERE project_milestones.project_id = %s
+        ORDER BY project_milestones.target_date, project_milestones.created_at, project_milestones.id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_milestone_or_404(session: DatabaseSession, project_id: UUID, milestone_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT
+          project_milestones.id,
+          project_milestones.project_id,
+          project_milestones.name,
+          project_milestones.target_date,
+          project_milestones.responsible_user_id,
+          responsible_users.name AS responsible_user_name,
+          responsible_users.email AS responsible_user_email,
+          project_milestones.status,
+          project_milestones.created_by,
+          project_milestones.created_at,
+          project_milestones.updated_at
+        FROM project_milestones
+        LEFT JOIN users AS responsible_users
+          ON responsible_users.id = project_milestones.responsible_user_id
+        WHERE project_milestones.project_id = %s
+          AND project_milestones.id = %s
+        """,
+        (project_id, milestone_id),
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project milestone not found")
+    return row
+
+
+def fetch_project_setup_deliverables(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          task_deliverables.id,
+          task_deliverables.task_id,
+          tasks.name AS task_name,
+          phases.id AS phase_id,
+          phases.name AS phase_name,
+          task_deliverables.description,
+          task_deliverables.owner_id,
+          owners.name AS owner_name,
+          owners.email AS owner_email,
+          task_deliverables.due_date,
+          task_deliverables.acceptance_criteria,
+          task_deliverables.approver_id,
+          approvers.name AS approver_name,
+          approvers.email AS approver_email,
+          task_deliverables.is_completed,
+          task_deliverables.display_order,
+          task_deliverables.completed_at,
+          task_deliverables.created_at,
+          task_deliverables.updated_at
+        FROM task_deliverables
+        JOIN tasks ON tasks.id = task_deliverables.task_id
+        JOIN phases ON phases.id = tasks.phase_id
+        LEFT JOIN users AS owners ON owners.id = task_deliverables.owner_id
+        LEFT JOIN users AS approvers ON approvers.id = task_deliverables.approver_id
+        WHERE phases.project_id = %s
+          AND phases.archived_at IS NULL
+        ORDER BY phases.display_order, tasks.created_at, tasks.id, task_deliverables.display_order
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_deliverable_or_404(session: DatabaseSession, project_id: UUID, deliverable_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT
+          task_deliverables.id,
+          task_deliverables.task_id,
+          tasks.name AS task_name,
+          phases.id AS phase_id,
+          phases.name AS phase_name,
+          task_deliverables.description,
+          task_deliverables.owner_id,
+          owners.name AS owner_name,
+          owners.email AS owner_email,
+          task_deliverables.due_date,
+          task_deliverables.acceptance_criteria,
+          task_deliverables.approver_id,
+          approvers.name AS approver_name,
+          approvers.email AS approver_email,
+          task_deliverables.is_completed,
+          task_deliverables.display_order,
+          task_deliverables.completed_at,
+          task_deliverables.created_at,
+          task_deliverables.updated_at
+        FROM task_deliverables
+        JOIN tasks ON tasks.id = task_deliverables.task_id
+        JOIN phases ON phases.id = tasks.phase_id
+        LEFT JOIN users AS owners ON owners.id = task_deliverables.owner_id
+        LEFT JOIN users AS approvers ON approvers.id = task_deliverables.approver_id
+        WHERE phases.project_id = %s
+          AND task_deliverables.id = %s
+          AND phases.archived_at IS NULL
+        """,
+        (project_id, deliverable_id),
+    )
+    if row is None:
+        raise_deliverable_not_found()
+    return row
+
+
+def fetch_project_setup_resources(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT id, project_id, resource_type, name, notes, created_by, created_at, updated_at
+        FROM project_resources
+        WHERE project_id = %s
+        ORDER BY resource_type, created_at, id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_resource_or_404(session: DatabaseSession, project_id: UUID, resource_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT id, project_id, resource_type, name, notes, created_by, created_at, updated_at
+        FROM project_resources
+        WHERE project_id = %s
+          AND id = %s
+        """,
+        (project_id, resource_id),
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project resource not found")
+    return row
+
+
+def next_task_deliverable_display_order(session: DatabaseSession, task_id: UUID) -> int:
+    row = session.fetch_one(
+        """
+        SELECT COALESCE(MAX(display_order), 0) + 1 AS next_display_order
+        FROM task_deliverables
+        WHERE task_id = %s
+        """,
+        (task_id,),
+    )
+    return int(row["next_display_order"])
+
+
+def project_setup_milestone_to_response(row: Row) -> ProjectSetupMilestoneResponse:
+    responsible_person = None
+    if row["responsible_user_id"] is not None:
+        responsible_person = ProjectSetupLeadResponse(
+            id=row["responsible_user_id"],
+            name=row["responsible_user_name"],
+            email=row["responsible_user_email"],
+        )
+    return ProjectSetupMilestoneResponse(
+        id=row["id"],
+        project_id=row["project_id"],
+        name=row["name"],
+        target_date=row["target_date"],
+        responsible_user_id=row["responsible_user_id"],
+        responsible_person=responsible_person,
+        status=row["status"],
+        created_by=row["created_by"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def project_setup_deliverable_to_response(row: Row) -> ProjectSetupDeliverableResponse:
+    owner = None
+    if row["owner_id"] is not None:
+        owner = ProjectSetupLeadResponse(id=row["owner_id"], name=row["owner_name"], email=row["owner_email"])
+    approver = None
+    if row["approver_id"] is not None:
+        approver = ProjectSetupLeadResponse(id=row["approver_id"], name=row["approver_name"], email=row["approver_email"])
+    return ProjectSetupDeliverableResponse(
+        id=row["id"],
+        task_id=row["task_id"],
+        task_name=row["task_name"],
+        phase_id=row["phase_id"],
+        phase_name=row["phase_name"],
+        description=row["description"],
+        owner_id=row["owner_id"],
+        owner=owner,
+        due_date=row["due_date"],
+        acceptance_criteria=row["acceptance_criteria"],
+        approver_id=row["approver_id"],
+        approver=approver,
+        is_completed=row["is_completed"],
+        display_order=row["display_order"],
+        completed_at=row["completed_at"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def project_setup_resource_to_response(row: Row) -> ProjectSetupResourceResponse:
+    return ProjectSetupResourceResponse(**row)
+
+
 def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) -> Row:
     return session.fetch_one(
         """
@@ -4260,6 +4686,16 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
           SELECT COUNT(*) AS member_count
           FROM project_members
           WHERE project_id = %(project_id)s
+        ),
+        milestone_counts AS (
+          SELECT COUNT(*) AS milestone_count
+          FROM project_milestones
+          WHERE project_id = %(project_id)s
+        ),
+        resource_counts AS (
+          SELECT COUNT(*) AS setup_resource_count
+          FROM project_resources
+          WHERE project_id = %(project_id)s
         )
         SELECT
           project_phase_counts.phase_count,
@@ -4273,6 +4709,8 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
           native_counts.document_count,
           native_counts.spreadsheet_count,
           member_counts.member_count,
+          milestone_counts.milestone_count,
+          resource_counts.setup_resource_count,
           projects.budget_allocated AS project_budget_allocated
         FROM projects
         CROSS JOIN project_phase_counts
@@ -4280,6 +4718,8 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
         CROSS JOIN file_counts
         CROSS JOIN native_counts
         CROSS JOIN member_counts
+        CROSS JOIN milestone_counts
+        CROSS JOIN resource_counts
         WHERE projects.id = %(project_id)s
         """,
         {"project_id": project_id},
@@ -4318,6 +4758,9 @@ def project_setup_live_status(
     if section_key == "phases":
         return project_setup_status_from_count(int(live.get("phase_count") or 0), 1, "phases")
     if section_key == "milestones":
+        milestone_count = int(live.get("milestone_count") or 0)
+        if milestone_count:
+            return "Complete", milestone_count, "project_milestones"
         milestone_count = int(live.get("milestone_phase_count") or 0)
         phase_count = int(live.get("phase_count") or 0)
         if phase_count and milestone_count >= phase_count:
@@ -4335,8 +4778,11 @@ def project_setup_live_status(
     if section_key == "stakeholders":
         return project_setup_status_from_count(max(int(live.get("member_count") or 0) - 1, 0), 1, "project_members")
     if section_key == "resources":
-        resource_count = int(live.get("file_count") or 0) + int(live.get("document_count") or 0) + int(live.get("spreadsheet_count") or 0)
-        return project_setup_status_from_count(resource_count, 1, "task_files/workspace_resources")
+        resource_count = int(live.get("setup_resource_count") or 0)
+        if resource_count:
+            return "Complete", resource_count, "project_resources"
+        workspace_resource_count = int(live.get("file_count") or 0) + int(live.get("document_count") or 0) + int(live.get("spreadsheet_count") or 0)
+        return project_setup_status_from_count(workspace_resource_count, 1, "task_files/workspace_resources")
     if section_key == "budget_setup":
         has_project_budget = (live.get("project_budget_allocated") or 0) > 0
         budget_count = int(has_project_budget) + int((live.get("phase_budget_allocated") or 0) > 0) + int((live.get("phase_budget_spent") or 0) > 0) + int(bool(project.get("budget_notes")))

@@ -12,6 +12,9 @@ import {
   addProjectMember,
   addTaskSupporter,
   completePhase,
+  createProjectSetupDeliverable,
+  createProjectSetupMilestone,
+  createProjectSetupResource,
   createWorkspaceNativeResource,
   createWorkspaceFolder,
   createChecklistItem,
@@ -28,11 +31,15 @@ import {
   getProjectBudget,
   getProjectDashboard,
   getProjectSetup,
+  getProjectSetupBudget,
   getWorkspaceNativeResource,
   getWorkspaceContents,
   listAttention,
   listMyWork,
   listPhaseMembers,
+  listProjectSetupDeliverables,
+  listProjectSetupMilestones,
+  listProjectSetupResources,
   listProjectFiles,
   listProjectMembers,
   listProjects,
@@ -70,6 +77,9 @@ import type {
   PhaseMutationPayload,
   ProjectBudgetMutationPayload,
   ProjectSetupBudgetPayload,
+  ProjectSetupDeliverablePayload,
+  ProjectSetupMilestonePayload,
+  ProjectSetupResourcePayload,
   ProjectMutationPayload,
   ProjectSetupDetailsPayload,
   ProjectSetupDetailsSection,
@@ -94,6 +104,10 @@ export const projectBudgetQueryKey = (projectId: string) => ["projects", project
 export const projectFilesQueryKey = (projectId: string) => ["projects", projectId, "files"] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
 export const projectSetupQueryKey = (projectId: string) => ["projects", projectId, "setup"] as const;
+export const projectSetupBudgetQueryKey = (projectId: string) => ["projects", projectId, "setup", "budget"] as const;
+export const projectSetupMilestonesQueryKey = (projectId: string) => ["projects", projectId, "setup", "milestones"] as const;
+export const projectSetupDeliverablesQueryKey = (projectId: string) => ["projects", projectId, "setup", "deliverables"] as const;
+export const projectSetupResourcesQueryKey = (projectId: string) => ["projects", projectId, "setup", "resources"] as const;
 export const workspaceContentsQueryKey = (projectId: string, folderId: string | null) => ["projects", projectId, "workspace", folderId ?? "root"] as const;
 export const workspaceNativeResourceQueryKey = (projectId: string, kind: WorkspaceResourceKind, resourceId: string) =>
   ["projects", projectId, "workspace", kind, resourceId] as const;
@@ -221,6 +235,78 @@ export function useProjectSetupQuery(projectId: string, enabled = true) {
   const query = useQuery({
     queryKey: projectSetupQueryKey(projectId),
     queryFn: () => getProjectSetup(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useProjectSetupBudgetQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectSetupBudgetQueryKey(projectId),
+    queryFn: () => getProjectSetupBudget(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useProjectSetupMilestonesQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectSetupMilestonesQueryKey(projectId),
+    queryFn: () => listProjectSetupMilestones(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useProjectSetupDeliverablesQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectSetupDeliverablesQueryKey(projectId),
+    queryFn: () => listProjectSetupDeliverables(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useProjectSetupResourcesQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectSetupResourcesQueryKey(projectId),
+    queryFn: () => listProjectSetupResources(requireToken(token), projectId),
     enabled: enabled && status === "authenticated" && Boolean(token),
     retry: false,
   });
@@ -525,9 +611,56 @@ export function useUpdateProjectSetupBudgetMutation(projectId: string) {
     mutationFn: (payload: ProjectSetupBudgetPayload) => updateProjectSetupBudget(requireToken(token), projectId, payload),
     onSuccess: (setup) => {
       queryClient.setQueryData(projectSetupQueryKey(projectId), setup);
+      void queryClient.invalidateQueries({ queryKey: projectSetupBudgetQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: projectBudgetQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: attentionQueryKey });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useCreateProjectSetupMilestoneMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: ProjectSetupMilestonePayload) => createProjectSetupMilestone(requireToken(token), projectId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectSetupMilestonesQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useCreateProjectSetupDeliverableMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: ProjectSetupDeliverablePayload) => createProjectSetupDeliverable(requireToken(token), projectId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectSetupDeliverablesQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: ["projects", projectId, "phases"] });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useCreateProjectSetupResourceMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: ProjectSetupResourcePayload) => createProjectSetupResource(requireToken(token), projectId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectSetupResourcesQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
     },
     onError: authFailureHandler(logout),
   });

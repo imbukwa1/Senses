@@ -182,10 +182,6 @@ export const projectSetupDetailsSchema = z.object({
     planned_completion: z.string().min(1),
     key_activities: z.string().nullable(),
   }),
-  budget_setup: z.object({
-    total_project_budget: backendNumberSchema,
-    budget_notes: z.string().nullable(),
-  }),
 });
 
 export const projectSetupSchema = z.object({
@@ -199,6 +195,59 @@ export const projectSetupSchema = z.object({
   sections: z.array(projectSetupSectionSchema),
   details: projectSetupDetailsSchema,
 });
+
+export const projectSetupBudgetSchema = z.object({
+  total_project_budget: backendNumberSchema,
+  budget_notes: z.string().nullable(),
+});
+
+export const projectSetupMilestoneSchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  name: z.string().min(1),
+  target_date: z.string().min(1),
+  responsible_user_id: z.uuid().nullable(),
+  responsible_person: userSummarySchema.nullable(),
+  status: z.enum(["Not Started", "In Progress", "Complete"]),
+  created_by: z.uuid().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const projectSetupDeliverableSchema = z.object({
+  id: z.uuid(),
+  task_id: z.uuid(),
+  task_name: z.string().min(1),
+  phase_id: z.uuid(),
+  phase_name: z.string().min(1),
+  description: z.string().min(1),
+  owner_id: z.uuid().nullable(),
+  owner: userSummarySchema.nullable(),
+  due_date: z.string().nullable(),
+  acceptance_criteria: z.string().nullable(),
+  approver_id: z.uuid().nullable(),
+  approver: userSummarySchema.nullable(),
+  is_completed: z.boolean(),
+  display_order: z.number(),
+  completed_at: z.string().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const projectSetupResourceSchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  resource_type: z.enum(["People", "Equipment", "Materials", "Facilities", "Technology", "Other"]),
+  name: z.string().min(1),
+  notes: z.string().nullable(),
+  created_by: z.uuid().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const projectSetupMilestonesSchema = z.array(projectSetupMilestoneSchema);
+export const projectSetupDeliverablesSchema = z.array(projectSetupDeliverableSchema);
+export const projectSetupResourcesSchema = z.array(projectSetupResourceSchema);
 
 export const projectDashboardSchema = z.object({
   project: dashboardProjectSchema,

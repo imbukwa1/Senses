@@ -148,6 +148,7 @@ def test_pm_phase0_budget_setup_updates_live_planned_budget_without_spending_rig
                     ],
                 },
             )
+            setup_budget = client.get(f"/projects/{project['id']}/setup/budget", headers=_auth_header(pm_token))
             finance_project_budget = client.get(f"/projects/{project['id']}/budget", headers=_auth_header(finance_token))
             finance_second_phase = client.get(
                 f"/projects/{project['id']}/phases/{second_phase['id']}/budget",
@@ -167,8 +168,9 @@ def test_pm_phase0_budget_setup_updates_live_planned_budget_without_spending_rig
         assert setup_update.status_code == 200
         setup = setup_update.json()
         assert _section(setup, "budget_setup")["status"] == "Complete"
-        assert Decimal(str(setup["details"]["budget_setup"]["total_project_budget"])) == Decimal("1000")
-        assert setup["details"]["budget_setup"]["budget_notes"] == "Initial PM planning budget."
+        assert setup_budget.status_code == 200
+        assert Decimal(str(setup_budget.json()["total_project_budget"])) == Decimal("1000")
+        assert setup_budget.json()["budget_notes"] == "Initial PM planning budget."
         assert finance_project_budget.status_code == 200
         assert_budget(finance_project_budget.json(), allocated="1000", spent="10", remaining="990", utilisation="0.01")
         assert finance_second_phase.status_code == 200

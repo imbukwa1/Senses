@@ -19,12 +19,20 @@ import { cn } from "@/lib/utils";
 
 import {
   useAddPhaseMemberMutation,
+  useCreateProjectSetupDeliverableMutation,
+  useCreateProjectSetupMilestoneMutation,
+  useCreateProjectSetupResourceMutation,
   usePhaseMembersQuery,
   useProjectMembersQuery,
   useProjectBudgetQuery,
+  useProjectSetupDeliverablesQuery,
+  useProjectSetupMilestonesQuery,
+  useProjectSetupResourcesQuery,
+  useProjectSetupBudgetQuery,
   useProjectSetupQuery,
   useUpdateProjectSetupBudgetMutation,
   useRemovePhaseMemberMutation,
+  useTasksQuery,
   useUpdateProjectSetupDetailsMutation,
   useUpdateProjectSetupSectionMutation,
 } from "./hooks";
@@ -36,6 +44,10 @@ import type {
   ProjectDashboard,
   ProjectMember,
   ProjectSetupBudgetPayload,
+  ProjectSetupDeliverablePayload,
+  ProjectSetupMilestonePayload,
+  ProjectSetupResourcePayload,
+  ProjectSetupResourceType,
   ProjectSetup,
   ProjectSetupDetailsPayload,
   ProjectSetupDetailsSection,
@@ -317,6 +329,12 @@ function renderFirstPassSection({
   if (activeSection.key === "phases") {
     return <Phase0PhasesSection canEdit={canEdit} dashboard={dashboard} members={members} projectId={setup.project_id} />;
   }
+  if (activeSection.key === "milestones") {
+    return <Phase0MilestonesSection canEdit={canEdit} members={members} projectId={setup.project_id} />;
+  }
+  if (activeSection.key === "deliverables") {
+    return <Phase0DeliverablesSection canEdit={canEdit} dashboard={dashboard} members={members} projectId={setup.project_id} />;
+  }
   if (activeSection.key === "people_governance") {
     return (
       <Phase0PeopleSection
@@ -329,7 +347,10 @@ function renderFirstPassSection({
     );
   }
   if (activeSection.key === "budget_setup") {
-    return <Phase0BudgetSection canEdit={canEdit} dashboard={dashboard} projectId={setup.project_id} setup={setup} />;
+    return <Phase0BudgetSection canEdit={canEdit} dashboard={dashboard} projectId={setup.project_id} />;
+  }
+  if (activeSection.key === "resources") {
+    return <Phase0ResourcesSection canEdit={canEdit} projectId={setup.project_id} />;
   }
   return null;
 }
@@ -682,29 +703,247 @@ function PhaseMemberManager({
   );
 }
 
+function Phase0MilestonesSection({ canEdit, members, projectId }: { canEdit: boolean; members: ProjectMember[]; projectId: string }) {
+  const milestonesQuery = useProjectSetupMilestonesQuery(projectId);
+  const createMilestone = useCreateProjectSetupMilestoneMutation(projectId);
+  const [form, setForm] = useState<ProjectSetupMilestonePayload>({
+    name: "",
+    responsible_user_id: null,
+    status: "Not Started",
+    target_date: "",
+  });
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createMilestone.mutateAsync({ ...form, name: form.name.trim(), responsible_user_id: form.responsible_user_id || null });
+    setForm({ name: "", responsible_user_id: null, status: "Not Started", target_date: "" });
+  }
+
+  return (
+    <div className="space-y-4">
+      {canEdit ? (
+        <form className="rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_10rem_minmax(0,14rem)_10rem_auto]">
+            <Input value={form.name} placeholder="Milestone" onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+            <Input type="date" value={form.target_date} onChange={(event) => setForm((current) => ({ ...current, target_date: event.target.value }))} />
+            <Select value={form.responsible_user_id ?? "none"} onValueChange={(value) => setForm((current) => ({ ...current, responsible_user_id: value === "none" ? null : value }))}>
+              <SelectTrigger aria-label="Responsible person"><SelectValue placeholder="Responsible person" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No responsible person</SelectItem>
+                {members.map((member) => <SelectItem key={member.user_id} value={member.user_id}>{member.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={form.status} onValueChange={(value) => setForm((current) => ({ ...current, status: value as ProjectSetupMilestonePayload["status"] }))}>
+              <SelectTrigger aria-label="Milestone status"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {["Not Started", "In Progress", "Complete"].map((statusValue) => <SelectItem key={statusValue} value={statusValue}>{statusValue}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Button type="submit" disabled={!form.name.trim() || !form.target_date || createMilestone.isPending}>
+              <Plus className="size-4" aria-hidden="true" />
+              Add
+            </Button>
+          </div>
+          {createMilestone.error ? <p className="mt-3 text-sm text-error">{userFacingErrorMessage(createMilestone.error, { action: "milestone" })}</p> : null}
+        </form>
+      ) : null}
+      {milestonesQuery.isLoading ? <LoadingState label="Loading milestones" /> : null}
+      {milestonesQuery.isError ? <ErrorState title="Milestones could not be loaded" message={userFacingErrorMessage(milestonesQuery.error, { action: "milestones" })} /> : null}
+      {milestonesQuery.data?.length === 0 ? <EmptyState title="No milestones have been added." /> : null}
+      <div className="space-y-2">
+        {milestonesQuery.data?.map((milestone) => (
+          <div key={milestone.id} className="grid gap-2 rounded-md border bg-background p-3 text-sm md:grid-cols-[minmax(0,1fr)_10rem_minmax(0,14rem)_8rem]">
+            <span className="font-medium text-foreground">{milestone.name}</span>
+            <span className="text-muted-foreground">{formatSetupDate(milestone.target_date)}</span>
+            <span className="text-muted-foreground">{milestone.responsible_person?.name ?? "No responsible person"}</span>
+            <Badge variant="outline">{milestone.status}</Badge>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Phase0DeliverablesSection({
+  canEdit,
+  dashboard,
+  members,
+  projectId,
+}: {
+  canEdit: boolean;
+  dashboard: ProjectDashboard;
+  members: ProjectMember[];
+  projectId: string;
+}) {
+  const deliverablesQuery = useProjectSetupDeliverablesQuery(projectId);
+  const createDeliverable = useCreateProjectSetupDeliverableMutation(projectId);
+  const [phaseId, setPhaseId] = useState(dashboard.phases[0]?.id ?? "");
+  const tasksQuery = useTasksQuery(projectId, phaseId, Boolean(phaseId));
+  const [form, setForm] = useState<ProjectSetupDeliverablePayload>({
+    acceptance_criteria: null,
+    approver_id: null,
+    description: "",
+    due_date: null,
+    owner_id: null,
+    task_id: "",
+  });
+
+  useEffect(() => {
+    if (!phaseId && dashboard.phases[0]?.id) {
+      setPhaseId(dashboard.phases[0].id);
+    }
+  }, [dashboard.phases, phaseId]);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createDeliverable.mutateAsync({
+      ...form,
+      acceptance_criteria: form.acceptance_criteria?.trim() || null,
+      description: form.description.trim(),
+      due_date: form.due_date || null,
+    });
+    setForm({ acceptance_criteria: null, approver_id: null, description: "", due_date: null, owner_id: null, task_id: "" });
+  }
+
+  const tasks = tasksQuery.data ?? [];
+
+  return (
+    <div className="space-y-4">
+      {canEdit ? (
+        <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <SetupInput label="Deliverable" value={form.description} onChange={(value) => setForm((current) => ({ ...current, description: value }))} />
+            <SetupInput label="Due Date" type="date" value={form.due_date ?? ""} onChange={(value) => setForm((current) => ({ ...current, due_date: value || null }))} />
+            <Select value={phaseId} onValueChange={(value) => { setPhaseId(value); setForm((current) => ({ ...current, task_id: "" })); }}>
+              <SelectTrigger aria-label="Deliverable phase"><SelectValue placeholder="Select phase" /></SelectTrigger>
+              <SelectContent>{dashboard.phases.map((phase) => <SelectItem key={phase.id} value={phase.id}>{phase.name}</SelectItem>)}</SelectContent>
+            </Select>
+            <Select value={form.task_id || "none"} onValueChange={(value) => setForm((current) => ({ ...current, task_id: value === "none" ? "" : value }))} disabled={!phaseId || tasksQuery.isLoading}>
+              <SelectTrigger aria-label="Deliverable task"><SelectValue placeholder="Select task" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Select task</SelectItem>
+                {tasks.map((task) => <SelectItem key={task.id} value={task.id}>{task.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <MemberSelect label="Owner" members={members} value={form.owner_id} onChange={(value) => setForm((current) => ({ ...current, owner_id: value }))} />
+            <MemberSelect label="Approver" members={members} value={form.approver_id} onChange={(value) => setForm((current) => ({ ...current, approver_id: value }))} />
+          </div>
+          <SetupTextarea label="Acceptance Criteria" value={form.acceptance_criteria ?? ""} onChange={(value) => setForm((current) => ({ ...current, acceptance_criteria: value }))} />
+          <Button type="submit" disabled={!form.description.trim() || !form.task_id || createDeliverable.isPending}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add Deliverable
+          </Button>
+          {createDeliverable.error ? <p className="text-sm text-error">{userFacingErrorMessage(createDeliverable.error, { action: "deliverable" })}</p> : null}
+        </form>
+      ) : null}
+      {deliverablesQuery.isLoading ? <LoadingState label="Loading deliverables" /> : null}
+      {deliverablesQuery.isError ? <ErrorState title="Deliverables could not be loaded" message={userFacingErrorMessage(deliverablesQuery.error, { action: "deliverables" })} /> : null}
+      {deliverablesQuery.data?.length === 0 ? <EmptyState title="No deliverables have been added." /> : null}
+      <div className="space-y-2">
+        {deliverablesQuery.data?.map((deliverable) => (
+          <div key={deliverable.id} className="rounded-md border bg-background p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium text-foreground">{deliverable.description}</p>
+              <StatusBadge value={deliverable.is_completed ? "Completed" : "Not Started"} />
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">{deliverable.phase_name} / {deliverable.task_name}</p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Owner: {deliverable.owner?.name ?? "Unassigned"} / Due: {formatSetupDate(deliverable.due_date)} / Approver: {deliverable.approver?.name ?? "Unassigned"}
+            </p>
+            {deliverable.acceptance_criteria ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{deliverable.acceptance_criteria}</p> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Phase0ResourcesSection({ canEdit, projectId }: { canEdit: boolean; projectId: string }) {
+  const resourcesQuery = useProjectSetupResourcesQuery(projectId);
+  const createResource = useCreateProjectSetupResourceMutation(projectId);
+  const [form, setForm] = useState<ProjectSetupResourcePayload>({ name: "", notes: null, resource_type: "People" });
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createResource.mutateAsync({ ...form, name: form.name.trim(), notes: form.notes?.trim() || null });
+    setForm({ name: "", notes: null, resource_type: "People" });
+  }
+
+  return (
+    <div className="space-y-4">
+      {canEdit ? (
+        <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
+          <div className="grid gap-3 md:grid-cols-[12rem_minmax(0,1fr)_auto]">
+            <Select value={form.resource_type} onValueChange={(value) => setForm((current) => ({ ...current, resource_type: value as ProjectSetupResourceType }))}>
+              <SelectTrigger aria-label="Resource type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {["People", "Equipment", "Materials", "Facilities", "Technology", "Other"].map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Input value={form.name} placeholder="Resource" onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+            <Button type="submit" disabled={!form.name.trim() || createResource.isPending}>
+              <Plus className="size-4" aria-hidden="true" />
+              Add
+            </Button>
+          </div>
+          <SetupTextarea label="Notes" value={form.notes ?? ""} onChange={(value) => setForm((current) => ({ ...current, notes: value }))} />
+          {createResource.error ? <p className="text-sm text-error">{userFacingErrorMessage(createResource.error, { action: "resource" })}</p> : null}
+        </form>
+      ) : null}
+      {resourcesQuery.isLoading ? <LoadingState label="Loading resources" /> : null}
+      {resourcesQuery.isError ? <ErrorState title="Resources could not be loaded" message={userFacingErrorMessage(resourcesQuery.error, { action: "resources" })} /> : null}
+      {resourcesQuery.data?.length === 0 ? <EmptyState title="No resources have been added." /> : null}
+      <div className="space-y-2">
+        {resourcesQuery.data?.map((resource) => (
+          <div key={resource.id} className="rounded-md border bg-background p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">{resource.resource_type}</Badge>
+              <p className="font-medium text-foreground">{resource.name}</p>
+            </div>
+            {resource.notes ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{resource.notes}</p> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MemberSelect({ label, members, onChange, value }: { label: string; members: ProjectMember[]; onChange: (value: string | null) => void; value: string | null }) {
+  return (
+    <Select value={value ?? "none"} onValueChange={(nextValue) => onChange(nextValue === "none" ? null : nextValue)}>
+      <SelectTrigger aria-label={label}><SelectValue placeholder={label} /></SelectTrigger>
+      <SelectContent>
+        <SelectItem value="none">{label}: unassigned</SelectItem>
+        {members.map((member) => <SelectItem key={member.user_id} value={member.user_id}>{member.name} - {member.role}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function Phase0BudgetSection({
   canEdit,
   dashboard,
   projectId,
-  setup,
 }: {
   canEdit: boolean;
   dashboard: ProjectDashboard;
   projectId: string;
-  setup: ProjectSetup;
 }) {
   const budgetQuery = useProjectBudgetQuery(projectId);
+  const setupBudgetQuery = useProjectSetupBudgetQuery(projectId, canEdit);
   const updateBudget = useUpdateProjectSetupBudgetMutation(projectId);
   const phases = dashboard.phases;
-  const [totalBudget, setTotalBudget] = useState(String(setup.details.budget_setup.total_project_budget));
-  const [budgetNotes, setBudgetNotes] = useState(setup.details.budget_setup.budget_notes ?? "");
+  const [totalBudget, setTotalBudget] = useState("0");
+  const [budgetNotes, setBudgetNotes] = useState("");
   const [allocationRows, setAllocationRows] = useState<BudgetAllocationDraft[]>(() => initialBudgetAllocationRows(phases));
 
   useEffect(() => {
-    setTotalBudget(String(setup.details.budget_setup.total_project_budget));
-    setBudgetNotes(setup.details.budget_setup.budget_notes ?? "");
+    if (setupBudgetQuery.data) {
+      setTotalBudget(String(setupBudgetQuery.data.total_project_budget));
+      setBudgetNotes(setupBudgetQuery.data.budget_notes ?? "");
+    }
     setAllocationRows(initialBudgetAllocationRows(phases));
-  }, [phases, setup.details.budget_setup]);
+  }, [phases, setupBudgetQuery.data]);
 
   const allocatedToPhases = allocationRows.reduce((sum, row) => sum + (isNonNegativeNumber(row.allocated) ? Number(row.allocated) : 0), 0);
   const totalBudgetNumber = isNonNegativeNumber(totalBudget) ? Number(totalBudget) : 0;
@@ -742,12 +981,16 @@ function Phase0BudgetSection({
     await updateBudget.mutateAsync(payload);
   }
 
-  if (budgetQuery.isLoading) {
+  if (budgetQuery.isLoading || setupBudgetQuery.isLoading) {
     return <LoadingState label="Loading project budget" />;
   }
 
   if (budgetQuery.isError) {
     return <ErrorState title="Budget could not be loaded" message={userFacingErrorMessage(budgetQuery.error, { action: "project budget" })} />;
+  }
+
+  if (setupBudgetQuery.isError) {
+    return <ErrorState title="Budget setup could not be loaded" message={userFacingErrorMessage(setupBudgetQuery.error, { action: "budget setup" })} />;
   }
 
   const liveBudget = budgetQuery.data;

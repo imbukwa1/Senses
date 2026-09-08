@@ -228,7 +228,6 @@ export type ProjectSetupDetails = {
   scope: ProjectSetupScopeDetails;
   objectives_outcomes: ProjectSetupObjectivesDetails;
   work_plan: ProjectSetupWorkPlanDetails;
-  budget_setup: ProjectSetupBudgetDetails;
 };
 
 export type ProjectSetup = {
@@ -254,6 +253,74 @@ export type ProjectSetupBudgetPayload = {
     phase_id: string;
     allocated: number;
   }>;
+};
+
+export type ProjectSetupMilestone = {
+  id: string;
+  project_id: string;
+  name: string;
+  target_date: string;
+  responsible_user_id: string | null;
+  responsible_person: ProjectLead | null;
+  status: "Not Started" | "In Progress" | "Complete";
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectSetupMilestonePayload = {
+  name: string;
+  target_date: string;
+  responsible_user_id: string | null;
+  status: "Not Started" | "In Progress" | "Complete";
+};
+
+export type ProjectSetupDeliverable = {
+  id: string;
+  task_id: string;
+  task_name: string;
+  phase_id: string;
+  phase_name: string;
+  description: string;
+  owner_id: string | null;
+  owner: ProjectLead | null;
+  due_date: string | null;
+  acceptance_criteria: string | null;
+  approver_id: string | null;
+  approver: ProjectLead | null;
+  is_completed: boolean;
+  display_order: number;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectSetupDeliverablePayload = {
+  task_id: string;
+  description: string;
+  owner_id: string | null;
+  due_date: string | null;
+  acceptance_criteria: string | null;
+  approver_id: string | null;
+};
+
+export type ProjectSetupResourceType = "People" | "Equipment" | "Materials" | "Facilities" | "Technology" | "Other";
+
+export type ProjectSetupResource = {
+  id: string;
+  project_id: string;
+  resource_type: ProjectSetupResourceType;
+  name: string;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectSetupResourcePayload = {
+  resource_type: ProjectSetupResourceType;
+  name: string;
+  notes: string | null;
 };
 
 export type Task = {
