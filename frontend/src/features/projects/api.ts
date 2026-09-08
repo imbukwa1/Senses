@@ -25,6 +25,9 @@ import {
   taskSupporterSchema,
   taskSupportersSchema,
   tasksSchema,
+  workspaceContentsSchema,
+  workspaceFolderSchema,
+  workspaceFileSchema,
 } from "./schemas";
 import type {
   PhaseMutationPayload,
@@ -48,6 +51,11 @@ import type {
   TaskFile,
   TaskMutationPayload,
   TaskSupporter,
+  WorkspaceContents,
+  WorkspaceFile,
+  WorkspaceFileMovePayload,
+  WorkspaceFolder,
+  WorkspaceFolderMutationPayload,
 } from "./types";
 
 export async function listProjects(token: string): Promise<ProjectSummary[]> {
@@ -136,6 +144,80 @@ export async function downloadProjectFile(token: string, projectId: string, file
     blob: await response.blob(),
     fileName: parseDownloadFileName(response.headers.get("content-disposition")) ?? "attachment",
   };
+}
+
+export async function getWorkspaceContents(token: string, projectId: string, folderId: string | null = null): Promise<WorkspaceContents> {
+  const path = folderId ? `/projects/${projectId}/workspace/folders/${folderId}` : `/projects/${projectId}/workspace`;
+  const data = await apiRequest<unknown>(path, {}, token);
+  const result = workspaceContentsSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Workspace data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createWorkspaceFolder(token: string, projectId: string, payload: WorkspaceFolderMutationPayload): Promise<WorkspaceFolder> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/workspace/folders`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parseWorkspaceFolder(data);
+}
+
+export async function updateWorkspaceFolder(
+  token: string,
+  projectId: string,
+  folderId: string,
+  payload: WorkspaceFolderMutationPayload,
+): Promise<WorkspaceFolder> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/workspace/folders/${folderId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  return parseWorkspaceFolder(data);
+}
+
+export async function deleteWorkspaceFolder(token: string, projectId: string, folderId: string): Promise<void> {
+  await apiRequest<void>(
+    `/projects/${projectId}/workspace/folders/${folderId}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
+}
+
+export async function moveWorkspaceFile(
+  token: string,
+  projectId: string,
+  fileId: string,
+  payload: WorkspaceFileMovePayload,
+): Promise<WorkspaceFile> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/workspace/files/${fileId}/folder`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = workspaceFileSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Workspace file data could not be loaded.", 500);
+  }
+
+  return result.data;
 }
 
 export async function updateProjectBudget(token: string, projectId: string, payload: ProjectBudgetMutationPayload): Promise<ProjectBudget> {
@@ -646,6 +728,16 @@ function parseChecklistItem(data: unknown) {
 
   if (!result.success) {
     throw new ApiError("Checklist item data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+function parseWorkspaceFolder(data: unknown) {
+  const result = workspaceFolderSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Workspace folder data could not be loaded.", 500);
   }
 
   return result.data;

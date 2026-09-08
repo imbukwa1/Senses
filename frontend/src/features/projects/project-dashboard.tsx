@@ -43,6 +43,7 @@ import { PhaseManagementDialog } from "./phase-management-dialog";
 import { PhaseTasks } from "./phase-tasks";
 import { ProjectFormDialog } from "./project-form-dialog";
 import { ProjectMembersDialog } from "./project-members-dialog";
+import { ProjectWorkspace } from "./project-workspace";
 import type { AttentionItem, DashboardDeliverable, DashboardPhase, PhaseMember, ProjectBudget, ProjectDashboard, ProjectFile, ProjectMember, UpcomingDeadline } from "./types";
 
 export function ProjectDashboardPage() {
@@ -65,6 +66,7 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
   const archiveProject = useArchiveProjectMutation(projectId);
   const [editOpen, setEditOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [activeProjectTab, setActiveProjectTab] = useState<"overview" | "workspace">("overview");
 
   if (dashboardQuery.isLoading) {
     return <LoadingState label="Loading project dashboard" />;
@@ -207,31 +209,64 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
         </CardContent>
       </Card>
 
-      {summaryCards}
+      <div className="flex flex-wrap gap-2 border-b">
+        <Button
+          type="button"
+          variant="ghost"
+          className={projectTabClass(activeProjectTab === "overview", isProjectPm)}
+          onClick={() => setActiveProjectTab("overview")}
+        >
+          Overview
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          className={projectTabClass(activeProjectTab === "workspace", isProjectPm)}
+          onClick={() => setActiveProjectTab("workspace")}
+        >
+          Workspace
+        </Button>
+      </div>
 
-      {isProjectPm ? <AttentionItemsSection items={projectAttention} /> : null}
+      {activeProjectTab === "overview" ? (
+        <>
+          {summaryCards}
 
-      {isProjectPm ? phasesAndDeadlines : null}
+          {isProjectPm ? <AttentionItemsSection items={projectAttention} /> : null}
 
-      {canViewFinance ? <ProjectFinanceSection canEdit={canEditFinance} phases={dashboard.phases} projectId={projectId} /> : null}
+          {isProjectPm ? phasesAndDeadlines : null}
 
-      {!isProjectPm ? phasesAndDeadlines : null}
+          {canViewFinance ? <ProjectFinanceSection canEdit={canEditFinance} phases={dashboard.phases} projectId={projectId} /> : null}
 
-      <ProjectChecklistSection deliverables={dashboard.deliverables} />
+          {!isProjectPm ? phasesAndDeadlines : null}
 
-      <ProjectFilesSection projectId={projectId} />
+          <ProjectChecklistSection deliverables={dashboard.deliverables} />
 
-      {editProject?.objectives ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Objectives</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="whitespace-pre-wrap text-sm text-muted-foreground">{editProject.objectives}</p>
-          </CardContent>
-        </Card>
-      ) : null}
+          <ProjectFilesSection projectId={projectId} />
+
+          {editProject?.objectives ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Objectives</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground">{editProject.objectives}</p>
+              </CardContent>
+            </Card>
+          ) : null}
+        </>
+      ) : (
+        <ProjectWorkspace canManage={isProjectPm} projectId={projectId} />
+      )}
     </div>
+  );
+}
+
+function projectTabClass(active: boolean, management: boolean) {
+  return cn(
+    "h-10 rounded-none border-b-2 border-transparent px-3",
+    active && "border-primary text-primary hover:text-primary",
+    active && management && "border-brand-red text-brand-red hover:text-brand-red",
   );
 }
 

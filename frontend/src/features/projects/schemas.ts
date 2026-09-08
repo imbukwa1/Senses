@@ -276,6 +276,26 @@ export const projectFileSchema = taskFileSchema.extend({
   phase_id: z.uuid(),
   phase_name: z.string().min(1),
   task_name: z.string().min(1),
+  folder_id: z.uuid().nullable().optional(),
 });
 
 export const projectFilesSchema = z.array(projectFileSchema);
+
+export const workspaceFolderSchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  parent_folder_id: z.uuid().nullable(),
+  name: z.string().min(1),
+  created_by: z.uuid().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const workspaceFileSchema = projectFileSchema.extend({
+  folder_id: z.uuid().nullable(),
+});
+
+export const workspaceContentsSchema = z.object({
+  folders: z.array(workspaceFolderSchema),
+  files: z.array(workspaceFileSchema),
+});

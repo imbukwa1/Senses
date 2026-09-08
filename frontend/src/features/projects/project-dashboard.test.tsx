@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -51,6 +51,14 @@ vi.mock("./project-form-dialog", () => ({
 
 vi.mock("./project-members-dialog", () => ({
   ProjectMembersDialog: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("./project-workspace", () => ({
+  ProjectWorkspace: ({ canManage, projectId }: { canManage: boolean; projectId: string }) => (
+    <div>
+      Workspace for {projectId}: {canManage ? "Can manage" : "Read only"}
+    </div>
+  ),
 }));
 
 vi.mock("@/features/auth/hooks", () => ({
@@ -269,6 +277,16 @@ describe("ProjectDashboardPage", () => {
     expect(screen.queryByText("Current Phase")).not.toBeInTheDocument();
     expect(screen.queryByText(projectId)).not.toBeInTheDocument();
     expect(screen.queryByText(/storage key/i)).not.toBeInTheDocument();
+  });
+
+  it("opens Workspace inside the project without changing the project route", () => {
+    renderProject();
+
+    expect(screen.getByRole("button", { name: "Overview" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+
+    expect(screen.getByText(`Workspace for ${projectId}: Read only`)).toBeInTheDocument();
+    expect(screen.queryByText("Files uploaded inside this project.")).not.toBeInTheDocument();
   });
 
   it("hides PM management controls from Team Member and Finance roles", () => {

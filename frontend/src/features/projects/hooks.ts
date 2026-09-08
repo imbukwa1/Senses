@@ -12,17 +12,20 @@ import {
   addProjectMember,
   addTaskSupporter,
   completePhase,
+  createWorkspaceFolder,
   createChecklistItem,
   createPhase,
   createProject,
   createTaskComment,
   createTask,
+  deleteWorkspaceFolder,
   downloadProjectFile,
   downloadTaskFile,
   getChecklist,
   getProject,
   getProjectBudget,
   getProjectDashboard,
+  getWorkspaceContents,
   listAttention,
   listMyWork,
   listPhaseMembers,
@@ -41,15 +44,17 @@ import {
   setChecklistItemCompletion,
   setCurrentPhase,
   updateChecklistItem,
+  updateWorkspaceFolder,
   updatePhase,
   updatePhaseBudget,
   updateProject,
   updateProjectBudget,
   updateTask,
   updateTaskStatus,
+  moveWorkspaceFile,
   uploadTaskFile,
 } from "./api";
-import type { PhaseBudgetMutationPayload, PhaseMutationPayload, ProjectBudgetMutationPayload, ProjectMutationPayload, Task, TaskFile, TaskMutationPayload } from "./types";
+import type { PhaseBudgetMutationPayload, PhaseMutationPayload, ProjectBudgetMutationPayload, ProjectMutationPayload, Task, TaskFile, TaskMutationPayload, WorkspaceFolderMutationPayload } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
 export const attentionQueryKey = ["attention", "list"] as const;
@@ -58,6 +63,7 @@ export const projectQueryKey = (projectId: string) => ["projects", projectId] as
 export const projectBudgetQueryKey = (projectId: string) => ["projects", projectId, "budget"] as const;
 export const projectFilesQueryKey = (projectId: string) => ["projects", projectId, "files"] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
+export const workspaceContentsQueryKey = (projectId: string, folderId: string | null) => ["projects", projectId, "workspace", folderId ?? "root"] as const;
 export const projectMembersQueryKey = (projectId: string) => ["projects", projectId, "members"] as const;
 export const phaseMembersQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "members"] as const;
 export const tasksQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "tasks"] as const;
@@ -218,6 +224,98 @@ export function useDownloadProjectFileMutation(projectId: string) {
 
   return useMutation({
     mutationFn: (fileId: string) => downloadProjectFile(requireToken(token), projectId, fileId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useWorkspaceContentsQuery(projectId: string, folderId: string | null) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: workspaceContentsQueryKey(projectId, folderId),
+    queryFn: () => getWorkspaceContents(requireToken(token), projectId, folderId),
+    enabled: status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useWorkspaceFolderTreeQuery(projectId: string) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: ["projects", projectId, "workspace", "folder-tree"],
+    queryFn: async () => {
+      const authToken = requireToken(token);
+      const folders: Awaited<ReturnType<typeof getWorkspaceContents>>["folders"] = [];
+      const visit = async (folderId: string | null) => {
+        const contents = await getWorkspaceContents(authToken, projectId, folderId);
+        folders.push(...contents.folders);
+        await Promise.all(contents.folders.map((folder) => visit(folder.id)));
+      };
+      await visit(null);
+      return folders;
+    },
+    enabled: status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useCreateWorkspaceFolderMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: WorkspaceFolderMutationPayload) => createWorkspaceFolder(requireToken(token), projectId, payload),
+    onSuccess: () => invalidateWorkspaceQueries(queryClient, projectId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateWorkspaceFolderMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ folderId, payload }: { folderId: string; payload: WorkspaceFolderMutationPayload }) =>
+      updateWorkspaceFolder(requireToken(token), projectId, folderId, payload),
+    onSuccess: () => invalidateWorkspaceQueries(queryClient, projectId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useDeleteWorkspaceFolderMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (folderId: string) => deleteWorkspaceFolder(requireToken(token), projectId, folderId),
+    onSuccess: () => invalidateWorkspaceQueries(queryClient, projectId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useMoveWorkspaceFileMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ fileId, folderId }: { fileId: string; folderId: string | null }) =>
+      moveWorkspaceFile(requireToken(token), projectId, fileId, { folder_id: folderId }),
+    onSuccess: () => invalidateWorkspaceQueries(queryClient, projectId),
     onError: authFailureHandler(logout),
   });
 }
@@ -601,6 +699,11 @@ export function useDownloadTaskFileMutation(projectId: string, phaseId: string, 
 function invalidateProjectDashboardQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string) {
   void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
   void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
+}
+
+function invalidateWorkspaceQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string) {
+  void queryClient.invalidateQueries({ queryKey: ["projects", projectId, "workspace"] });
+  void queryClient.invalidateQueries({ queryKey: projectFilesQueryKey(projectId) });
 }
 
 function invalidateTaskQueries(queryClient: ReturnType<typeof useQueryClient>, projectId: string, phaseId: string) {

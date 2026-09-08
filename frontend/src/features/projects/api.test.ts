@@ -4,14 +4,19 @@ import {
   addPhaseMember,
   addProjectMember,
   archiveProject,
+  createWorkspaceFolder,
   createProject,
+  deleteWorkspaceFolder,
   downloadProjectFile,
   getProjectBudget,
+  getWorkspaceContents,
   listAttention,
   listMyWork,
   listPhaseMembers,
   listProjectFiles,
+  moveWorkspaceFile,
   uploadTaskFile,
+  updateWorkspaceFolder,
   updateProjectBudget,
   updateTaskStatus,
 } from "./api";
@@ -141,6 +146,21 @@ const projectFile = {
   phase_id: phaseId,
   phase_name: "Discovery",
   task_name: myWorkItem.task_name,
+};
+
+const workspaceFolder = {
+  id: "88888888-8888-4888-8888-888888888888",
+  project_id: project.id,
+  parent_folder_id: null,
+  name: "Research",
+  created_by: member.user_id,
+  created_at: "2026-09-07T07:03:00Z",
+  updated_at: "2026-09-07T07:03:00Z",
+};
+
+const workspaceFile = {
+  ...projectFile,
+  folder_id: null,
 };
 
 describe("project API mutations", () => {
@@ -372,6 +392,79 @@ describe("project API mutations", () => {
       }),
     );
     expect(result.status).toBe("Completed");
+  });
+
+  it("uses project workspace routes for contents and folder operations", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ folders: [workspaceFolder], files: [workspaceFile] }))
+      .mockResolvedValueOnce(jsonResponse({ folders: [], files: [] }))
+      .mockResolvedValueOnce(jsonResponse(workspaceFolder))
+      .mockResolvedValueOnce(jsonResponse({ ...workspaceFolder, name: "Participant Data" }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    const root = await getWorkspaceContents("token", project.id);
+    const folderContents = await getWorkspaceContents("token", project.id, workspaceFolder.id);
+    const created = await createWorkspaceFolder("token", project.id, { name: "Research", parent_folder_id: null });
+    const renamed = await updateWorkspaceFolder("token", project.id, workspaceFolder.id, { name: "Participant Data" });
+    await deleteWorkspaceFolder("token", project.id, workspaceFolder.id);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, `http://localhost:8000/projects/${project.id}/workspace`, expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, `http://localhost:8000/projects/${project.id}/workspace/folders/${workspaceFolder.id}`, expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      `http://localhost:8000/projects/${project.id}/workspace/folders`,
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ name: "Research", parent_folder_id: null }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      `http://localhost:8000/projects/${project.id}/workspace/folders/${workspaceFolder.id}`,
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ name: "Participant Data" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      `http://localhost:8000/projects/${project.id}/workspace/folders/${workspaceFolder.id}`,
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(root.files[0]?.id).toBe(projectFile.id);
+    expect(folderContents.folders).toEqual([]);
+    expect(created.name).toBe("Research");
+    expect(renamed.name).toBe("Participant Data");
+  });
+
+  it("moves existing project files through the workspace organization endpoint", async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({ ...workspaceFile, folder_id: workspaceFolder.id }))
+      .mockResolvedValueOnce(jsonResponse(workspaceFile));
+
+    const movedToFolder = await moveWorkspaceFile("token", project.id, projectFile.id, { folder_id: workspaceFolder.id });
+    const movedToRoot = await moveWorkspaceFile("token", project.id, projectFile.id, { folder_id: null });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      `http://localhost:8000/projects/${project.id}/workspace/files/${projectFile.id}/folder`,
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ folder_id: workspaceFolder.id }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `http://localhost:8000/projects/${project.id}/workspace/files/${projectFile.id}/folder`,
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ folder_id: null }),
+      }),
+    );
+    expect(movedToFolder.folder_id).toBe(workspaceFolder.id);
+    expect(movedToRoot.folder_id).toBeNull();
   });
 });
 

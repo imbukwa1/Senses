@@ -301,9 +301,38 @@ export type ProjectFile = TaskFile & {
   phase_id: string;
   phase_name: string;
   task_name: string;
+  folder_id?: string | null;
 };
 
 export type DownloadedTaskFile = {
   blob: Blob;
   fileName: string;
+};
+
+export type WorkspaceFolder = {
+  id: string;
+  project_id: string;
+  parent_folder_id: string | null;
+  name: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceFile = ProjectFile & {
+  folder_id: string | null;
+};
+
+export type WorkspaceContents = {
+  folders: WorkspaceFolder[];
+  files: WorkspaceFile[];
+};
+
+export type WorkspaceFolderMutationPayload = {
+  name?: string;
+  parent_folder_id?: string | null;
+};
+
+export type WorkspaceFileMovePayload = {
+  folder_id: string | null;
 };
