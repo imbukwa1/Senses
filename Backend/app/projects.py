@@ -34,6 +34,33 @@ PriorityLevel = Literal["Low", "Medium", "High"]
 ProjectMemberRole = Literal["PM", "Team Member", "Finance"]
 TaskFileCategory = Literal["reference", "work_submission", "finance"]
 UserFacingProjectHealth = Literal["On track", "Needs attention", "At risk", "Completed"]
+ProjectSetupSectionStatus = Literal["Complete", "In Progress", "Not Started", "Not Applicable"]
+
+PROJECT_SETUP_SECTIONS: tuple[tuple[str, str, bool], ...] = (
+    ("project_overview", "Project Overview", False),
+    ("scope", "Scope", False),
+    ("objectives_outcomes", "Objectives & Outcomes", False),
+    ("work_plan", "Work Plan", False),
+    ("phases", "Phases", False),
+    ("milestones", "Milestones", True),
+    ("deliverables", "Deliverables", True),
+    ("people_governance", "People & Governance", False),
+    ("stakeholders", "Stakeholders", True),
+    ("resources", "Resources", True),
+    ("budget_setup", "Budget Setup", True),
+    ("risks_issues", "Risks & Issues", True),
+    ("assumptions_constraints", "Assumptions & Constraints", True),
+    ("dependencies", "Dependencies", True),
+    ("communication_plan", "Communication Plan", True),
+    ("approvals_signoff", "Approvals & Sign-Off", True),
+    ("monitoring_reporting", "Monitoring & Reporting", True),
+    ("change_management", "Change Management", True),
+    ("project_specific_information", "Project-Specific Information", True),
+    ("documents_attachments", "Documents & Attachments", True),
+    ("notes", "Notes", True),
+    ("phase0_completion", "Phase 0 Completion", False),
+)
+PROJECT_SETUP_SECTION_KEYS = {key for key, _label, _optional in PROJECT_SETUP_SECTIONS}
 
 PROJECT_NOT_FOUND_DETAIL = "Project not found"
 PHASE_NOT_FOUND_DETAIL = "Phase not found"
@@ -491,6 +518,36 @@ class WorkspaceContentsResponse(BaseModel):
     spreadsheets: list[WorkspaceSpreadsheetResponse] = Field(default_factory=list)
 
 
+class ProjectSetupSectionStatusUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ProjectSetupSectionStatus
+
+
+class ProjectSetupSectionResponse(BaseModel):
+    key: str
+    label: str
+    status: ProjectSetupSectionStatus
+    optional: bool
+    live_items_count: int
+    live_source: str | None
+    updated_by: UUID | None = None
+    updated_at: datetime | None = None
+
+
+class ProjectSetupSummaryResponse(BaseModel):
+    complete_sections: int
+    total_applicable_sections: int
+    percent_complete: int
+
+
+class ProjectSetupResponse(BaseModel):
+    project_id: UUID
+    title: str = "Project Management Plan"
+    summary: ProjectSetupSummaryResponse
+    sections: list[ProjectSetupSectionResponse]
+
+
 class ProjectMemberResponse(BaseModel):
     project_id: UUID
     user_id: UUID
@@ -586,6 +643,7 @@ class ProjectDashboardResponse(BaseModel):
     upcoming_deadlines: list[UpcomingDeadlineResponse]
     phases: list[DashboardPhaseResponse]
     deliverables: list[DashboardDeliverableResponse]
+    setup: ProjectSetupResponse
 
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -1100,6 +1158,47 @@ def delete_workspace_spreadsheet(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.get("/{project_id}/setup", response_model=ProjectSetupResponse)
+def get_project_setup(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_dashboard_project(session, project_id) is None:
+        raise_project_not_found()
+    return build_project_setup_response(session, project_id)
+
+
+@router.patch("/{project_id}/setup/sections/{section_key}", response_model=ProjectSetupResponse)
+def update_project_setup_section(
+    project_id: UUID,
+    section_key: str,
+    payload: ProjectSetupSectionStatusUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if section_key not in PROJECT_SETUP_SECTION_KEYS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project setup section not found")
+    section_definition = next(section for section in PROJECT_SETUP_SECTIONS if section[0] == section_key)
+    if payload.status == "Not Applicable" and not section_definition[2]:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Only optional setup sections can be marked Not Applicable")
+
+    session.execute(
+        """
+        INSERT INTO project_setup_section_statuses (project_id, section_key, status, updated_by)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (project_id, section_key)
+        DO UPDATE SET status = EXCLUDED.status,
+                      updated_by = EXCLUDED.updated_by
+        """,
+        (project_id, section_key, payload.status, current_user.id),
+    )
+    return build_project_setup_response(session, project_id)
+
+
 @router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
 def get_project_dashboard(
     project_id: UUID,
@@ -1134,6 +1233,7 @@ def get_project_dashboard(
         upcoming_deadlines=deadlines,
         phases=phases,
         deliverables=deliverables,
+        setup=build_project_setup_response(session, project_id),
     )
 
 
@@ -3644,6 +3744,218 @@ def fetch_project_budget_or_404(session: DatabaseSession, project_id: UUID) -> R
     if row is None:
         raise_project_not_found()
     return row
+
+
+def build_project_setup_response(session: DatabaseSession, project_id: UUID) -> ProjectSetupResponse:
+    project = fetch_project_setup_project(session, project_id)
+    if project is None:
+        raise_project_not_found()
+
+    overrides = {
+        row["section_key"]: row
+        for row in fetch_project_setup_section_statuses(session, project_id)
+    }
+    live = fetch_project_setup_live_counts(session, project_id)
+    raw_sections: list[ProjectSetupSectionResponse] = []
+
+    for key, label, optional in PROJECT_SETUP_SECTIONS:
+        override = overrides.get(key)
+        override_status = override["status"] if override else None
+        live_status, live_count, live_source = project_setup_live_status(key, project, live, raw_sections)
+        if override_status == "Not Applicable":
+            resolved_status = "Not Applicable"
+        elif live_status != "Not Started":
+            resolved_status = live_status
+        else:
+            resolved_status = override_status or "Not Started"
+
+        raw_sections.append(
+            ProjectSetupSectionResponse(
+                key=key,
+                label=label,
+                status=resolved_status,
+                optional=optional,
+                live_items_count=live_count,
+                live_source=live_source,
+                updated_by=override["updated_by"] if override else None,
+                updated_at=override["updated_at"] if override else None,
+            )
+        )
+
+    applicable_sections = [section for section in raw_sections if section.status != "Not Applicable"]
+    complete_sections = sum(1 for section in applicable_sections if section.status == "Complete")
+    total_applicable_sections = len(applicable_sections)
+    percent_complete = round((complete_sections / total_applicable_sections) * 100) if total_applicable_sections else 100
+
+    return ProjectSetupResponse(
+        project_id=project_id,
+        summary=ProjectSetupSummaryResponse(
+            complete_sections=complete_sections,
+            total_applicable_sections=total_applicable_sections,
+            percent_complete=percent_complete,
+        ),
+        sections=raw_sections,
+    )
+
+
+def fetch_project_setup_project(session: DatabaseSession, project_id: UUID) -> Row | None:
+    return session.fetch_one(
+        """
+        SELECT id, name, description, objectives, funder_partner, project_type, start_date, end_date, status
+        FROM projects
+        WHERE id = %s
+          AND archived_at IS NULL
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_section_statuses(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT section_key, status, updated_by, updated_at
+        FROM project_setup_section_statuses
+        WHERE project_id = %s
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) -> Row:
+    return session.fetch_one(
+        """
+        WITH project_phase_counts AS (
+          SELECT
+            COUNT(*) AS phase_count,
+            COUNT(*) FILTER (WHERE start_date IS NOT NULL OR end_date IS NOT NULL) AS milestone_phase_count,
+            COUNT(*) FILTER (WHERE start_date IS NOT NULL AND end_date IS NOT NULL) AS dated_phase_count,
+            COALESCE(SUM(budget_allocated), 0) AS phase_budget_allocated,
+            COALESCE(SUM(budget_spent), 0) AS phase_budget_spent
+          FROM phases
+          WHERE project_id = %(project_id)s
+            AND archived_at IS NULL
+        ),
+        project_task_counts AS (
+          SELECT
+            COUNT(*) AS task_count,
+            COUNT(task_deliverables.id) AS deliverable_count
+          FROM tasks
+          JOIN phases ON phases.id = tasks.phase_id
+          LEFT JOIN task_deliverables ON task_deliverables.task_id = tasks.id
+          WHERE phases.project_id = %(project_id)s
+            AND phases.archived_at IS NULL
+        ),
+        file_counts AS (
+          SELECT COUNT(task_files.id) AS file_count
+          FROM task_files
+          JOIN tasks ON tasks.id = task_files.task_id
+          JOIN phases ON phases.id = tasks.phase_id
+          WHERE phases.project_id = %(project_id)s
+            AND phases.archived_at IS NULL
+        ),
+        native_counts AS (
+          SELECT
+            (SELECT COUNT(*) FROM workspace_documents WHERE project_id = %(project_id)s) AS document_count,
+            (SELECT COUNT(*) FROM workspace_spreadsheets WHERE project_id = %(project_id)s) AS spreadsheet_count
+        ),
+        member_counts AS (
+          SELECT COUNT(*) AS member_count
+          FROM project_members
+          WHERE project_id = %(project_id)s
+        )
+        SELECT
+          project_phase_counts.phase_count,
+          project_phase_counts.milestone_phase_count,
+          project_phase_counts.dated_phase_count,
+          project_phase_counts.phase_budget_allocated,
+          project_phase_counts.phase_budget_spent,
+          project_task_counts.task_count,
+          project_task_counts.deliverable_count,
+          file_counts.file_count,
+          native_counts.document_count,
+          native_counts.spreadsheet_count,
+          member_counts.member_count,
+          projects.budget_allocated AS project_budget_allocated
+        FROM projects
+        CROSS JOIN project_phase_counts
+        CROSS JOIN project_task_counts
+        CROSS JOIN file_counts
+        CROSS JOIN native_counts
+        CROSS JOIN member_counts
+        WHERE projects.id = %(project_id)s
+        """,
+        {"project_id": project_id},
+    ) or {}
+
+
+def project_setup_live_status(
+    section_key: str,
+    project: Row,
+    live: Row,
+    previous_sections: list[ProjectSetupSectionResponse],
+) -> tuple[ProjectSetupSectionStatus, int, str | None]:
+    if section_key == "project_overview":
+        has_core = all(project.get(field) for field in ("name", "description", "start_date", "end_date", "status"))
+        return ("Complete" if has_core else "In Progress", 1 if has_core else 0, "projects")
+    if section_key == "scope":
+        has_scope = bool(project.get("description"))
+        has_context = bool(project.get("project_type") or project.get("funder_partner"))
+        return project_setup_status_from_count(2 if has_scope and has_context else int(has_scope), 2, "projects")
+    if section_key == "objectives_outcomes":
+        return project_setup_status_from_count(int(bool(project.get("objectives"))), 1, "projects.objectives")
+    if section_key == "work_plan":
+        phase_count = int(live.get("phase_count") or 0)
+        task_count = int(live.get("task_count") or 0)
+        if phase_count and task_count:
+            return "Complete", phase_count + task_count, "phases/tasks"
+        if phase_count:
+            return "In Progress", phase_count, "phases"
+        return "Not Started", 0, "phases/tasks"
+    if section_key == "phases":
+        return project_setup_status_from_count(int(live.get("phase_count") or 0), 1, "phases")
+    if section_key == "milestones":
+        milestone_count = int(live.get("milestone_phase_count") or 0)
+        phase_count = int(live.get("phase_count") or 0)
+        if phase_count and milestone_count >= phase_count:
+            return "Complete", milestone_count, "phases.start_date/end_date"
+        return ("In Progress" if milestone_count else "Not Started", milestone_count, "phases.start_date/end_date")
+    if section_key == "deliverables":
+        return project_setup_status_from_count(int(live.get("deliverable_count") or 0), 1, "task_deliverables")
+    if section_key == "people_governance":
+        member_count = int(live.get("member_count") or 0)
+        if member_count > 1:
+            return "Complete", member_count, "project_members"
+        if member_count == 1:
+            return "In Progress", member_count, "project_members"
+        return "Not Started", 0, "project_members"
+    if section_key == "stakeholders":
+        return project_setup_status_from_count(max(int(live.get("member_count") or 0) - 1, 0), 1, "project_members")
+    if section_key == "resources":
+        resource_count = int(live.get("file_count") or 0) + int(live.get("document_count") or 0) + int(live.get("spreadsheet_count") or 0)
+        return project_setup_status_from_count(resource_count, 1, "task_files/workspace_resources")
+    if section_key == "budget_setup":
+        budget_count = int((live.get("project_budget_allocated") or 0) > 0) + int((live.get("phase_budget_allocated") or 0) > 0) + int((live.get("phase_budget_spent") or 0) > 0)
+        return project_setup_status_from_count(budget_count, 1, "projects/phases budget fields")
+    if section_key == "documents_attachments":
+        document_count = int(live.get("file_count") or 0) + int(live.get("document_count") or 0) + int(live.get("spreadsheet_count") or 0)
+        return project_setup_status_from_count(document_count, 1, "task_files/workspace_documents/workspace_spreadsheets")
+    if section_key == "phase0_completion":
+        applicable = [section for section in previous_sections if section.status != "Not Applicable"]
+        if applicable and all(section.status == "Complete" for section in applicable):
+            return "Complete", len(applicable), "project_setup_sections"
+        if any(section.status in {"Complete", "In Progress"} for section in applicable):
+            return "In Progress", len(applicable), "project_setup_sections"
+        return "Not Started", 0, "project_setup_sections"
+
+    return "Not Started", 0, None
+
+
+def project_setup_status_from_count(count: int, complete_threshold: int, source: str) -> tuple[ProjectSetupSectionStatus, int, str]:
+    if count >= complete_threshold:
+        return "Complete", count, source
+    if count > 0:
+        return "In Progress", count, source
+    return "Not Started", 0, source
 
 
 def project_to_response(row: Row, session: DatabaseSession | None = None, user_id: UUID | None = None) -> ProjectResponse:

@@ -1,6 +1,6 @@
 import { AlertTriangle, Archive, CalendarDays, CheckCircle2, Clock, DollarSign, Download, Edit, FileText, ListChecks, Save, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { ConfirmAction } from "@/components/common/confirm-action";
 import { EmptyState } from "@/components/common/empty-state";
@@ -43,6 +43,7 @@ import { PhaseManagementDialog } from "./phase-management-dialog";
 import { PhaseTasks } from "./phase-tasks";
 import { ProjectFormDialog } from "./project-form-dialog";
 import { ProjectMembersDialog } from "./project-members-dialog";
+import { ProjectSetupCard, ProjectSetupPanel } from "./project-setup";
 import { ProjectWorkspace } from "./project-workspace";
 import type { AttentionItem, DashboardDeliverable, DashboardPhase, PhaseMember, ProjectBudget, ProjectDashboard, ProjectFile, ProjectMember, UpcomingDeadline } from "./types";
 
@@ -58,6 +59,7 @@ export function ProjectDashboardPage() {
 
 function ProjectDashboardContent({ projectId }: { projectId: string }) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const dashboardQuery = useProjectDashboardQuery(projectId);
   const projectQuery = useProjectQuery(projectId);
@@ -66,7 +68,8 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
   const archiveProject = useArchiveProjectMutation(projectId);
   const [editOpen, setEditOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false);
-  const [activeProjectTab, setActiveProjectTab] = useState<"overview" | "workspace">("overview");
+  const initialTab = searchParams.get("tab") === "setup" ? "setup" : "overview";
+  const [activeProjectTab, setActiveProjectTab] = useState<"overview" | "setup" | "workspace">(initialTab);
 
   if (dashboardQuery.isLoading) {
     return <LoadingState label="Loading project dashboard" />;
@@ -226,10 +229,20 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
         >
           Workspace
         </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          className={projectTabClass(activeProjectTab === "setup", isProjectPm)}
+          onClick={() => setActiveProjectTab("setup")}
+        >
+          Project Setup
+        </Button>
       </div>
 
       {activeProjectTab === "overview" ? (
         <>
+          {dashboard.setup ? <ProjectSetupCard setup={dashboard.setup} onContinue={() => setActiveProjectTab("setup")} /> : null}
+
           {summaryCards}
 
           {isProjectPm ? <AttentionItemsSection items={projectAttention} /> : null}
@@ -255,8 +268,10 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
             </Card>
           ) : null}
         </>
-      ) : (
+      ) : activeProjectTab === "workspace" ? (
         <ProjectWorkspace canManage={isProjectPm} projectId={projectId} />
+      ) : (
+        <ProjectSetupPanel canEdit={isProjectPm} projectId={projectId} />
       )}
     </div>
   );

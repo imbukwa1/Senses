@@ -49,10 +49,11 @@ type ProjectFormDialogProps = {
   project?: ProjectSummary;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSaved?: (project: ProjectSummary) => void;
   children: React.ReactNode;
 };
 
-export function ProjectFormDialog({ children, mode, onOpenChange, open, project }: ProjectFormDialogProps) {
+export function ProjectFormDialog({ children, mode, onOpenChange, onSaved, open, project }: ProjectFormDialogProps) {
   const { user } = useAuth();
   const createProject = useCreateProjectMutation();
   const updateProject = useUpdateProjectMutation(project?.id ?? "");
@@ -84,6 +85,7 @@ export function ProjectFormDialog({ children, mode, onOpenChange, open, project 
       const saved = await mutation.mutateAsync(toPayload(values, mode));
       reset(projectToFormValues(saved, user?.id));
       onOpenChange(false);
+      onSaved?.(saved);
     } catch {
       return;
     }

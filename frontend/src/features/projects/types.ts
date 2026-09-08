@@ -165,6 +165,37 @@ export type ProjectDashboard = {
   upcoming_deadlines: UpcomingDeadline[];
   phases: DashboardPhase[];
   deliverables: DashboardDeliverable[];
+  setup: ProjectSetup;
+};
+
+export type ProjectSetupStatus = "Complete" | "In Progress" | "Not Started" | "Not Applicable";
+
+export type ProjectSetupSection = {
+  key: string;
+  label: string;
+  status: ProjectSetupStatus;
+  optional: boolean;
+  live_items_count: number;
+  live_source: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+};
+
+export type ProjectSetupSummary = {
+  complete_sections: number;
+  total_applicable_sections: number;
+  percent_complete: number;
+};
+
+export type ProjectSetup = {
+  project_id: string;
+  title: string;
+  summary: ProjectSetupSummary;
+  sections: ProjectSetupSection[];
+};
+
+export type ProjectSetupSectionStatusPayload = {
+  status: ProjectSetupStatus;
 };
 
 export type Task = {

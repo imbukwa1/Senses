@@ -27,6 +27,7 @@ import {
   getProject,
   getProjectBudget,
   getProjectDashboard,
+  getProjectSetup,
   getWorkspaceNativeResource,
   getWorkspaceContents,
   listAttention,
@@ -54,6 +55,7 @@ import {
   updatePhaseBudget,
   updateProject,
   updateProjectBudget,
+  updateProjectSetupSection,
   updateTask,
   updateTaskStatus,
   renameWorkspaceNativeResource,
@@ -66,6 +68,7 @@ import type {
   PhaseMutationPayload,
   ProjectBudgetMutationPayload,
   ProjectMutationPayload,
+  ProjectSetupSectionStatusPayload,
   Task,
   TaskFile,
   TaskMutationPayload,
@@ -85,6 +88,7 @@ export const projectQueryKey = (projectId: string) => ["projects", projectId] as
 export const projectBudgetQueryKey = (projectId: string) => ["projects", projectId, "budget"] as const;
 export const projectFilesQueryKey = (projectId: string) => ["projects", projectId, "files"] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
+export const projectSetupQueryKey = (projectId: string) => ["projects", projectId, "setup"] as const;
 export const workspaceContentsQueryKey = (projectId: string, folderId: string | null) => ["projects", projectId, "workspace", folderId ?? "root"] as const;
 export const workspaceNativeResourceQueryKey = (projectId: string, kind: WorkspaceResourceKind, resourceId: string) =>
   ["projects", projectId, "workspace", kind, resourceId] as const;
@@ -195,6 +199,24 @@ export function useProjectDashboardQuery(projectId: string) {
     queryKey: projectDashboardQueryKey(projectId),
     queryFn: () => getProjectDashboard(requireToken(token), projectId),
     enabled: status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useProjectSetupQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectSetupQueryKey(projectId),
+    queryFn: () => getProjectSetup(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
     retry: false,
   });
 
@@ -453,6 +475,21 @@ export function useUpdateProjectBudgetMutation(projectId: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: projectBudgetQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: attentionQueryKey });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateProjectSetupSectionMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ sectionKey, payload }: { sectionKey: string; payload: ProjectSetupSectionStatusPayload }) =>
+      updateProjectSetupSection(requireToken(token), projectId, sectionKey, payload),
+    onSuccess: (setup) => {
+      queryClient.setQueryData(projectSetupQueryKey(projectId), setup);
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
     },
     onError: authFailureHandler(logout),
   });

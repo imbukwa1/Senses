@@ -141,12 +141,37 @@ export const dashboardDeliverableSchema = z.object({
   updated_at: z.string().min(1),
 });
 
+export const projectSetupStatusSchema = z.enum(["Complete", "In Progress", "Not Started", "Not Applicable"]);
+
+export const projectSetupSectionSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  status: projectSetupStatusSchema,
+  optional: z.boolean(),
+  live_items_count: z.number(),
+  live_source: z.string().nullable(),
+  updated_by: z.uuid().nullable(),
+  updated_at: z.string().nullable(),
+});
+
+export const projectSetupSchema = z.object({
+  project_id: z.uuid(),
+  title: z.string().min(1),
+  summary: z.object({
+    complete_sections: z.number(),
+    total_applicable_sections: z.number(),
+    percent_complete: z.number(),
+  }),
+  sections: z.array(projectSetupSectionSchema),
+});
+
 export const projectDashboardSchema = z.object({
   project: dashboardProjectSchema,
   current_phase: dashboardPhaseSchema.nullable(),
   upcoming_deadlines: z.array(upcomingDeadlineSchema),
   phases: z.array(dashboardPhaseSchema),
   deliverables: z.array(dashboardDeliverableSchema),
+  setup: projectSetupSchema,
 });
 
 export const taskSchema = z.object({

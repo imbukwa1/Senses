@@ -15,6 +15,7 @@ import {
   projectFilesSchema,
   projectMemberSchema,
   projectMembersSchema,
+  projectSetupSchema,
   projectSummariesSchema,
   projectSummarySchema,
   taskSchema,
@@ -44,6 +45,8 @@ import type {
   ProjectDashboard,
   ProjectMember,
   ProjectMutationPayload,
+  ProjectSetup,
+  ProjectSetupSectionStatusPayload,
   ProjectSummary,
   Task,
   Checklist,
@@ -111,6 +114,17 @@ export async function getProjectDashboard(token: string, projectId: string): Pro
 
   if (!result.success) {
     throw new ApiError("Project dashboard data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function getProjectSetup(token: string, projectId: string): Promise<ProjectSetup> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup`, {}, token);
+  const result = projectSetupSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup data could not be loaded.", 500);
   }
 
   return result.data;
@@ -357,6 +371,29 @@ export async function updateProjectBudget(token: string, projectId: string, payl
 
   if (!result.success) {
     throw new ApiError("Project budget data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function updateProjectSetupSection(
+  token: string,
+  projectId: string,
+  sectionKey: string,
+  payload: ProjectSetupSectionStatusPayload,
+): Promise<ProjectSetup> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/sections/${sectionKey}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectSetupSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup data could not be loaded.", 500);
   }
 
   return result.data;
