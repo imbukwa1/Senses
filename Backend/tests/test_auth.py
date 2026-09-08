@@ -3,7 +3,7 @@ import os
 from uuid import UUID, uuid4
 
 from fastapi import Depends
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 import pytest
 
 from app.auth import (

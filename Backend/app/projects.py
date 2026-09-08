@@ -39,10 +39,16 @@ PHASE_NOT_FOUND_DETAIL = "Phase not found"
 TASK_NOT_FOUND_DETAIL = "Task not found"
 DELIVERABLE_NOT_FOUND_DETAIL = "Checklist item not found"
 TASK_FILE_NOT_FOUND_DETAIL = "Task file not found"
+WORKSPACE_FOLDER_NOT_FOUND_DETAIL = "Workspace folder not found"
 FILE_STORAGE_NOT_CONFIGURED_DETAIL = "File storage is not configured"
 FILE_UPLOAD_EMPTY_DETAIL = "Uploaded file cannot be empty"
 FILE_UPLOAD_TOO_LARGE_DETAIL = "Uploaded file is too large"
 TASK_FILE_UPLOAD_FORBIDDEN_DETAIL = "You cannot upload work to this task"
+WORKSPACE_FOLDER_NAME_EXISTS_DETAIL = "A folder with that name already exists in this location"
+WORKSPACE_FOLDER_NON_EMPTY_DETAIL = "Folder is not empty"
+WORKSPACE_FOLDER_PARENT_SELF_DETAIL = "A folder cannot be moved into itself"
+WORKSPACE_FOLDER_PARENT_DESCENDANT_DETAIL = "A folder cannot be moved into one of its subfolders"
+WORKSPACE_FOLDER_NAME_INVALID_DETAIL = "Folder name is invalid"
 TASK_SUPPORTER_EXISTS_DETAIL = "Task supporter already exists"
 PHASE_MEMBER_EXISTS_DETAIL = "Phase member already exists"
 PHASE_MEMBER_NOT_FOUND_DETAIL = "Phase member not found"
@@ -387,6 +393,45 @@ class ProjectFileResponse(TaskFileResponse):
     task_name: str
 
 
+class WorkspaceFolderCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    parent_folder_id: UUID | None = None
+
+
+class WorkspaceFolderUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    parent_folder_id: UUID | None = None
+
+
+class WorkspaceFileMoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    folder_id: UUID | None = None
+
+
+class WorkspaceFolderResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    parent_folder_id: UUID | None
+    name: str
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkspaceFileResponse(ProjectFileResponse):
+    folder_id: UUID | None
+
+
+class WorkspaceContentsResponse(BaseModel):
+    folders: list[WorkspaceFolderResponse]
+    files: list[WorkspaceFileResponse]
+
+
 class ProjectMemberResponse(BaseModel):
     project_id: UUID
     user_id: UUID
@@ -646,6 +691,158 @@ def download_project_file(
         media_type=content_type,
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted_name}"},
     )
+
+
+@router.get("/{project_id}/workspace", response_model=WorkspaceContentsResponse)
+def list_workspace_root(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceContentsResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_contents_to_response(session, current_user.id, project_id, parent_folder_id=None)
+
+
+@router.get("/{project_id}/workspace/folders/{folder_id}", response_model=WorkspaceContentsResponse)
+def list_workspace_folder(
+    project_id: UUID,
+    folder_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceContentsResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_workspace_folder_or_404(session, project_id, folder_id)
+    return workspace_contents_to_response(session, current_user.id, project_id, parent_folder_id=folder_id)
+
+
+@router.post(
+    "/{project_id}/workspace/folders",
+    response_model=WorkspaceFolderResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_workspace_folder(
+    project_id: UUID,
+    payload: WorkspaceFolderCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceFolderResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    folder_name = normalize_workspace_folder_name(payload.name)
+    if payload.parent_folder_id is not None:
+        fetch_workspace_folder_or_404(session, project_id, payload.parent_folder_id)
+    ensure_workspace_folder_name_available(session, project_id, payload.parent_folder_id, folder_name)
+
+    folder = session.fetch_one(
+        """
+        INSERT INTO workspace_folders (
+          project_id,
+          parent_folder_id,
+          name,
+          created_by
+        )
+        VALUES (%s, %s, %s, %s)
+        RETURNING *
+        """,
+        (project_id, payload.parent_folder_id, folder_name, current_user.id),
+    )
+    return workspace_folder_to_response(folder)
+
+
+@router.patch("/{project_id}/workspace/folders/{folder_id}", response_model=WorkspaceFolderResponse)
+def update_workspace_folder(
+    project_id: UUID,
+    folder_id: UUID,
+    payload: WorkspaceFolderUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceFolderResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    current_folder = fetch_workspace_folder_or_404(session, project_id, folder_id)
+    values = payload.model_dump(exclude_unset=True)
+    if not values:
+        return workspace_folder_to_response(current_folder)
+
+    next_name = (
+        normalize_workspace_folder_name(values["name"])
+        if "name" in values
+        else current_folder["name"]
+    )
+    next_parent_folder_id = values.get("parent_folder_id", current_folder["parent_folder_id"])
+    if next_parent_folder_id is not None:
+        if next_parent_folder_id == folder_id:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=WORKSPACE_FOLDER_PARENT_SELF_DETAIL)
+        fetch_workspace_folder_or_404(session, project_id, next_parent_folder_id)
+        ensure_folder_not_moved_into_descendant(session, project_id, folder_id, next_parent_folder_id)
+    ensure_workspace_folder_name_available(session, project_id, next_parent_folder_id, next_name, excluding_folder_id=folder_id)
+
+    folder = session.fetch_one(
+        """
+        UPDATE workspace_folders
+        SET name = %s,
+            parent_folder_id = %s
+        WHERE id = %s
+          AND project_id = %s
+        RETURNING *
+        """,
+        (next_name, next_parent_folder_id, folder_id, project_id),
+    )
+    if folder is None:
+        raise_workspace_folder_not_found()
+    return workspace_folder_to_response(folder)
+
+
+@router.delete("/{project_id}/workspace/folders/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_workspace_folder(
+    project_id: UUID,
+    folder_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> Response:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    fetch_workspace_folder_or_404(session, project_id, folder_id)
+    ensure_workspace_folder_empty(session, folder_id)
+    session.execute(
+        """
+        DELETE FROM workspace_folders
+        WHERE id = %s
+          AND project_id = %s
+        """,
+        (folder_id, project_id),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.patch("/{project_id}/workspace/files/{file_id}/folder", response_model=WorkspaceFileResponse)
+def move_workspace_file(
+    project_id: UUID,
+    file_id: UUID,
+    payload: WorkspaceFileMoveRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceFileResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    metadata = fetch_project_file_or_404(session, project_id, file_id)
+    ensure_project_file_visible(session, current_user.id, project_id, metadata)
+    if payload.folder_id is not None:
+        fetch_workspace_folder_or_404(session, project_id, payload.folder_id)
+
+    moved = session.fetch_one(
+        """
+        UPDATE task_files
+        SET folder_id = %s
+        WHERE id = %s
+        RETURNING id
+        """,
+        (payload.folder_id, file_id),
+    )
+    if moved is None:
+        raise_task_file_not_found()
+
+    return workspace_file_to_response(fetch_project_file_or_404(session, project_id, file_id))
 
 
 @router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
@@ -2579,6 +2776,7 @@ def fetch_project_files(session: DatabaseSession, project_id: UUID, include_fina
           task_files.file_type,
           task_files.file_size,
           task_files.file_category,
+          task_files.folder_id,
           task_files.created_at,
           phases.project_id,
           phases.id AS phase_id,
@@ -2610,6 +2808,7 @@ def fetch_project_file_or_404(session: DatabaseSession, project_id: UUID, file_i
           task_files.file_type,
           task_files.file_size,
           task_files.file_category,
+          task_files.folder_id,
           task_files.created_at,
           phases.project_id,
           phases.id AS phase_id,
@@ -2627,6 +2826,173 @@ def fetch_project_file_or_404(session: DatabaseSession, project_id: UUID, file_i
     if row is None:
         raise_task_file_not_found()
     return row
+
+
+def fetch_workspace_folders(session: DatabaseSession, project_id: UUID, parent_folder_id: UUID | None) -> list[Row]:
+    if parent_folder_id is None:
+        parent_filter = "parent_folder_id IS NULL"
+        params = (project_id,)
+    else:
+        parent_filter = "parent_folder_id = %s"
+        params = (project_id, parent_folder_id)
+
+    return session.fetch_all(
+        f"""
+        SELECT *
+        FROM workspace_folders
+        WHERE project_id = %s
+          AND {parent_filter}
+        ORDER BY LOWER(name), created_at, id
+        """,
+        params,
+    )
+
+
+def fetch_workspace_files(
+    session: DatabaseSession,
+    project_id: UUID,
+    parent_folder_id: UUID | None,
+    include_finance: bool,
+) -> list[Row]:
+    finance_filter = "" if include_finance else "AND task_files.file_category <> 'finance'"
+    if parent_folder_id is None:
+        folder_filter = "task_files.folder_id IS NULL"
+        params = (project_id,)
+    else:
+        folder_filter = "task_files.folder_id = %s"
+        params = (project_id, parent_folder_id)
+
+    return session.fetch_all(
+        f"""
+        SELECT
+          task_files.id,
+          task_files.task_id,
+          task_files.uploaded_by,
+          users.name AS uploader_name,
+          users.email AS uploader_email,
+          task_files.file_name,
+          task_files.storage_key,
+          task_files.file_type,
+          task_files.file_size,
+          task_files.file_category,
+          task_files.folder_id,
+          task_files.created_at,
+          phases.project_id,
+          phases.id AS phase_id,
+          phases.name AS phase_name,
+          tasks.name AS task_name
+        FROM task_files
+        JOIN tasks ON tasks.id = task_files.task_id
+        JOIN phases ON phases.id = tasks.phase_id
+        JOIN users ON users.id = task_files.uploaded_by
+        WHERE phases.project_id = %s
+          AND {folder_filter}
+          {finance_filter}
+        ORDER BY task_files.created_at DESC, task_files.id DESC
+        """,
+        params,
+    )
+
+
+def fetch_workspace_folder(session: DatabaseSession, project_id: UUID, folder_id: UUID) -> Row | None:
+    return session.fetch_one(
+        """
+        SELECT *
+        FROM workspace_folders
+        WHERE project_id = %s
+          AND id = %s
+        """,
+        (project_id, folder_id),
+    )
+
+
+def fetch_workspace_folder_or_404(session: DatabaseSession, project_id: UUID, folder_id: UUID) -> Row:
+    folder = fetch_workspace_folder(session, project_id, folder_id)
+    if folder is None:
+        raise_workspace_folder_not_found()
+    return folder
+
+
+def ensure_workspace_folder_name_available(
+    session: DatabaseSession,
+    project_id: UUID,
+    parent_folder_id: UUID | None,
+    name: str,
+    excluding_folder_id: UUID | None = None,
+) -> None:
+    if parent_folder_id is None:
+        parent_filter = "parent_folder_id IS NULL"
+        params: tuple = (project_id, name)
+    else:
+        parent_filter = "parent_folder_id = %s"
+        params = (project_id, name, parent_folder_id)
+
+    exclusion_filter = ""
+    if excluding_folder_id is not None:
+        exclusion_filter = "AND id <> %s"
+        params = (*params, excluding_folder_id)
+
+    row = session.fetch_one(
+        f"""
+        SELECT EXISTS (
+          SELECT 1
+          FROM workspace_folders
+          WHERE project_id = %s
+            AND LOWER(BTRIM(name)) = LOWER(BTRIM(%s))
+            AND {parent_filter}
+            {exclusion_filter}
+        ) AS name_exists
+        """,
+        params,
+    )
+    if row["name_exists"]:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=WORKSPACE_FOLDER_NAME_EXISTS_DETAIL)
+
+
+def ensure_folder_not_moved_into_descendant(
+    session: DatabaseSession,
+    project_id: UUID,
+    folder_id: UUID,
+    next_parent_folder_id: UUID,
+) -> None:
+    row = session.fetch_one(
+        """
+        WITH RECURSIVE descendants AS (
+          SELECT id
+          FROM workspace_folders
+          WHERE project_id = %s
+            AND parent_folder_id = %s
+          UNION ALL
+          SELECT child.id
+          FROM workspace_folders child
+          JOIN descendants ON descendants.id = child.parent_folder_id
+          WHERE child.project_id = %s
+        )
+        SELECT EXISTS (
+          SELECT 1
+          FROM descendants
+          WHERE id = %s
+        ) AS is_descendant
+        """,
+        (project_id, folder_id, project_id, next_parent_folder_id),
+    )
+    if row["is_descendant"]:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=WORKSPACE_FOLDER_PARENT_DESCENDANT_DETAIL)
+
+
+def ensure_workspace_folder_empty(session: DatabaseSession, folder_id: UUID) -> None:
+    row = session.fetch_one(
+        """
+        SELECT EXISTS (
+          SELECT 1 FROM workspace_folders WHERE parent_folder_id = %s
+          UNION ALL
+          SELECT 1 FROM task_files WHERE folder_id = %s
+        ) AS has_contents
+        """,
+        (folder_id, folder_id),
+    )
+    if row["has_contents"]:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=WORKSPACE_FOLDER_NON_EMPTY_DETAIL)
 
 
 def ensure_phase_in_project(session: DatabaseSession, project_id: UUID, phase_id: UUID) -> None:
@@ -2986,6 +3352,33 @@ def project_file_to_response(row: Row) -> ProjectFileResponse:
     return ProjectFileResponse(**row)
 
 
+def workspace_contents_to_response(
+    session: DatabaseSession,
+    user_id: UUID,
+    project_id: UUID,
+    parent_folder_id: UUID | None,
+) -> WorkspaceContentsResponse:
+    can_view_finance_files = project_file_finance_visible(session, user_id, project_id)
+    return WorkspaceContentsResponse(
+        folders=[
+            workspace_folder_to_response(row)
+            for row in fetch_workspace_folders(session, project_id, parent_folder_id)
+        ],
+        files=[
+            workspace_file_to_response(row)
+            for row in fetch_workspace_files(session, project_id, parent_folder_id, include_finance=can_view_finance_files)
+        ],
+    )
+
+
+def workspace_folder_to_response(row: Row) -> WorkspaceFolderResponse:
+    return WorkspaceFolderResponse(**row)
+
+
+def workspace_file_to_response(row: Row) -> WorkspaceFileResponse:
+    return WorkspaceFileResponse(**row)
+
+
 def dashboard_project_to_response(row: Row, session: DatabaseSession | None = None, user_id: UUID | None = None) -> DashboardProjectResponse:
     health_label, health_reasons = project_health_display(row, session, user_id)
     return DashboardProjectResponse(
@@ -3062,6 +3455,10 @@ def raise_task_file_not_found() -> None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=TASK_FILE_NOT_FOUND_DETAIL)
 
 
+def raise_workspace_folder_not_found() -> None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=WORKSPACE_FOLDER_NOT_FOUND_DETAIL)
+
+
 def get_file_storage(request: Request) -> FileStorage:
     storage = getattr(request.app.state, "file_storage", None)
     if storage is None:
@@ -3081,6 +3478,15 @@ def sanitize_storage_file_name(file_name: str) -> str:
     name = file_name.replace("\\", "/").rsplit("/", 1)[-1].strip()
     name = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
     return name or "attachment"
+
+
+def normalize_workspace_folder_name(name: str) -> str:
+    normalized = name.strip()
+    if not normalized or len(normalized) > 200:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=WORKSPACE_FOLDER_NAME_INVALID_DETAIL)
+    if "/" in normalized or "\\" in normalized or re.search(r"[\x00-\x1f\x7f]", normalized):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=WORKSPACE_FOLDER_NAME_INVALID_DETAIL)
+    return normalized
 
 
 def cleanup_uploaded_file(storage: FileStorage, storage_key: str) -> None:

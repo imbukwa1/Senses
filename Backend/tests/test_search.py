@@ -2,7 +2,7 @@ import os
 from datetime import date
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 import pytest
 
 from app.auth import hash_password

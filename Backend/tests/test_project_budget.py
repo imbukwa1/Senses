@@ -3,7 +3,7 @@ from datetime import timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from fastapi.testclient import TestClient
+from starlette.testclient import TestClient
 import pytest
 
 from app.auth import hash_password
