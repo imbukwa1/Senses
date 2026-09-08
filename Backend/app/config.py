@@ -17,6 +17,11 @@ class Settings:
     gcs_bucket_name: str | None = None
     max_upload_bytes: int = 10 * 1024 * 1024
     cors_allowed_origins: tuple[str, ...] = ("http://localhost:5173", "http://127.0.0.1:5173")
+    document_collaboration_health_url: str | None = None
+    document_collaboration_ws_url: str | None = None
+    shared_coordination_url: str | None = None
+    univer_collaboration_endpoint: str | None = None
+    univer_collaboration_health_url: str | None = None
 
 
 def _read_int_env(name: str, default: int) -> int:
@@ -54,4 +59,9 @@ def get_settings() -> Settings:
             "CORS_ALLOWED_ORIGINS",
             ("http://localhost:5173", "http://127.0.0.1:5173"),
         ),
+        document_collaboration_health_url=os.getenv("DOCUMENT_COLLABORATION_HEALTH_URL"),
+        document_collaboration_ws_url=os.getenv("DOCUMENT_COLLABORATION_WS_URL"),
+        shared_coordination_url=os.getenv("SHARED_COORDINATION_URL"),
+        univer_collaboration_endpoint=os.getenv("UNIVER_COLLABORATION_ENDPOINT"),
+        univer_collaboration_health_url=os.getenv("UNIVER_COLLABORATION_HEALTH_URL"),
     )

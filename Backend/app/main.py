@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.auth import router as auth_router
 from app.attention import router as attention_router
+from app.collaboration import router as collaboration_router
 from app.config import Settings, get_settings
 from app.db import Database
 from app.exceptions import register_exception_handlers
@@ -70,6 +71,7 @@ def create_app(
     app.include_router(my_work_router)
     app.include_router(projects_router)
     app.include_router(search_router)
+    app.include_router(collaboration_router)
 
     @app.get("/health")
     def health(request: Request) -> JSONResponse:
