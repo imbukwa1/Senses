@@ -218,11 +218,17 @@ export type ProjectSetupWorkPlanDetails = {
   key_activities: string | null;
 };
 
+export type ProjectSetupBudgetDetails = {
+  total_project_budget: number;
+  budget_notes: string | null;
+};
+
 export type ProjectSetupDetails = {
   project_overview: ProjectSetupOverviewDetails;
   scope: ProjectSetupScopeDetails;
   objectives_outcomes: ProjectSetupObjectivesDetails;
   work_plan: ProjectSetupWorkPlanDetails;
+  budget_setup: ProjectSetupBudgetDetails;
 };
 
 export type ProjectSetup = {
@@ -240,6 +246,15 @@ export type ProjectSetupSectionStatusPayload = {
 export type ProjectSetupDetailsSection = "project-overview" | "scope" | "objectives-outcomes" | "work-plan";
 
 export type ProjectSetupDetailsPayload = Record<string, string | null>;
+
+export type ProjectSetupBudgetPayload = {
+  total_project_budget: number;
+  budget_notes: string | null;
+  phase_allocations: Array<{
+    phase_id: string;
+    allocated: number;
+  }>;
+};
 
 export type Task = {
   id: string;

@@ -116,6 +116,69 @@ def test_finance_can_edit_phase_budget_and_project_totals_are_derived() -> None:
         database.close()
 
 
+def test_pm_phase0_budget_setup_updates_live_planned_budget_without_spending_rights() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Phase0 Budget PM", _unique_email("budget.phase0pm"))
+        finance = _create_auth_user(database, "Phase0 Budget Finance", _unique_email("budget.phase0finance"))
+        team_member = _create_auth_user(database, "Phase0 Budget Team", _unique_email("budget.phase0team"))
+        project = _create_project(database, pm["id"], "Phase0 Budget Project")
+        first_phase = _create_phase(database, project["id"], "Phase0 Budget One")
+        second_phase = _create_phase(database, project["id"], "Phase0 Budget Two", display_order=2)
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], finance["id"], "Finance")
+        _add_project_member(database, project["id"], team_member["id"], "Team Member")
+        _set_phase_budget(database, second_phase["id"], allocated="25.00", spent="10.00")
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            pm_token = _login(client, pm["email"])
+            finance_token = _login(client, finance["email"])
+            team_token = _login(client, team_member["email"])
+            setup_update = client.patch(
+                f"/projects/{project['id']}/setup/budget",
+                headers=_auth_header(pm_token),
+                json={
+                    "total_project_budget": "1000.00",
+                    "budget_notes": "Initial PM planning budget.",
+                    "phase_allocations": [
+                        {"phase_id": str(first_phase["id"]), "allocated": "400.00"},
+                        {"phase_id": str(second_phase["id"]), "allocated": "250.00"},
+                    ],
+                },
+            )
+            finance_project_budget = client.get(f"/projects/{project['id']}/budget", headers=_auth_header(finance_token))
+            finance_second_phase = client.get(
+                f"/projects/{project['id']}/phases/{second_phase['id']}/budget",
+                headers=_auth_header(finance_token),
+            )
+            pm_finance_endpoint_still_forbidden = client.patch(
+                f"/projects/{project['id']}/budget",
+                headers=_auth_header(pm_token),
+                json={"allocated": "2000.00"},
+            )
+            team_setup_forbidden = client.patch(
+                f"/projects/{project['id']}/setup/budget",
+                headers=_auth_header(team_token),
+                json={"total_project_budget": "100.00", "phase_allocations": []},
+            )
+
+        assert setup_update.status_code == 200
+        setup = setup_update.json()
+        assert _section(setup, "budget_setup")["status"] == "Complete"
+        assert Decimal(str(setup["details"]["budget_setup"]["total_project_budget"])) == Decimal("1000")
+        assert setup["details"]["budget_setup"]["budget_notes"] == "Initial PM planning budget."
+        assert finance_project_budget.status_code == 200
+        assert_budget(finance_project_budget.json(), allocated="1000", spent="10", remaining="990", utilisation="0.01")
+        assert finance_second_phase.status_code == 200
+        assert_phase_budget(finance_second_phase.json(), allocated="250", spent="10", remaining="240", utilisation="0.04")
+        assert pm_finance_endpoint_still_forbidden.status_code == 403
+        assert team_setup_forbidden.status_code == 403
+    finally:
+        database.close()
+
+
 def test_team_member_cannot_edit_project_budget_and_project_access_is_enforced() -> None:
     database = _database_from_env()
     database.connect()
@@ -254,6 +317,10 @@ def budget_attention_reasons(items: list[dict]) -> list[str]:
         for item in items
         if item["type"] == "project" and item["reason"] == "Project budget is over allocated amount"
     ]
+
+
+def _section(setup: dict, key: str) -> dict:
+    return next(section for section in setup["sections"] if section["key"] == key)
 
 
 def _create_auth_user(database: Database, name: str, email: str, password: str = "budget-password") -> dict:

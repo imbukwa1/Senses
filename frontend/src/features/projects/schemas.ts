@@ -182,6 +182,10 @@ export const projectSetupDetailsSchema = z.object({
     planned_completion: z.string().min(1),
     key_activities: z.string().nullable(),
   }),
+  budget_setup: z.object({
+    total_project_budget: backendNumberSchema,
+    budget_notes: z.string().nullable(),
+  }),
 });
 
 export const projectSetupSchema = z.object({

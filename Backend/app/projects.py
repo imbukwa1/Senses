@@ -562,6 +562,21 @@ class ProjectSetupWorkPlanUpdateRequest(BaseModel):
     key_activities: str | None = None
 
 
+class ProjectSetupPhaseAllocationUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    phase_id: UUID
+    allocated: Decimal = Field(ge=0)
+
+
+class ProjectSetupBudgetUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    total_project_budget: Decimal = Field(ge=0)
+    budget_notes: str | None = None
+    phase_allocations: list[ProjectSetupPhaseAllocationUpdateRequest] = Field(default_factory=list)
+
+
 class ProjectSetupLeadResponse(BaseModel):
     id: UUID
     name: str
@@ -597,6 +612,11 @@ class ProjectSetupWorkPlanResponse(BaseModel):
     planned_start: date
     planned_completion: date
     key_activities: str | None
+
+
+class ProjectSetupBudgetResponse(BaseModel):
+    total_project_budget: Decimal
+    budget_notes: str | None
 
 
 class ProjectSetupDetailsResponse(BaseModel):
@@ -1434,6 +1454,81 @@ def update_project_setup_work_plan(
             project_id,
         ),
     )
+    return build_project_setup_response(session, project_id)
+
+
+@router.get("/{project_id}/setup/budget", response_model=ProjectSetupBudgetResponse)
+def get_project_setup_budget(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupBudgetResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_budget_view_role(session, current_user.id, project_id)
+    project = fetch_project_setup_project(session, project_id)
+    if project is None:
+        raise_project_not_found()
+    return ProjectSetupBudgetResponse(
+        total_project_budget=project["budget_allocated"],
+        budget_notes=project.get("budget_notes"),
+    )
+
+
+@router.patch("/{project_id}/setup/budget", response_model=ProjectSetupResponse)
+def update_project_setup_budget(
+    project_id: UUID,
+    payload: ProjectSetupBudgetUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+
+    phase_ids = [allocation.phase_id for allocation in payload.phase_allocations]
+    if len(phase_ids) != len(set(phase_ids)):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Phase allocations must not contain duplicate phases")
+    if phase_ids:
+        accessible_phase_ids = {
+            row["id"]
+            for row in session.fetch_all(
+                """
+                SELECT id
+                FROM phases
+                WHERE project_id = %s
+                  AND archived_at IS NULL
+                  AND id = ANY(%s)
+                """,
+                (project_id, phase_ids),
+            )
+        }
+        if accessible_phase_ids != set(phase_ids):
+            raise_phase_not_found()
+
+    session.execute(
+        """
+        UPDATE projects
+        SET budget_allocated = %s,
+            budget_notes = %s,
+            updated_at = NOW()
+        WHERE id = %s
+          AND archived_at IS NULL
+        """,
+        (payload.total_project_budget, normalize_optional_text(payload.budget_notes), project_id),
+    )
+    for allocation in payload.phase_allocations:
+        session.execute(
+            """
+            UPDATE phases
+            SET budget_allocated = %s,
+                updated_at = NOW()
+            WHERE project_id = %s
+              AND id = %s
+              AND archived_at IS NULL
+            """,
+            (allocation.allocated, project_id, allocation.phase_id),
+        )
     return build_project_setup_response(session, project_id)
 
 
@@ -4053,6 +4148,8 @@ def fetch_project_setup_project(session: DatabaseSession, project_id: UUID) -> R
           projects.start_date,
           projects.end_date,
           projects.status,
+          projects.budget_allocated,
+          projects.budget_notes,
           projects.project_lead_id,
           project_leads.name AS project_lead_name,
           project_leads.email AS project_lead_email,
@@ -4241,8 +4338,11 @@ def project_setup_live_status(
         resource_count = int(live.get("file_count") or 0) + int(live.get("document_count") or 0) + int(live.get("spreadsheet_count") or 0)
         return project_setup_status_from_count(resource_count, 1, "task_files/workspace_resources")
     if section_key == "budget_setup":
-        budget_count = int((live.get("project_budget_allocated") or 0) > 0) + int((live.get("phase_budget_allocated") or 0) > 0) + int((live.get("phase_budget_spent") or 0) > 0)
-        return project_setup_status_from_count(budget_count, 1, "projects/phases budget fields")
+        has_project_budget = (live.get("project_budget_allocated") or 0) > 0
+        budget_count = int(has_project_budget) + int((live.get("phase_budget_allocated") or 0) > 0) + int((live.get("phase_budget_spent") or 0) > 0) + int(bool(project.get("budget_notes")))
+        if has_project_budget:
+            return "Complete", budget_count, "projects/phases budget fields"
+        return ("In Progress" if budget_count else "Not Started", budget_count, "projects/phases budget fields")
     if section_key == "documents_attachments":
         document_count = int(live.get("file_count") or 0) + int(live.get("document_count") or 0) + int(live.get("spreadsheet_count") or 0)
         return project_setup_status_from_count(document_count, 1, "task_files/workspace_documents/workspace_spreadsheets")

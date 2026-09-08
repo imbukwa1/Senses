@@ -21,7 +21,9 @@ import {
   useAddPhaseMemberMutation,
   usePhaseMembersQuery,
   useProjectMembersQuery,
+  useProjectBudgetQuery,
   useProjectSetupQuery,
+  useUpdateProjectSetupBudgetMutation,
   useRemovePhaseMemberMutation,
   useUpdateProjectSetupDetailsMutation,
   useUpdateProjectSetupSectionMutation,
@@ -33,6 +35,7 @@ import type {
   DashboardPhase,
   ProjectDashboard,
   ProjectMember,
+  ProjectSetupBudgetPayload,
   ProjectSetup,
   ProjectSetupDetailsPayload,
   ProjectSetupDetailsSection,
@@ -324,6 +327,9 @@ function renderFirstPassSection({
         membersLoading={membersLoading}
       />
     );
+  }
+  if (activeSection.key === "budget_setup") {
+    return <Phase0BudgetSection canEdit={canEdit} dashboard={dashboard} projectId={setup.project_id} setup={setup} />;
   }
   return null;
 }
@@ -676,6 +682,173 @@ function PhaseMemberManager({
   );
 }
 
+function Phase0BudgetSection({
+  canEdit,
+  dashboard,
+  projectId,
+  setup,
+}: {
+  canEdit: boolean;
+  dashboard: ProjectDashboard;
+  projectId: string;
+  setup: ProjectSetup;
+}) {
+  const budgetQuery = useProjectBudgetQuery(projectId);
+  const updateBudget = useUpdateProjectSetupBudgetMutation(projectId);
+  const phases = dashboard.phases;
+  const [totalBudget, setTotalBudget] = useState(String(setup.details.budget_setup.total_project_budget));
+  const [budgetNotes, setBudgetNotes] = useState(setup.details.budget_setup.budget_notes ?? "");
+  const [allocationRows, setAllocationRows] = useState<BudgetAllocationDraft[]>(() => initialBudgetAllocationRows(phases));
+
+  useEffect(() => {
+    setTotalBudget(String(setup.details.budget_setup.total_project_budget));
+    setBudgetNotes(setup.details.budget_setup.budget_notes ?? "");
+    setAllocationRows(initialBudgetAllocationRows(phases));
+  }, [phases, setup.details.budget_setup]);
+
+  const allocatedToPhases = allocationRows.reduce((sum, row) => sum + (isNonNegativeNumber(row.allocated) ? Number(row.allocated) : 0), 0);
+  const totalBudgetNumber = isNonNegativeNumber(totalBudget) ? Number(totalBudget) : 0;
+  const unallocated = totalBudgetNumber - allocatedToPhases;
+  const selectedPhaseIds = new Set(allocationRows.map((row) => row.phase_id).filter(Boolean));
+  const availablePhases = phases.filter((phase) => !selectedPhaseIds.has(phase.id));
+  const invalidRows = allocationRows.some((row) => !row.phase_id || !isNonNegativeNumber(row.allocated));
+  const hasInvalidBudget = !isNonNegativeNumber(totalBudget) || invalidRows;
+
+  function addAllocationRow() {
+    const nextPhase = availablePhases[0];
+    if (!nextPhase) {
+      return;
+    }
+    setAllocationRows((current) => [...current, { phase_id: nextPhase.id, allocated: String(nextPhase.budget_allocated) }]);
+  }
+
+  function updateAllocationRow(index: number, field: keyof BudgetAllocationDraft, value: string) {
+    setAllocationRows((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, [field]: value } : row)));
+  }
+
+  function removeAllocationRow(index: number) {
+    setAllocationRows((current) => current.filter((_row, rowIndex) => rowIndex !== index));
+  }
+
+  async function onSaveBudget() {
+    const payload: ProjectSetupBudgetPayload = {
+      total_project_budget: Number(totalBudget),
+      budget_notes: budgetNotes.trim() || null,
+      phase_allocations: allocationRows.map((row) => ({
+        phase_id: row.phase_id,
+        allocated: Number(row.allocated),
+      })),
+    };
+    await updateBudget.mutateAsync(payload);
+  }
+
+  if (budgetQuery.isLoading) {
+    return <LoadingState label="Loading project budget" />;
+  }
+
+  if (budgetQuery.isError) {
+    return <ErrorState title="Budget could not be loaded" message={userFacingErrorMessage(budgetQuery.error, { action: "project budget" })} />;
+  }
+
+  const liveBudget = budgetQuery.data;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-3">
+        <SetupMetric label="Total Budget" value={formatCurrency(totalBudgetNumber)} />
+        <SetupMetric label="Allocated to Phases" value={formatCurrency(allocatedToPhases)} />
+        <SetupMetric label="Unallocated" value={formatCurrency(unallocated)} />
+      </div>
+      {liveBudget ? (
+        <p className="text-sm text-muted-foreground">
+          Finance utilisation remains live: {formatCurrency(liveBudget.spent)} spent, {formatPercent(liveBudget.utilisation)} utilised.
+        </p>
+      ) : null}
+      <div className="rounded-md border bg-background p-4">
+        <div className="grid gap-4 md:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+          <SetupInput label="Total Project Budget" type="number" value={totalBudget} disabled={!canEdit} onChange={setTotalBudget} />
+          <SetupTextarea label="Budget Notes" value={budgetNotes} disabled={!canEdit} onChange={setBudgetNotes} />
+        </div>
+      </div>
+      <div className="rounded-md border bg-background p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-foreground">Initial Phase Allocations</p>
+            <p className="text-sm text-muted-foreground">Rows use existing project phases and save to live phase budget allocations.</p>
+          </div>
+          {canEdit ? (
+            <Button type="button" variant="outline" disabled={availablePhases.length === 0} onClick={addAllocationRow}>
+              <Plus className="size-4" aria-hidden="true" />
+              Add Phase Allocation
+            </Button>
+          ) : null}
+        </div>
+        {phases.length === 0 ? <EmptyState title="Add a phase before assigning phase allocations." /> : null}
+        {phases.length > 0 && allocationRows.length === 0 ? <p className="text-sm text-muted-foreground">No phase allocations have been added yet.</p> : null}
+        {allocationRows.length > 0 ? (
+          <div className="space-y-2">
+            {allocationRows.map((row, index) => {
+              const phaseOptions = phases.filter((phase) => phase.id === row.phase_id || !selectedPhaseIds.has(phase.id));
+              return (
+                <div key={`${row.phase_id}-${index}`} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_12rem_auto]">
+                  <Select value={row.phase_id} onValueChange={(value) => updateAllocationRow(index, "phase_id", value)} disabled={!canEdit}>
+                    <SelectTrigger aria-label={`Allocation phase ${index + 1}`}>
+                      <SelectValue placeholder="Select phase" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {phaseOptions.map((phase) => (
+                        <SelectItem key={phase.id} value={phase.id}>
+                          {phase.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={row.allocated}
+                    disabled={!canEdit}
+                    onChange={(event) => updateAllocationRow(index, "allocated", event.target.value)}
+                    aria-label={`Phase allocation ${index + 1}`}
+                  />
+                  {canEdit ? (
+                    <Button type="button" variant="ghost" size="icon" onClick={() => removeAllocationRow(index)} aria-label="Remove phase allocation">
+                      <X className="size-4" aria-hidden="true" />
+                    </Button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+      {hasInvalidBudget ? <p className="text-sm text-error">Budget values must be non-negative numbers and each row must select a phase.</p> : null}
+      {updateBudget.error ? <p className="text-sm text-error">{userFacingErrorMessage(updateBudget.error, { action: "budget setup" })}</p> : null}
+      {canEdit ? (
+        <Button type="button" disabled={hasInvalidBudget || updateBudget.isPending} onClick={() => void onSaveBudget()}>
+          <Save className="size-4" aria-hidden="true" />
+          {updateBudget.isPending ? "Saving..." : "Save Budget Setup"}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+type BudgetAllocationDraft = {
+  phase_id: string;
+  allocated: string;
+};
+
+function initialBudgetAllocationRows(phases: DashboardPhase[]): BudgetAllocationDraft[] {
+  return phases
+    .filter((phase) => phase.budget_allocated > 0)
+    .map((phase) => ({
+      phase_id: phase.id,
+      allocated: String(phase.budget_allocated),
+    }));
+}
+
 type FirstPassFormProps = {
   canEdit: boolean;
   isSaving: boolean;
@@ -782,6 +955,28 @@ function formatSetupDate(value: string | null) {
     month: "short",
     year: "numeric",
   }).format(date);
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    currency: "USD",
+    style: "currency",
+  }).format(value);
+}
+
+function formatPercent(value: number) {
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 1,
+    style: "percent",
+  }).format(value);
+}
+
+function isNonNegativeNumber(value: string) {
+  if (value.trim() === "") {
+    return false;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0;
 }
 
 function SetupStatusIcon({ status }: { status: ProjectSetupStatus }) {
