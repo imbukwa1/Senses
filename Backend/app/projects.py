@@ -3,11 +3,12 @@ from decimal import Decimal
 import logging
 import re
 from urllib.parse import quote
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field
+from psycopg.types.json import Jsonb
 from starlette.concurrency import run_in_threadpool
 
 from app.access import (
@@ -40,6 +41,8 @@ TASK_NOT_FOUND_DETAIL = "Task not found"
 DELIVERABLE_NOT_FOUND_DETAIL = "Checklist item not found"
 TASK_FILE_NOT_FOUND_DETAIL = "Task file not found"
 WORKSPACE_FOLDER_NOT_FOUND_DETAIL = "Workspace folder not found"
+WORKSPACE_DOCUMENT_NOT_FOUND_DETAIL = "Workspace document not found"
+WORKSPACE_SPREADSHEET_NOT_FOUND_DETAIL = "Workspace spreadsheet not found"
 FILE_STORAGE_NOT_CONFIGURED_DETAIL = "File storage is not configured"
 FILE_UPLOAD_EMPTY_DETAIL = "Uploaded file cannot be empty"
 FILE_UPLOAD_TOO_LARGE_DETAIL = "Uploaded file is too large"
@@ -49,6 +52,7 @@ WORKSPACE_FOLDER_NON_EMPTY_DETAIL = "Folder is not empty"
 WORKSPACE_FOLDER_PARENT_SELF_DETAIL = "A folder cannot be moved into itself"
 WORKSPACE_FOLDER_PARENT_DESCENDANT_DETAIL = "A folder cannot be moved into one of its subfolders"
 WORKSPACE_FOLDER_NAME_INVALID_DETAIL = "Folder name is invalid"
+WORKSPACE_RESOURCE_NAME_INVALID_DETAIL = "Workspace resource name is invalid"
 TASK_SUPPORTER_EXISTS_DETAIL = "Task supporter already exists"
 PHASE_MEMBER_EXISTS_DETAIL = "Phase member already exists"
 PHASE_MEMBER_NOT_FOUND_DETAIL = "Phase member not found"
@@ -413,6 +417,39 @@ class WorkspaceFileMoveRequest(BaseModel):
     folder_id: UUID | None = None
 
 
+class WorkspaceNativeResourceCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+    content: dict[str, Any]
+    folder_id: UUID | None = None
+    task_id: UUID | None = None
+
+
+class WorkspaceNativeResourceUpdateContentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: dict[str, Any]
+
+
+class WorkspaceNativeResourceRenameRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=200)
+
+
+class WorkspaceNativeResourceMoveRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    folder_id: UUID | None = None
+
+
+class WorkspaceNativeResourceTaskLinkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: UUID | None = None
+
+
 class WorkspaceFolderResponse(BaseModel):
     id: UUID
     project_id: UUID
@@ -427,9 +464,31 @@ class WorkspaceFileResponse(ProjectFileResponse):
     folder_id: UUID | None
 
 
+class WorkspaceNativeResourceResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    folder_id: UUID | None
+    task_id: UUID | None
+    name: str
+    content: dict[str, Any]
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkspaceDocumentResponse(WorkspaceNativeResourceResponse):
+    pass
+
+
+class WorkspaceSpreadsheetResponse(WorkspaceNativeResourceResponse):
+    pass
+
+
 class WorkspaceContentsResponse(BaseModel):
     folders: list[WorkspaceFolderResponse]
     files: list[WorkspaceFileResponse]
+    documents: list[WorkspaceDocumentResponse] = Field(default_factory=list)
+    spreadsheets: list[WorkspaceSpreadsheetResponse] = Field(default_factory=list)
 
 
 class ProjectMemberResponse(BaseModel):
@@ -843,6 +902,202 @@ def move_workspace_file(
         raise_task_file_not_found()
 
     return workspace_file_to_response(fetch_project_file_or_404(session, project_id, file_id))
+
+
+@router.get("/{project_id}/workspace/documents", response_model=list[WorkspaceDocumentResponse])
+def list_workspace_documents(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[WorkspaceDocumentResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    return [workspace_document_to_response(row) for row in fetch_workspace_documents(session, project_id)]
+
+
+@router.get("/{project_id}/workspace/documents/{document_id}", response_model=WorkspaceDocumentResponse)
+def get_workspace_document(
+    project_id: UUID,
+    document_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceDocumentResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_document_to_response(fetch_workspace_document_or_404(session, project_id, document_id))
+
+
+@router.post(
+    "/{project_id}/workspace/documents",
+    response_model=WorkspaceDocumentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_workspace_document(
+    project_id: UUID,
+    payload: WorkspaceNativeResourceCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceDocumentResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_document_to_response(
+        create_workspace_native_resource(session, "workspace_documents", project_id, current_user.id, payload)
+    )
+
+
+@router.patch("/{project_id}/workspace/documents/{document_id}/content", response_model=WorkspaceDocumentResponse)
+def update_workspace_document_content(
+    project_id: UUID,
+    document_id: UUID,
+    payload: WorkspaceNativeResourceUpdateContentRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceDocumentResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_document_to_response(update_workspace_native_resource_content(session, "workspace_documents", project_id, document_id, payload.content))
+
+
+@router.patch("/{project_id}/workspace/documents/{document_id}/name", response_model=WorkspaceDocumentResponse)
+def rename_workspace_document(
+    project_id: UUID,
+    document_id: UUID,
+    payload: WorkspaceNativeResourceRenameRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceDocumentResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_document_to_response(rename_workspace_native_resource(session, "workspace_documents", project_id, document_id, payload.name))
+
+
+@router.patch("/{project_id}/workspace/documents/{document_id}/folder", response_model=WorkspaceDocumentResponse)
+def move_workspace_document(
+    project_id: UUID,
+    document_id: UUID,
+    payload: WorkspaceNativeResourceMoveRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceDocumentResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_document_to_response(move_workspace_native_resource(session, "workspace_documents", project_id, document_id, payload.folder_id))
+
+
+@router.patch("/{project_id}/workspace/documents/{document_id}/task-link", response_model=WorkspaceDocumentResponse)
+def update_workspace_document_task_link(
+    project_id: UUID,
+    document_id: UUID,
+    payload: WorkspaceNativeResourceTaskLinkRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceDocumentResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_document_to_response(update_workspace_native_resource_task_link(session, "workspace_documents", project_id, document_id, payload.task_id))
+
+
+@router.delete("/{project_id}/workspace/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_workspace_document(
+    project_id: UUID,
+    document_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> Response:
+    ensure_project_access(session, current_user.id, project_id)
+    delete_workspace_native_resource(session, "workspace_documents", project_id, document_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{project_id}/workspace/spreadsheets", response_model=list[WorkspaceSpreadsheetResponse])
+def list_workspace_spreadsheets(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[WorkspaceSpreadsheetResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    return [workspace_spreadsheet_to_response(row) for row in fetch_workspace_spreadsheets(session, project_id)]
+
+
+@router.get("/{project_id}/workspace/spreadsheets/{spreadsheet_id}", response_model=WorkspaceSpreadsheetResponse)
+def get_workspace_spreadsheet(
+    project_id: UUID,
+    spreadsheet_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceSpreadsheetResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_spreadsheet_to_response(fetch_workspace_spreadsheet_or_404(session, project_id, spreadsheet_id))
+
+
+@router.post(
+    "/{project_id}/workspace/spreadsheets",
+    response_model=WorkspaceSpreadsheetResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_workspace_spreadsheet(
+    project_id: UUID,
+    payload: WorkspaceNativeResourceCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceSpreadsheetResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_spreadsheet_to_response(
+        create_workspace_native_resource(session, "workspace_spreadsheets", project_id, current_user.id, payload)
+    )
+
+
+@router.patch("/{project_id}/workspace/spreadsheets/{spreadsheet_id}/content", response_model=WorkspaceSpreadsheetResponse)
+def update_workspace_spreadsheet_content(
+    project_id: UUID,
+    spreadsheet_id: UUID,
+    payload: WorkspaceNativeResourceUpdateContentRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceSpreadsheetResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_spreadsheet_to_response(update_workspace_native_resource_content(session, "workspace_spreadsheets", project_id, spreadsheet_id, payload.content))
+
+
+@router.patch("/{project_id}/workspace/spreadsheets/{spreadsheet_id}/name", response_model=WorkspaceSpreadsheetResponse)
+def rename_workspace_spreadsheet(
+    project_id: UUID,
+    spreadsheet_id: UUID,
+    payload: WorkspaceNativeResourceRenameRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceSpreadsheetResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_spreadsheet_to_response(rename_workspace_native_resource(session, "workspace_spreadsheets", project_id, spreadsheet_id, payload.name))
+
+
+@router.patch("/{project_id}/workspace/spreadsheets/{spreadsheet_id}/folder", response_model=WorkspaceSpreadsheetResponse)
+def move_workspace_spreadsheet(
+    project_id: UUID,
+    spreadsheet_id: UUID,
+    payload: WorkspaceNativeResourceMoveRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceSpreadsheetResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_spreadsheet_to_response(move_workspace_native_resource(session, "workspace_spreadsheets", project_id, spreadsheet_id, payload.folder_id))
+
+
+@router.patch("/{project_id}/workspace/spreadsheets/{spreadsheet_id}/task-link", response_model=WorkspaceSpreadsheetResponse)
+def update_workspace_spreadsheet_task_link(
+    project_id: UUID,
+    spreadsheet_id: UUID,
+    payload: WorkspaceNativeResourceTaskLinkRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> WorkspaceSpreadsheetResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    return workspace_spreadsheet_to_response(update_workspace_native_resource_task_link(session, "workspace_spreadsheets", project_id, spreadsheet_id, payload.task_id))
+
+
+@router.delete("/{project_id}/workspace/spreadsheets/{spreadsheet_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_workspace_spreadsheet(
+    project_id: UUID,
+    spreadsheet_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> Response:
+    ensure_project_access(session, current_user.id, project_id)
+    delete_workspace_native_resource(session, "workspace_spreadsheets", project_id, spreadsheet_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
@@ -2521,6 +2776,23 @@ def fetch_project_task_or_404(
     return task
 
 
+def fetch_task_in_project_or_404(session: DatabaseSession, project_id: UUID, task_id: UUID) -> Row:
+    task = session.fetch_one(
+        """
+        SELECT tasks.id
+        FROM tasks
+        JOIN phases ON phases.id = tasks.phase_id
+        WHERE tasks.id = %s
+          AND phases.project_id = %s
+          AND phases.archived_at IS NULL
+        """,
+        (task_id, project_id),
+    )
+    if task is None:
+        raise_task_not_found()
+    return task
+
+
 def fetch_phase_members(session: DatabaseSession, phase_id: UUID) -> list[Row]:
     return session.fetch_all(
         """
@@ -2913,6 +3185,231 @@ def fetch_workspace_folder_or_404(session: DatabaseSession, project_id: UUID, fo
     return folder
 
 
+def fetch_workspace_documents(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return fetch_workspace_native_resources(session, "workspace_documents", project_id)
+
+
+def fetch_workspace_spreadsheets(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return fetch_workspace_native_resources(session, "workspace_spreadsheets", project_id)
+
+
+def fetch_workspace_documents_in_folder(session: DatabaseSession, project_id: UUID, folder_id: UUID | None) -> list[Row]:
+    return fetch_workspace_native_resources(session, "workspace_documents", project_id, folder_id)
+
+
+def fetch_workspace_spreadsheets_in_folder(session: DatabaseSession, project_id: UUID, folder_id: UUID | None) -> list[Row]:
+    return fetch_workspace_native_resources(session, "workspace_spreadsheets", project_id, folder_id)
+
+
+def fetch_workspace_document_or_404(session: DatabaseSession, project_id: UUID, document_id: UUID) -> Row:
+    return fetch_workspace_native_resource_or_404(session, "workspace_documents", project_id, document_id)
+
+
+def fetch_workspace_spreadsheet_or_404(session: DatabaseSession, project_id: UUID, spreadsheet_id: UUID) -> Row:
+    return fetch_workspace_native_resource_or_404(session, "workspace_spreadsheets", project_id, spreadsheet_id)
+
+
+def fetch_workspace_native_resources(
+    session: DatabaseSession,
+    table_name: str,
+    project_id: UUID,
+    folder_id: UUID | None | object = ...,
+) -> list[Row]:
+    table = workspace_native_resource_table(table_name)
+    folder_filter = ""
+    params: tuple = (project_id,)
+    if folder_id is None:
+        folder_filter = "AND folder_id IS NULL"
+    elif folder_id is not ...:
+        folder_filter = "AND folder_id = %s"
+        params = (project_id, folder_id)
+
+    return session.fetch_all(
+        f"""
+        SELECT *
+        FROM {table}
+        WHERE project_id = %s
+          {folder_filter}
+        ORDER BY LOWER(name), created_at, id
+        """,
+        params,
+    )
+
+
+def fetch_workspace_native_resource_or_404(
+    session: DatabaseSession,
+    table_name: str,
+    project_id: UUID,
+    resource_id: UUID,
+) -> Row:
+    table = workspace_native_resource_table(table_name)
+    row = session.fetch_one(
+        f"""
+        SELECT *
+        FROM {table}
+        WHERE project_id = %s
+          AND id = %s
+        """,
+        (project_id, resource_id),
+    )
+    if row is None:
+        raise_workspace_native_resource_not_found(table)
+    return row
+
+
+def create_workspace_native_resource(
+    session: DatabaseSession,
+    table_name: str,
+    project_id: UUID,
+    user_id: UUID,
+    payload: WorkspaceNativeResourceCreateRequest,
+) -> Row:
+    table = workspace_native_resource_table(table_name)
+    name = normalize_workspace_resource_name(payload.name)
+    ensure_workspace_native_resource_links(session, project_id, payload.folder_id, payload.task_id)
+    return session.fetch_one(
+        f"""
+        INSERT INTO {table} (
+          project_id,
+          folder_id,
+          task_id,
+          name,
+          content,
+          created_by
+        )
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING *
+        """,
+        (project_id, payload.folder_id, payload.task_id, name, Jsonb(payload.content), user_id),
+    )
+
+
+def update_workspace_native_resource_content(
+    session: DatabaseSession,
+    table_name: str,
+    project_id: UUID,
+    resource_id: UUID,
+    content: dict[str, Any],
+) -> Row:
+    fetch_workspace_native_resource_or_404(session, project_id=project_id, table_name=table_name, resource_id=resource_id)
+    table = workspace_native_resource_table(table_name)
+    row = session.fetch_one(
+        f"""
+        UPDATE {table}
+        SET content = %s
+        WHERE project_id = %s
+          AND id = %s
+        RETURNING *
+        """,
+        (Jsonb(content), project_id, resource_id),
+    )
+    return row
+
+
+def rename_workspace_native_resource(
+    session: DatabaseSession,
+    table_name: str,
+    project_id: UUID,
+    resource_id: UUID,
+    name: str,
+) -> Row:
+    fetch_workspace_native_resource_or_404(session, project_id=project_id, table_name=table_name, resource_id=resource_id)
+    table = workspace_native_resource_table(table_name)
+    row = session.fetch_one(
+        f"""
+        UPDATE {table}
+        SET name = %s
+        WHERE project_id = %s
+          AND id = %s
+        RETURNING *
+        """,
+        (normalize_workspace_resource_name(name), project_id, resource_id),
+    )
+    return row
+
+
+def move_workspace_native_resource(
+    session: DatabaseSession,
+    table_name: str,
+    project_id: UUID,
+    resource_id: UUID,
+    folder_id: UUID | None,
+) -> Row:
+    fetch_workspace_native_resource_or_404(session, project_id=project_id, table_name=table_name, resource_id=resource_id)
+    ensure_workspace_native_resource_links(session, project_id, folder_id, None)
+    table = workspace_native_resource_table(table_name)
+    row = session.fetch_one(
+        f"""
+        UPDATE {table}
+        SET folder_id = %s
+        WHERE project_id = %s
+          AND id = %s
+        RETURNING *
+        """,
+        (folder_id, project_id, resource_id),
+    )
+    return row
+
+
+def update_workspace_native_resource_task_link(
+    session: DatabaseSession,
+    table_name: str,
+    project_id: UUID,
+    resource_id: UUID,
+    task_id: UUID | None,
+) -> Row:
+    fetch_workspace_native_resource_or_404(session, project_id=project_id, table_name=table_name, resource_id=resource_id)
+    ensure_workspace_native_resource_links(session, project_id, None, task_id)
+    table = workspace_native_resource_table(table_name)
+    row = session.fetch_one(
+        f"""
+        UPDATE {table}
+        SET task_id = %s
+        WHERE project_id = %s
+          AND id = %s
+        RETURNING *
+        """,
+        (task_id, project_id, resource_id),
+    )
+    return row
+
+
+def delete_workspace_native_resource(
+    session: DatabaseSession,
+    table_name: str,
+    project_id: UUID,
+    resource_id: UUID,
+) -> None:
+    fetch_workspace_native_resource_or_404(session, project_id=project_id, table_name=table_name, resource_id=resource_id)
+    table = workspace_native_resource_table(table_name)
+    session.execute(
+        f"""
+        DELETE FROM {table}
+        WHERE project_id = %s
+          AND id = %s
+        """,
+        (project_id, resource_id),
+    )
+
+
+def ensure_workspace_native_resource_links(
+    session: DatabaseSession,
+    project_id: UUID,
+    folder_id: UUID | None,
+    task_id: UUID | None,
+) -> None:
+    if folder_id is not None:
+        fetch_workspace_folder_or_404(session, project_id, folder_id)
+    if task_id is not None:
+        fetch_task_in_project_or_404(session, project_id, task_id)
+
+
+def workspace_native_resource_table(table_name: str) -> str:
+    if table_name in {"workspace_documents", "workspace_spreadsheets"}:
+        return table_name
+    raise RuntimeError("Unsupported workspace native resource table")
+
+
 def ensure_workspace_folder_name_available(
     session: DatabaseSession,
     project_id: UUID,
@@ -2987,9 +3484,13 @@ def ensure_workspace_folder_empty(session: DatabaseSession, folder_id: UUID) -> 
           SELECT 1 FROM workspace_folders WHERE parent_folder_id = %s
           UNION ALL
           SELECT 1 FROM task_files WHERE folder_id = %s
+          UNION ALL
+          SELECT 1 FROM workspace_documents WHERE folder_id = %s
+          UNION ALL
+          SELECT 1 FROM workspace_spreadsheets WHERE folder_id = %s
         ) AS has_contents
         """,
-        (folder_id, folder_id),
+        (folder_id, folder_id, folder_id, folder_id),
     )
     if row["has_contents"]:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=WORKSPACE_FOLDER_NON_EMPTY_DETAIL)
@@ -3368,6 +3869,14 @@ def workspace_contents_to_response(
             workspace_file_to_response(row)
             for row in fetch_workspace_files(session, project_id, parent_folder_id, include_finance=can_view_finance_files)
         ],
+        documents=[
+            workspace_document_to_response(row)
+            for row in fetch_workspace_documents_in_folder(session, project_id, parent_folder_id)
+        ],
+        spreadsheets=[
+            workspace_spreadsheet_to_response(row)
+            for row in fetch_workspace_spreadsheets_in_folder(session, project_id, parent_folder_id)
+        ],
     )
 
 
@@ -3377,6 +3886,14 @@ def workspace_folder_to_response(row: Row) -> WorkspaceFolderResponse:
 
 def workspace_file_to_response(row: Row) -> WorkspaceFileResponse:
     return WorkspaceFileResponse(**row)
+
+
+def workspace_document_to_response(row: Row) -> WorkspaceDocumentResponse:
+    return WorkspaceDocumentResponse(**row)
+
+
+def workspace_spreadsheet_to_response(row: Row) -> WorkspaceSpreadsheetResponse:
+    return WorkspaceSpreadsheetResponse(**row)
 
 
 def dashboard_project_to_response(row: Row, session: DatabaseSession | None = None, user_id: UUID | None = None) -> DashboardProjectResponse:
@@ -3459,6 +3976,22 @@ def raise_workspace_folder_not_found() -> None:
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=WORKSPACE_FOLDER_NOT_FOUND_DETAIL)
 
 
+def raise_workspace_document_not_found() -> None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=WORKSPACE_DOCUMENT_NOT_FOUND_DETAIL)
+
+
+def raise_workspace_spreadsheet_not_found() -> None:
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=WORKSPACE_SPREADSHEET_NOT_FOUND_DETAIL)
+
+
+def raise_workspace_native_resource_not_found(table_name: str) -> None:
+    if table_name == "workspace_documents":
+        raise_workspace_document_not_found()
+    if table_name == "workspace_spreadsheets":
+        raise_workspace_spreadsheet_not_found()
+    raise RuntimeError("Unsupported workspace native resource table")
+
+
 def get_file_storage(request: Request) -> FileStorage:
     storage = getattr(request.app.state, "file_storage", None)
     if storage is None:
@@ -3486,6 +4019,15 @@ def normalize_workspace_folder_name(name: str) -> str:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=WORKSPACE_FOLDER_NAME_INVALID_DETAIL)
     if "/" in normalized or "\\" in normalized or re.search(r"[\x00-\x1f\x7f]", normalized):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=WORKSPACE_FOLDER_NAME_INVALID_DETAIL)
+    return normalized
+
+
+def normalize_workspace_resource_name(name: str) -> str:
+    normalized = name.strip()
+    if not normalized or len(normalized) > 200:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=WORKSPACE_RESOURCE_NAME_INVALID_DETAIL)
+    if "/" in normalized or "\\" in normalized or re.search(r"[\x00-\x1f\x7f]", normalized):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=WORKSPACE_RESOURCE_NAME_INVALID_DETAIL)
     return normalized
 
 

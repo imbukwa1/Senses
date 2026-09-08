@@ -323,9 +323,27 @@ export type WorkspaceFile = ProjectFile & {
   folder_id: string | null;
 };
 
+export type WorkspaceNativeResource = {
+  id: string;
+  project_id: string;
+  folder_id: string | null;
+  task_id: string | null;
+  name: string;
+  content: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceDocument = WorkspaceNativeResource;
+
+export type WorkspaceSpreadsheet = WorkspaceNativeResource;
+
 export type WorkspaceContents = {
   folders: WorkspaceFolder[];
   files: WorkspaceFile[];
+  documents: WorkspaceDocument[];
+  spreadsheets: WorkspaceSpreadsheet[];
 };
 
 export type WorkspaceFolderMutationPayload = {

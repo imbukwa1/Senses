@@ -1,4 +1,4 @@
-import { ChevronRight, Download, Edit, FileText, Folder, FolderPlus, MoveRight, Trash2 } from "lucide-react";
+import { ChevronRight, Download, Edit, FileText, Folder, FolderPlus, MoveRight, Table2, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { ConfirmAction } from "@/components/common/confirm-action";
@@ -25,7 +25,7 @@ import {
   useWorkspaceContentsQuery,
   useWorkspaceFolderTreeQuery,
 } from "./hooks";
-import type { WorkspaceFile, WorkspaceFolder } from "./types";
+import type { WorkspaceFile, WorkspaceFolder, WorkspaceNativeResource } from "./types";
 
 type BreadcrumbItem = {
   id: string | null;
@@ -45,6 +45,8 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
   const [actionError, setActionError] = useState<string | null>(null);
   const folders = contentsQuery.data?.folders ?? [];
   const files = contentsQuery.data?.files ?? [];
+  const documents = contentsQuery.data?.documents ?? [];
+  const spreadsheets = contentsQuery.data?.spreadsheets ?? [];
   const folderTree = folderTreeQuery.data ?? [];
 
   useEffect(() => {
@@ -129,7 +131,7 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
         {contentsQuery.isError ? <ErrorState title="Workspace could not be loaded" message={workspaceErrorMessage(contentsQuery.error)} /> : null}
 
         {!contentsQuery.isLoading && !contentsQuery.isError ? (
-          folders.length === 0 && files.length === 0 ? (
+          folders.length === 0 && files.length === 0 && documents.length === 0 && spreadsheets.length === 0 ? (
             <EmptyState title="This workspace location is empty." />
           ) : (
             <div className="overflow-hidden rounded-md border bg-surface">
@@ -145,6 +147,12 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
                   onOpen={openFolder}
                   onRename={onRenameFolder}
                 />
+              ))}
+              {documents.map((document) => (
+                <NativeResourceRow key={document.id} icon="document" label="Document" resource={document} />
+              ))}
+              {spreadsheets.map((spreadsheet) => (
+                <NativeResourceRow key={spreadsheet.id} icon="spreadsheet" label="Spreadsheet" resource={spreadsheet} />
               ))}
               {files.map((file) => (
                 <FileRow
@@ -162,6 +170,28 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+function NativeResourceRow({ icon, label, resource }: { icon: "document" | "spreadsheet"; label: string; resource: WorkspaceNativeResource }) {
+  const Icon = icon === "spreadsheet" ? Table2 : FileText;
+
+  return (
+    <div className="grid gap-3 border-b px-3 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+      <div className="flex min-w-0 items-start gap-3">
+        <Icon className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden="true" />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm font-semibold text-foreground">{resource.name}</p>
+            <Badge variant="secondary">{label}</Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {resource.task_id ? "Linked to task" : "Project workspace"}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Updated {formatDateTime(resource.updated_at)}</p>
+        </div>
+      </div>
+    </div>
   );
 }
 

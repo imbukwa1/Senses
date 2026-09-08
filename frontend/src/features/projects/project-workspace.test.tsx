@@ -76,6 +76,30 @@ const rootFile = {
   folder_id: null,
 };
 
+const rootDocument = {
+  id: "88888888-8888-4888-8888-888888888888",
+  project_id: projectId,
+  folder_id: null,
+  task_id: null,
+  name: "Interview Notes",
+  content: { type: "doc", content: [{ type: "paragraph" }] },
+  created_by: userId,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-02T00:00:00Z",
+};
+
+const childSpreadsheet = {
+  id: "99999999-9999-4999-8999-999999999999",
+  project_id: projectId,
+  folder_id: rootFolder.id,
+  task_id: taskId,
+  name: "Participant Tracker",
+  content: { id: "workbook", sheetOrder: [], sheets: {} },
+  created_by: userId,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-02T00:00:00Z",
+};
+
 describe("ProjectWorkspace", () => {
   beforeEach(() => {
     mocks.createFolder.mockResolvedValue(rootFolder);
@@ -85,9 +109,9 @@ describe("ProjectWorkspace", () => {
     mocks.updateFolder.mockResolvedValue(rootFolder);
     mocks.workspaceError = null;
     mocks.workspaceByFolder = {
-      root: { folders: [rootFolder], files: [rootFile] },
-      [rootFolder.id]: { folders: [childFolder], files: [] },
-      [childFolder.id]: { folders: [], files: [] },
+      root: { folders: [rootFolder], files: [rootFile], documents: [rootDocument], spreadsheets: [] },
+      [rootFolder.id]: { folders: [childFolder], files: [], documents: [], spreadsheets: [childSpreadsheet] },
+      [childFolder.id]: { folders: [], files: [], documents: [], spreadsheets: [] },
     };
   });
 
@@ -101,11 +125,15 @@ describe("ProjectWorkspace", () => {
 
     expect(screen.getByText("Research")).toBeInTheDocument();
     expect(screen.getByText("brief.pdf")).toBeInTheDocument();
+    expect(screen.getByText("Interview Notes")).toBeInTheDocument();
+    expect(screen.getByText("Document")).toBeInTheDocument();
     expect(screen.getByText("Discovery / Review field plan")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open folder Research" }));
 
     expect(screen.getByText("Participant Data")).toBeInTheDocument();
+    expect(screen.getByText("Participant Tracker")).toBeInTheDocument();
+    expect(screen.getByText("Spreadsheet")).toBeInTheDocument();
     expect(screen.queryByText("brief.pdf")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Workspace" })).toBeInTheDocument();
 

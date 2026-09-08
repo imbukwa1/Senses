@@ -295,7 +295,21 @@ export const workspaceFileSchema = projectFileSchema.extend({
   folder_id: z.uuid().nullable(),
 });
 
+export const workspaceNativeResourceSchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  folder_id: z.uuid().nullable(),
+  task_id: z.uuid().nullable(),
+  name: z.string().min(1),
+  content: z.record(z.string(), z.unknown()),
+  created_by: z.uuid().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
 export const workspaceContentsSchema = z.object({
   folders: z.array(workspaceFolderSchema),
   files: z.array(workspaceFileSchema),
+  documents: z.array(workspaceNativeResourceSchema).default([]),
+  spreadsheets: z.array(workspaceNativeResourceSchema).default([]),
 });
