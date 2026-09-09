@@ -79,7 +79,7 @@ export function Topbar() {
             <DropdownMenuSeparator className="my-1 h-px bg-border" />
             {unreadQuery.isError ? <div className="px-2 py-3 text-sm text-error">Comments could not be loaded.</div> : null}
             {!unreadQuery.isError && unreadQuery.data?.length === 0 ? <div className="px-2 py-3 text-sm text-muted-foreground">No unread comments.</div> : null}
-            {unreadQuery.data?.map((item) => <DropdownMenuItem key={item.id} className="items-start whitespace-normal py-2" onSelect={(event) => { event.preventDefault(); void openUnreadComment(item.project_id, item.phase_id, item.task_id, markRead, navigate); }}><div className="min-w-0"><p className="text-sm font-medium">{item.commenter_name} <span className="font-normal text-muted-foreground">in {item.project_name}</span></p><p className="text-xs text-muted-foreground">{item.task_name} · {formatRelativeTime(item.created_at)}</p><p className="mt-1 line-clamp-2 text-sm text-foreground">{item.comment}</p></div></DropdownMenuItem>)}
+            {unreadQuery.data?.map((item) => <DropdownMenuItem key={item.id} className="items-start whitespace-normal py-2" onSelect={(event) => { event.preventDefault(); void openUnreadComment(item.project_id, item.phase_id, item.task_id, item.id, markRead, navigate); }}><div className="min-w-0"><p className="text-sm font-medium">{item.commenter_name} <span className="font-normal text-muted-foreground">in {item.project_name}</span></p><p className="text-xs text-muted-foreground">{item.task_name} · {formatRelativeTime(item.created_at)}</p><p className="mt-1 line-clamp-2 text-sm text-foreground">{item.comment}</p></div></DropdownMenuItem>)}
           </DropdownMenuContent>
         </DropdownMenu>
         <DropdownMenu>
@@ -107,11 +107,11 @@ export function Topbar() {
   );
 }
 
-async function openUnreadComment(projectId: string, phaseId: string, taskId: string, markRead: ReturnType<typeof useMarkCommentThreadReadMutation>, navigate: ReturnType<typeof useNavigate>) {
+async function openUnreadComment(projectId: string, phaseId: string, taskId: string, commentId: string, markRead: ReturnType<typeof useMarkCommentThreadReadMutation>, navigate: ReturnType<typeof useNavigate>) {
   try {
     await markRead.mutateAsync({ projectId, taskId });
   } finally {
-    navigate(`/projects/${projectId}?phase=${phaseId}&task=${taskId}&comments=1`);
+    navigate(`/projects/${projectId}?phase=${phaseId}&task=${taskId}&comment=${commentId}&comments=1`);
   }
 }
 

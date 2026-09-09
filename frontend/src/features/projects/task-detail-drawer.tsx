@@ -16,6 +16,7 @@ import { Progress } from "@/components/ui/progress";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/features/auth/hooks";
+import { cn } from "@/lib/utils";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import {
@@ -55,6 +56,7 @@ export function TaskDetailDrawer({
   task,
   initialOpen = false,
   focusComments = false,
+  targetCommentId = null,
 }: {
   children: React.ReactNode;
   isProjectPm: boolean;
@@ -63,6 +65,7 @@ export function TaskDetailDrawer({
   task: Task;
   initialOpen?: boolean;
   focusComments?: boolean;
+  targetCommentId?: string | null;
 }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(initialOpen);
@@ -84,10 +87,10 @@ export function TaskDetailDrawer({
   }, [markCommentsReadAsync, open]);
 
   useEffect(() => {
-    if (open && focusComments) {
-      window.setTimeout(() => document.getElementById(`task-comments-${task.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+    if (open && focusComments && commentsQuery.data) {
+      window.setTimeout(() => document.getElementById(targetCommentId ? `task-comment-${targetCommentId}` : `task-comments-${task.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
     }
-  }, [focusComments, open, task.id]);
+  }, [commentsQuery.data, focusComments, open, targetCommentId, task.id]);
 
   async function markDone() {
     await updateTaskStatus.mutateAsync("Completed");
@@ -171,6 +174,7 @@ export function TaskDetailDrawer({
               commentsLoading={commentsQuery.isLoading}
               projectId={projectId}
               phaseId={phase.id}
+              targetCommentId={targetCommentId}
               taskId={task.id}
             /></div>
             <TaskFilesSection
@@ -329,6 +333,7 @@ function CommentsSection({
   phaseId,
   projectId,
   taskId,
+  targetCommentId,
 }: {
   comments: TaskComment[];
   commentsError: Error | null;
@@ -336,6 +341,7 @@ function CommentsSection({
   projectId: string;
   phaseId: string;
   taskId: string;
+  targetCommentId: string | null;
 }) {
   const createComment = useCreateTaskCommentMutation(projectId, phaseId, taskId);
   const {
@@ -389,11 +395,12 @@ function CommentsSection({
       <div className="mt-5">
         {commentsLoading ? <LoadingState label="Loading comments" /> : null}
         {commentsError ? <ErrorState title="Comments could not be loaded" message={commentErrorMessage(commentsError)} /> : null}
+        {!commentsLoading && !commentsError && targetCommentId && !comments.some((comment) => comment.id === targetCommentId) ? <p className="mb-3 rounded-md border border-brand-red/30 bg-brand-red/5 p-3 text-sm text-muted-foreground">This comment is no longer available. Showing the task thread.</p> : null}
         {!commentsLoading && !commentsError && comments.length === 0 ? <EmptyState title="No comments yet." /> : null}
         {!commentsLoading && !commentsError && comments.length > 0 ? (
           <div className="space-y-3">
             {comments.map((comment) => (
-              <article key={comment.id} className="rounded-md border bg-surface p-3">
+              <article id={`task-comment-${comment.id}`} key={comment.id} className={cn("rounded-md border bg-surface p-3", comment.id === targetCommentId && "border-brand-red ring-2 ring-brand-red/30")}>
                 <header className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                   <p className="font-semibold text-foreground">{comment.author_name}</p>
                   <p className="text-muted-foreground">{formatDateTime(comment.created_at)}</p>

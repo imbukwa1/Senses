@@ -40,14 +40,14 @@ export function PhaseTasks({ isProjectPm, phase, projectId }: { isProjectPm: boo
           <EmptyState title="No tasks have been added to this phase." />
         ) : null}
         {!tasksQuery.isLoading && !tasksQuery.isError && tasks.length > 0 ? (
-          <TaskTable initialTaskId={searchParams.get("task")} focusComments={searchParams.get("comments") === "1"} isProjectPm={isProjectPm} projectId={projectId} phase={phase} tasks={tasks} unreadCounts={countUnreadByTask(unreadQuery.data ?? [])} />
+          <TaskTable initialTaskId={searchParams.get("task")} targetCommentId={searchParams.get("comment")} focusComments={searchParams.get("comments") === "1"} isProjectPm={isProjectPm} projectId={projectId} phase={phase} tasks={tasks} unreadCounts={countUnreadByTask(unreadQuery.data ?? [])} />
         ) : null}
       </div>
     </div>
   );
 }
 
-function TaskTable({ focusComments, initialTaskId, isProjectPm, phase, projectId, tasks, unreadCounts }: { focusComments: boolean; initialTaskId: string | null; isProjectPm: boolean; projectId: string; phase: DashboardPhase; tasks: Task[]; unreadCounts: Map<string, number> }) {
+function TaskTable({ focusComments, initialTaskId, isProjectPm, phase, projectId, targetCommentId, tasks, unreadCounts }: { focusComments: boolean; initialTaskId: string | null; isProjectPm: boolean; projectId: string; phase: DashboardPhase; targetCommentId: string | null; tasks: Task[]; unreadCounts: Map<string, number> }) {
   return (
     <Table>
       <TableHeader>
@@ -81,7 +81,7 @@ function TaskTable({ focusComments, initialTaskId, isProjectPm, phase, projectId
             </TableCell>
             <TableCell className="text-right">
               <div className="flex justify-end gap-1">
-              <TaskDetailDrawer focusComments={focusComments && initialTaskId === task.id} initialOpen={initialTaskId === task.id} isProjectPm={isProjectPm} phase={phase} projectId={projectId} task={task}>
+              <TaskDetailDrawer focusComments={focusComments && initialTaskId === task.id} initialOpen={initialTaskId === task.id} isProjectPm={isProjectPm} phase={phase} projectId={projectId} targetCommentId={targetCommentId && initialTaskId === task.id ? targetCommentId : null} task={task}>
                   <Button type="button" variant="ghost" size="sm">
                     View
                   </Button>
