@@ -270,7 +270,7 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
           ) : null}
         </>
       ) : activeProjectTab === "workspace" ? (
-        <ProjectWorkspace canManage={isProjectPm} projectId={projectId} phases={dashboard.phases} />
+        <ProjectWorkspace canCreateFolder={Boolean(currentMember)} canManage={isProjectPm} projectId={projectId} phases={dashboard.phases} />
       ) : (
         <ProjectSetupPanel canEdit={isProjectPm} dashboard={dashboard} projectId={projectId} />
       )}

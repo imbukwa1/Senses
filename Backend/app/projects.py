@@ -1398,7 +1398,6 @@ def create_workspace_folder(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> WorkspaceFolderResponse:
     ensure_project_access(session, current_user.id, project_id)
-    ensure_project_pm(session, current_user.id, project_id)
     folder_name = normalize_workspace_folder_name(payload.name)
     if payload.parent_folder_id is not None:
         fetch_workspace_folder_or_404(session, project_id, payload.parent_folder_id)

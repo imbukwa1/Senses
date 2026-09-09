@@ -40,7 +40,7 @@ type BreadcrumbItem = {
   name: string;
 };
 
-export function ProjectWorkspace({ canManage, phases = [], projectId }: { projectId: string; canManage: boolean; phases?: DashboardPhase[] }) {
+export function ProjectWorkspace({ canManage, canCreateFolder = canManage, phases = [], projectId }: { projectId: string; canManage: boolean; canCreateFolder?: boolean; phases?: DashboardPhase[] }) {
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([{ id: null, name: "Workspace" }]);
   const [openResource, setOpenResource] = useState<{ id: string; kind: WorkspaceResourceKind } | null>(null);
   const currentFolderId = breadcrumbs[breadcrumbs.length - 1]?.id ?? null;
@@ -208,7 +208,7 @@ export function ProjectWorkspace({ canManage, phases = [], projectId }: { projec
               New Spreadsheet
             </Button>
           </NativeResourceFormDialog>
-          {canManage ? (
+          {canCreateFolder ? (
             <FolderFormDialog title="Create Folder" description="Create a folder in the current workspace location." submitLabel="Create Folder" onSubmit={onCreateFolder}>
               <Button type="button" size="sm">
                 <FolderPlus className="size-4" aria-hidden="true" />

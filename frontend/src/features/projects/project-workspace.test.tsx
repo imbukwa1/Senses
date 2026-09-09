@@ -286,6 +286,14 @@ describe("ProjectWorkspace", () => {
     expect(screen.getByRole("button", { name: "Download brief.pdf" })).toBeInTheDocument();
   });
 
+  it("shows folder creation for authorized members without exposing management controls", () => {
+    render(<ProjectWorkspace canCreateFolder canManage={false} projectId={projectId} />);
+
+    expect(screen.getByRole("button", { name: "New Folder" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open folder Research" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rename Research" })).not.toBeInTheDocument();
+  });
+
   it("surfaces backend workspace errors", () => {
     mocks.workspaceError = new Error("network down");
 

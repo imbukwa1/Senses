@@ -202,7 +202,7 @@ def test_pm_can_move_file_into_folder_and_back_without_changing_download_or_stor
         database.close()
 
 
-def test_workspace_modification_requires_project_pm_while_project_members_can_list() -> None:
+def test_workspace_folder_creation_allows_members_while_other_modifications_remain_pm_only() -> None:
     database = _database_from_env()
     database.connect()
     try:
@@ -226,7 +226,7 @@ def test_workspace_modification_requires_project_pm_while_project_members_can_li
             delete_attempt = client.delete(_folder_url(context["project"]["id"], folder["id"]), headers=_auth_header(team_token))
 
         assert listed.status_code == 200
-        assert create_attempt.status_code == 403
+        assert create_attempt.status_code == 201
         assert rename_attempt.status_code == 403
         assert file_move_attempt.status_code == 403
         assert delete_attempt.status_code == 403
