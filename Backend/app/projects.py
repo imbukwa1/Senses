@@ -5243,8 +5243,8 @@ def fetch_project_setup_project(session: DatabaseSession, project_id: UUID) -> R
           projects.key_activities
         FROM projects
         JOIN users AS project_leads ON project_leads.id = projects.project_lead_id
-        WHERE id = %s
-          AND archived_at IS NULL
+        WHERE projects.id = %s
+          AND projects.archived_at IS NULL
         """,
         (project_id,),
     )

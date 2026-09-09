@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from socket import create_connection
 from typing import Literal
@@ -44,6 +45,7 @@ class CollaborationSessionResponse(BaseModel):
     resource_id: UUID
     room: str
     endpoint: str | None
+    unit_id: str | None = None
     ready: bool
     service: CollaborationServiceCheck
 
@@ -119,7 +121,7 @@ def spreadsheet_collaboration_session(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> CollaborationSessionResponse:
     ensure_project_access(session, current_user.id, project_id)
-    fetch_workspace_spreadsheet_or_404(session, project_id, spreadsheet_id)
+    spreadsheet = fetch_workspace_spreadsheet_or_404(session, project_id, spreadsheet_id)
     settings: Settings = request.app.state.settings
     service = collaboration_service_check(
         url=settings.univer_collaboration_health_url,
@@ -132,9 +134,76 @@ def spreadsheet_collaboration_session(
         resource_id=spreadsheet_id,
         room=f"project:{project_id}:spreadsheets:{spreadsheet_id}",
         endpoint=settings.univer_collaboration_endpoint,
+        unit_id=spreadsheet.get("univer_unit_id"),
         ready=service.reachable,
         service=service,
     )
+
+
+@router.post("/projects/{project_id}/spreadsheets/{spreadsheet_id}/unit", response_model=CollaborationSessionResponse)
+def provision_spreadsheet_collaboration_unit(
+    request: Request,
+    project_id: UUID,
+    spreadsheet_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> CollaborationSessionResponse:
+    """Provision one official Univer unit after SENSES access checks."""
+    ensure_project_access(session, current_user.id, project_id)
+    spreadsheet = fetch_workspace_spreadsheet_or_404(session, project_id, spreadsheet_id)
+    settings: Settings = request.app.state.settings
+    service = collaboration_service_check(
+        url=settings.univer_collaboration_health_url,
+        required=["UNIVER_COLLABORATION_ENDPOINT", "UNIVER_COLLABORATION_HEALTH_URL"],
+        configured=bool(settings.univer_collaboration_endpoint and settings.univer_collaboration_health_url),
+    )
+    if not settings.univer_collaboration_endpoint:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Univer collaboration service is not configured.")
+
+    existing = session.fetch_one(
+        "SELECT univer_unit_id FROM workspace_spreadsheets WHERE project_id = %s AND id = %s FOR UPDATE",
+        (project_id, spreadsheet_id),
+    )
+    if existing and existing.get("univer_unit_id"):
+        unit_id = existing["univer_unit_id"]
+    else:
+        unit_id = create_univer_sheet_unit(settings.univer_collaboration_endpoint, spreadsheet["name"], current_user.id)
+        session.execute(
+            "UPDATE workspace_spreadsheets SET univer_unit_id = %s WHERE project_id = %s AND id = %s AND univer_unit_id IS NULL",
+            (unit_id, project_id, spreadsheet_id),
+        )
+
+    return CollaborationSessionResponse(
+        resource_type="spreadsheet",
+        project_id=project_id,
+        resource_id=spreadsheet_id,
+        room=f"project:{project_id}:spreadsheets:{spreadsheet_id}",
+        endpoint=settings.univer_collaboration_endpoint,
+        unit_id=unit_id,
+        ready=service.reachable,
+        service=service,
+    )
+
+
+def create_univer_sheet_unit(endpoint: str, name: str, creator: UUID) -> str:
+    request = UrlRequest(
+        f"{endpoint.rstrip('/')}/universer-api/snapshot/2/unit/-/create",
+        data=json.dumps({"type": 2, "name": name, "creator": str(creator)}).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            payload = json.loads(response.read().decode())
+    except (OSError, URLError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Univer collaboration unit could not be created.") from exc
+    # The official 0.25.x starter treats a non-empty unitID as success. The
+    # server may include a nonzero informational error object in the same
+    # response, so the unit ID is the authoritative creation result.
+    unit_id = payload.get("unitID")
+    if not unit_id:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Univer collaboration unit could not be created.")
+    return str(unit_id)
 
 
 def collaboration_service_check(url: str | None, required: list[str], configured: bool) -> CollaborationServiceCheck:

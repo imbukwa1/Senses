@@ -1,4 +1,5 @@
 import os
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -80,6 +81,60 @@ def test_spreadsheet_collaboration_session_uses_project_membership_and_official_
         assert body["room"] == f"project:{context['project']['id']}:spreadsheets:{context['spreadsheet']['id']}"
         assert body["endpoint"] == "http://127.0.0.1:65533"
         assert body["service"]["required"] == ["UNIVER_COLLABORATION_ENDPOINT", "UNIVER_COLLABORATION_HEALTH_URL"]
+    finally:
+        database.close()
+
+
+def test_spreadsheet_unit_mapping_uses_official_univer_endpoint_and_project_access() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Unit Mapping PM", _unique_email("unit.mapping.pm"))
+        outsider = _create_auth_user(database, "Unit Mapping Outsider", _unique_email("unit.mapping.outsider"))
+        project = _create_project(database, pm["id"], "Unit Mapping Project")
+        other_project = _create_project(database, pm["id"], "Unit Mapping Other Project")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, other_project["id"], pm["id"], "PM")
+        spreadsheet = _create_spreadsheet(database, project["id"], pm["id"], "Mapped Spreadsheet")
+        other_spreadsheet = _create_spreadsheet(database, other_project["id"], pm["id"], "Other Spreadsheet")
+        settings = replace(
+            _settings(os.environ["DATABASE_URL"]),
+            univer_collaboration_endpoint="http://127.0.0.1:8000",
+            univer_collaboration_health_url="http://127.0.0.1:8000/universer-api/user/session-ticket",
+        )
+        app = create_app(settings=settings, database=database)
+        pm_token = _token(pm, settings)
+        outsider_token = _token(outsider, settings)
+
+        with TestClient(app) as client:
+            first = client.post(
+                f"/collaboration/projects/{project['id']}/spreadsheets/{spreadsheet['id']}/unit",
+                headers=_auth_header(pm_token),
+            )
+            second = client.post(
+                f"/collaboration/projects/{project['id']}/spreadsheets/{spreadsheet['id']}/unit",
+                headers=_auth_header(pm_token),
+            )
+            isolated = client.post(
+                f"/collaboration/projects/{other_project['id']}/spreadsheets/{other_spreadsheet['id']}/unit",
+                headers=_auth_header(pm_token),
+            )
+            outsider_response = client.post(
+                f"/collaboration/projects/{project['id']}/spreadsheets/{spreadsheet['id']}/unit",
+                headers=_auth_header(outsider_token),
+            )
+            cross_project = client.post(
+                f"/collaboration/projects/{project['id']}/spreadsheets/{other_spreadsheet['id']}/unit",
+                headers=_auth_header(pm_token),
+            )
+
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200
+        assert isolated.status_code == 200
+        assert first.json()["unit_id"] == second.json()["unit_id"]
+        assert first.json()["unit_id"] != isolated.json()["unit_id"]
+        assert outsider_response.status_code == 403
+        assert cross_project.status_code == 404
     finally:
         database.close()
 
