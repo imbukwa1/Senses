@@ -57,6 +57,8 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
   const collaborationRoom = collaborationQuery.data?.room ?? null;
   const collaborationKey = `${projectId}:${resourceId}`;
   const collaborative = Boolean(collaborationEndpoint && collaborationRoom && token);
+  const resourceAvailable = Boolean(query.data?.id);
+  const editorReady = resourceAvailable && !collaborationQuery.isLoading;
   const ydoc = useMemo(() => (collaborative && collaborationKey ? new Y.Doc() : null), [collaborationKey, collaborative]);
   const provider = useMemo(() => {
     if (!ydoc || !collaborationEndpoint || !collaborationRoom || !token) {
@@ -83,7 +85,8 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
           ]
         : []),
     ],
-    content: collaborative ? undefined : emptyDocument,
+    content: editorReady && !collaborative ? emptyDocument : undefined,
+    immediatelyRender: editorReady,
     editorProps: {
       attributes: {
         "aria-label": "Document editor",
@@ -93,16 +96,16 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
     },
     onUpdate: ({ editor: currentEditor }) => {
       if (collaborative) {
-        setSaveState("saved");
-        setActionError(null);
+        setSaveState((previous) => previous === "saved" ? previous : "saved");
+        setActionError((previous) => previous === null ? previous : null);
         return;
       }
       const nextContent = currentEditor.getJSON() as Record<string, unknown>;
       setDraft(nextContent);
-      setSaveState("dirty");
-      setActionError(null);
+      setSaveState((previous) => previous === "dirty" ? previous : "dirty");
+      setActionError((previous) => previous === null ? previous : null);
     },
-  }, [provider, ydoc, collaborative, user?.name]);
+  }, [provider, ydoc, collaborative, editorReady, user?.name]);
 
   const content = useMemo(() => normalizeDocumentContent(query.data?.content), [query.data?.content]);
 
@@ -135,29 +138,32 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
   }, [collaborative, content, editor, query.data]);
 
   useEffect(() => {
-    if (!provider || !ydoc || !editor || !query.data) {
+    if (!provider || !ydoc || !editor || !resourceAvailable) {
       if (!collaborationQuery.isLoading && !collaborative) {
-        setConnectionState("offline");
+        setConnectionState((previous) => previous === "offline" ? previous : "offline");
       }
       return undefined;
     }
 
-    setConnectionState("connecting");
+    setConnectionState((previous) => previous === "connecting" ? previous : "connecting");
     const handleSynced = () => {
       // Only seed an empty shared document. Existing Yjs state always wins
       // over the JSONB checkpoint to prevent a stale client overwrite.
       if (ydoc.getXmlFragment("default").length === 0) {
         editor.commands.setContent(content, { emitUpdate: false });
       }
-      setConnectionState("online");
-      setSaveState("saved");
+      setConnectionState((previous) => previous === "online" ? previous : "online");
+      setSaveState((previous) => previous === "saved" ? previous : "saved");
     };
     const handleStatus = ({ status }: { status: WebSocketStatus }) => {
-      setConnectionState(status === WebSocketStatus.Connected ? "online" : status === WebSocketStatus.Disconnected ? "offline" : "connecting");
+      const nextState = status === WebSocketStatus.Connected ? "online" : status === WebSocketStatus.Disconnected ? "offline" : "connecting";
+      setConnectionState((previous) => previous === nextState ? previous : nextState);
     };
     const handleAuthenticationFailed = () => {
-      setConnectionState("error");
-      setActionError("Document collaboration authorization was rejected.");
+      setConnectionState((previous) => previous === "error" ? previous : "error");
+      setActionError((previous) => previous === "Document collaboration authorization was rejected."
+        ? previous
+        : "Document collaboration authorization was rejected.");
     };
     provider.on("synced", handleSynced);
     provider.on("status", handleStatus);
@@ -168,7 +174,7 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
       provider.off("authenticationFailed", handleAuthenticationFailed);
       provider.destroy();
     };
-  }, [collaborationQuery.isLoading, collaborative, content, editor, provider, query.data, ydoc]);
+  }, [collaborationQuery.isLoading, collaborative, content, editor, provider, resourceAvailable, ydoc]);
 
   useEffect(() => {
     if (!draft || collaborative) {
