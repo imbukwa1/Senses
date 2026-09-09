@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { CheckCircle2, Download, Edit, FileText, MessageSquare, Paperclip, Save, Trash2, Upload } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
@@ -21,6 +21,7 @@ import { userFacingErrorMessage } from "@/lib/api-errors";
 import {
   useChecklistQuery,
   useCreateTaskCommentMutation,
+  useMarkTaskCommentsReadMutation,
   useCreateChecklistItemMutation,
   useRemoveChecklistItemMutation,
   useSetChecklistItemCompletionMutation,
@@ -52,15 +53,21 @@ export function TaskDetailDrawer({
   phase,
   projectId,
   task,
+  initialOpen = false,
+  focusComments = false,
 }: {
   children: React.ReactNode;
   isProjectPm: boolean;
   projectId: string;
   phase: DashboardPhase;
   task: Task;
+  initialOpen?: boolean;
+  focusComments?: boolean;
 }) {
   const { user } = useAuth();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
+  const markCommentsRead = useMarkTaskCommentsReadMutation(projectId, task.id);
+  const markCommentsReadAsync = markCommentsRead.mutateAsync;
   const [editTaskOpen, setEditTaskOpen] = useState(false);
   const checklistQuery = useChecklistQuery(projectId, phase.id, task.id, open);
   const commentsQuery = useTaskCommentsQuery(projectId, phase.id, task.id, open);
@@ -71,6 +78,16 @@ export function TaskDetailDrawer({
   const taskProgress = checklist?.summary.progress;
   const supporters = supportersQuery.data ?? [];
   const canMarkDone = task.status !== "Completed" && (isProjectPm || task.owner_id === user?.id);
+
+  useEffect(() => {
+    if (open) void markCommentsReadAsync();
+  }, [markCommentsReadAsync, open]);
+
+  useEffect(() => {
+    if (open && focusComments) {
+      window.setTimeout(() => document.getElementById(`task-comments-${task.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+    }
+  }, [focusComments, open, task.id]);
 
   async function markDone() {
     await updateTaskStatus.mutateAsync("Completed");
@@ -148,14 +165,14 @@ export function TaskDetailDrawer({
                 taskId={task.id}
               />
             </section>
-            <CommentsSection
+            <div id={`task-comments-${task.id}`}><CommentsSection
               comments={commentsQuery.data ?? []}
               commentsError={commentsQuery.error}
               commentsLoading={commentsQuery.isLoading}
               projectId={projectId}
               phaseId={phase.id}
               taskId={task.id}
-            />
+            /></div>
             <TaskFilesSection
               files={filesQuery.data ?? []}
               filesError={filesQuery.error}

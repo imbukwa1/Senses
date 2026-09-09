@@ -67,6 +67,8 @@ import {
   listProjectMembers,
   listProjects,
   listTaskComments,
+  listUnreadCommentNotifications,
+  markTaskCommentsRead,
   listTaskFiles,
   listTasks,
   listTaskSupporters,
@@ -161,6 +163,7 @@ export const checklistQueryKey = (projectId: string, phaseId: string, taskId: st
   ["projects", projectId, "phases", phaseId, "tasks", taskId, "checklist"] as const;
 export const taskCommentsQueryKey = (projectId: string, phaseId: string, taskId: string) =>
   ["projects", projectId, "phases", phaseId, "tasks", taskId, "comments"] as const;
+export const unreadCommentNotificationsQueryKey = ["comment-notifications", "unread"] as const;
 export const taskFilesQueryKey = (projectId: string, phaseId: string, taskId: string) =>
   ["projects", projectId, "phases", phaseId, "tasks", taskId, "files"] as const;
 
@@ -1251,6 +1254,23 @@ export function useTaskCommentsQuery(projectId: string, phaseId: string, taskId:
   }, [logout, query.error]);
 
   return query;
+}
+
+export function useUnreadCommentNotificationsQuery(enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({ queryKey: unreadCommentNotificationsQueryKey, queryFn: () => listUnreadCommentNotifications(requireToken(token)), enabled: enabled && status === "authenticated" && Boolean(token), retry: false, refetchInterval: 30_000 });
+  useEffect(() => { if (query.error instanceof ApiError && query.error.status === 401) logout(); }, [logout, query.error]);
+  return query;
+}
+
+export function useMarkTaskCommentsReadMutation(projectId: string, taskId: string) {
+  const queryClient = useQueryClient(); const { logout, token } = useAuth();
+  return useMutation({ mutationFn: () => markTaskCommentsRead(requireToken(token), projectId, taskId), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: unreadCommentNotificationsQueryKey }); }, onError: authFailureHandler(logout) });
+}
+
+export function useMarkCommentThreadReadMutation() {
+  const queryClient = useQueryClient(); const { logout, token } = useAuth();
+  return useMutation({ mutationFn: ({ projectId, taskId }: { projectId: string; taskId: string }) => markTaskCommentsRead(requireToken(token), projectId, taskId), onSuccess: () => { void queryClient.invalidateQueries({ queryKey: unreadCommentNotificationsQueryKey }); }, onError: authFailureHandler(logout) });
 }
 
 export function useCreateTaskCommentMutation(projectId: string, phaseId: string, taskId: string) {

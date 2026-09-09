@@ -1,4 +1,5 @@
-import { Edit, Plus } from "lucide-react";
+import { Edit, MessageSquare, Plus } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
 import { EmptyState } from "@/components/common/empty-state";
 import { ErrorState } from "@/components/common/error-state";
@@ -8,12 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
-import { useTasksQuery } from "./hooks";
+import { useTasksQuery, useUnreadCommentNotificationsQuery } from "./hooks";
 import { TaskFormDialog } from "./task-form-dialog";
 import { TaskDetailDrawer } from "./task-detail-drawer";
 import type { DashboardPhase, Task } from "./types";
 
 export function PhaseTasks({ isProjectPm, phase, projectId }: { isProjectPm: boolean; projectId: string; phase: DashboardPhase }) {
+  const [searchParams] = useSearchParams();
+  const unreadQuery = useUnreadCommentNotificationsQuery();
   const tasksQuery = useTasksQuery(projectId, phase.id);
   const tasks = tasksQuery.data ?? [];
 
@@ -37,14 +40,14 @@ export function PhaseTasks({ isProjectPm, phase, projectId }: { isProjectPm: boo
           <EmptyState title="No tasks have been added to this phase." />
         ) : null}
         {!tasksQuery.isLoading && !tasksQuery.isError && tasks.length > 0 ? (
-          <TaskTable isProjectPm={isProjectPm} projectId={projectId} phase={phase} tasks={tasks} />
+          <TaskTable initialTaskId={searchParams.get("task")} focusComments={searchParams.get("comments") === "1"} isProjectPm={isProjectPm} projectId={projectId} phase={phase} tasks={tasks} unreadCounts={countUnreadByTask(unreadQuery.data ?? [])} />
         ) : null}
       </div>
     </div>
   );
 }
 
-function TaskTable({ isProjectPm, phase, projectId, tasks }: { isProjectPm: boolean; projectId: string; phase: DashboardPhase; tasks: Task[] }) {
+function TaskTable({ focusComments, initialTaskId, isProjectPm, phase, projectId, tasks, unreadCounts }: { focusComments: boolean; initialTaskId: string | null; isProjectPm: boolean; projectId: string; phase: DashboardPhase; tasks: Task[]; unreadCounts: Map<string, number> }) {
   return (
     <Table>
       <TableHeader>
@@ -78,11 +81,11 @@ function TaskTable({ isProjectPm, phase, projectId, tasks }: { isProjectPm: bool
             </TableCell>
             <TableCell className="text-right">
               <div className="flex justify-end gap-1">
-                <TaskDetailDrawer isProjectPm={isProjectPm} phase={phase} projectId={projectId} task={task}>
+              <TaskDetailDrawer focusComments={focusComments && initialTaskId === task.id} initialOpen={initialTaskId === task.id} isProjectPm={isProjectPm} phase={phase} projectId={projectId} task={task}>
                   <Button type="button" variant="ghost" size="sm">
                     View
                   </Button>
-                </TaskDetailDrawer>
+                </TaskDetailDrawer>{(unreadCounts.get(task.id) ?? 0) > 0 ? <span className="inline-flex items-center gap-1 text-xs text-brand-red"><MessageSquare className="size-3" aria-hidden="true" />{unreadCounts.get(task.id)}</span> : null}
                 {isProjectPm ? (
                   <TaskFormDialog mode="edit" projectId={projectId} phase={phase} task={task}>
                     <Button type="button" variant="ghost" size="sm">
@@ -105,6 +108,12 @@ function taskErrorMessage(error: Error | null) {
     forbidden: "You do not have access to tasks for this phase.",
     notFound: "The project or phase could not be found.",
   });
+}
+
+function countUnreadByTask(items: { task_id: string }[]) {
+  const counts = new Map<string, number>();
+  for (const item of items) counts.set(item.task_id, (counts.get(item.task_id) ?? 0) + 1);
+  return counts;
 }
 
 function formatOptionalDate(value: string | null) {

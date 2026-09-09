@@ -434,6 +434,19 @@ class TaskCommentResponse(BaseModel):
     updated_at: datetime
 
 
+class CommentNotificationResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    project_name: str
+    phase_id: UUID
+    phase_name: str
+    task_id: UUID
+    task_name: str
+    commenter_name: str
+    comment: str
+    created_at: datetime
+
+
 class TaskFileResponse(BaseModel):
     id: UUID
     task_id: UUID
@@ -3342,6 +3355,60 @@ def list_task_comments(
     ensure_project_access(session, current_user.id, project_id)
     fetch_project_task_or_404(session, project_id, phase_id, task_id)
     return [task_comment_to_response(row) for row in fetch_task_comments(session, task_id)]
+
+
+@router.get("/comment-notifications/unread", response_model=list[CommentNotificationResponse])
+def list_unread_comment_notifications(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[CommentNotificationResponse]:
+    rows = session.fetch_all(
+        """
+        SELECT comments.id, projects.id AS project_id, projects.name AS project_name,
+               phases.id AS phase_id, phases.name AS phase_name,
+               tasks.id AS task_id, tasks.name AS task_name,
+               users.name AS commenter_name, comments.comment, comments.created_at
+        FROM comments
+        JOIN tasks ON tasks.id = comments.task_id
+        JOIN phases ON phases.id = tasks.phase_id
+        JOIN projects ON projects.id = phases.project_id
+        JOIN project_members ON project_members.project_id = projects.id
+                            AND project_members.user_id = %s
+        JOIN users ON users.id = comments.user_id
+        LEFT JOIN comment_read_state
+          ON comment_read_state.user_id = %s AND comment_read_state.task_id = tasks.id
+        WHERE projects.archived_at IS NULL
+          AND phases.archived_at IS NULL
+          AND comments.user_id <> %s
+          AND comments.created_at > COALESCE(comment_read_state.last_seen_comment_at, TIMESTAMPTZ 'epoch')
+        ORDER BY comments.created_at DESC, comments.id DESC
+        LIMIT 100
+        """,
+        (current_user.id, current_user.id, current_user.id),
+    )
+    return [CommentNotificationResponse(**row) for row in rows]
+
+
+@router.post("/comment-notifications/{project_id}/tasks/{task_id}/read", status_code=status.HTTP_204_NO_CONTENT)
+def mark_task_comments_read(
+    project_id: UUID,
+    task_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> Response:
+    ensure_project_access(session, current_user.id, project_id)
+    fetch_task_in_project_or_404(session, project_id, task_id)
+    latest = session.fetch_one("SELECT MAX(created_at) AS last_seen_comment_at FROM comments WHERE task_id = %s", (task_id,))
+    if latest["last_seen_comment_at"] is not None:
+        session.execute(
+            """
+            INSERT INTO comment_read_state (user_id, task_id, last_seen_comment_at)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id, task_id) DO UPDATE SET last_seen_comment_at = EXCLUDED.last_seen_comment_at, updated_at = NOW()
+            """,
+            (current_user.id, task_id, latest["last_seen_comment_at"]),
+        )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

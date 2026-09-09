@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   useChecklistQuery: vi.fn(),
   useCreateChecklistItemMutation: vi.fn(),
   useCreateTaskCommentMutation: vi.fn(),
+  useMarkTaskCommentsReadMutation: vi.fn(),
   useDownloadTaskFileMutation: vi.fn(),
   useRemoveChecklistItemMutation: vi.fn(),
   useSetChecklistItemCompletionMutation: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock("./hooks", () => ({
   useChecklistQuery: mocks.useChecklistQuery,
   useCreateChecklistItemMutation: mocks.useCreateChecklistItemMutation,
   useCreateTaskCommentMutation: mocks.useCreateTaskCommentMutation,
+  useMarkTaskCommentsReadMutation: mocks.useMarkTaskCommentsReadMutation,
   useDownloadTaskFileMutation: mocks.useDownloadTaskFileMutation,
   useRemoveChecklistItemMutation: mocks.useRemoveChecklistItemMutation,
   useSetChecklistItemCompletionMutation: mocks.useSetChecklistItemCompletionMutation,
@@ -134,6 +136,7 @@ describe("TaskDetailDrawer", () => {
     mocks.useTaskSupportersQuery.mockReturnValue({ data: [], isLoading: false });
     mocks.useCreateChecklistItemMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useCreateTaskCommentMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
+    mocks.useMarkTaskCommentsReadMutation.mockReturnValue({ mutateAsync: vi.fn() });
     mocks.useDownloadTaskFileMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useRemoveChecklistItemMutation.mockReturnValue({ error: null, isPending: false, mutate: vi.fn() });
     mocks.useSetChecklistItemCompletionMutation.mockReturnValue({ error: null, isPending: false, mutate: vi.fn() });

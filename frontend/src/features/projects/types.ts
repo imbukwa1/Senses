@@ -601,6 +601,19 @@ export type TaskComment = {
   updated_at: string;
 };
 
+export type CommentNotification = {
+  id: string;
+  project_id: string;
+  project_name: string;
+  phase_id: string;
+  phase_name: string;
+  task_id: string;
+  task_name: string;
+  commenter_name: string;
+  comment: string;
+  created_at: string;
+};
+
 export type TaskFile = {
   id: string;
   task_id: string;

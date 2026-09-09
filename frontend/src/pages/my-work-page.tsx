@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarClock } from "lucide-react";
+import { ArrowRight, CalendarClock, MessageSquare } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { ErrorState } from "@/components/common/error-state";
@@ -7,13 +7,15 @@ import { StatusBadge } from "@/components/common/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useMyWorkQuery } from "@/features/projects/hooks";
+import { useMyWorkQuery, useUnreadCommentNotificationsQuery } from "@/features/projects/hooks";
 import type { MyWorkItem } from "@/features/projects/types";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
 export function MyWorkPage() {
   const myWorkQuery = useMyWorkQuery();
+  const unreadQuery = useUnreadCommentNotificationsQuery();
   const items = myWorkQuery.data ?? [];
+  const unreadCounts = countUnreadByTask(unreadQuery.data ?? []);
 
   if (myWorkQuery.isError) {
     return <ErrorState title="My Work could not be loaded" message={userFacingErrorMessage(myWorkQuery.error)} />;
@@ -53,7 +55,7 @@ export function MyWorkPage() {
           </TableHeader>
           <TableBody>
             {items.map((item) => (
-              <MyWorkRow key={item.task_id} item={item} />
+              <MyWorkRow key={item.task_id} item={item} unreadCount={unreadCounts.get(item.task_id) ?? 0} />
             ))}
           </TableBody>
         </Table>
@@ -62,11 +64,11 @@ export function MyWorkPage() {
   );
 }
 
-function MyWorkRow({ item }: { item: MyWorkItem }) {
+function MyWorkRow({ item, unreadCount }: { item: MyWorkItem; unreadCount: number }) {
   return (
     <TableRow>
       <TableCell>
-        <p className="font-medium text-foreground">{item.task_name}</p>
+        <p className="flex items-center gap-2 font-medium text-foreground">{item.task_name}{unreadCount > 0 ? <span className="inline-flex items-center gap-1 text-xs text-brand-red"><MessageSquare className="size-3" aria-hidden="true" />{unreadCount}</span> : null}</p>
         <p className="mt-1 text-xs text-muted-foreground">{relationshipLabel(item.relationship)}</p>
       </TableCell>
       <TableCell>
@@ -91,6 +93,12 @@ function MyWorkRow({ item }: { item: MyWorkItem }) {
       </TableCell>
     </TableRow>
   );
+}
+
+function countUnreadByTask(items: { task_id: string }[]) {
+  const counts = new Map<string, number>();
+  for (const item of items) counts.set(item.task_id, (counts.get(item.task_id) ?? 0) + 1);
+  return counts;
 }
 
 function relationshipLabel(value: MyWorkItem["relationship"]) {

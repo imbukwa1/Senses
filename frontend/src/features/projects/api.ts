@@ -50,6 +50,7 @@ import {
   taskSchema,
   taskCommentSchema,
   taskCommentsSchema,
+  commentNotificationsSchema,
   taskFileSchema,
   taskFilesSchema,
   taskSupporterSchema,
@@ -112,6 +113,7 @@ import type {
   Checklist,
   ChecklistItem,
   TaskComment,
+  CommentNotification,
   DownloadedTaskFile,
   TaskFile,
   TaskMutationPayload,
@@ -1241,6 +1243,16 @@ export async function listTaskComments(token: string, projectId: string, phaseId
   }
 
   return result.data;
+}
+
+export async function listUnreadCommentNotifications(token: string): Promise<CommentNotification[]> {
+  const result = commentNotificationsSchema.safeParse(await apiRequest<unknown>("/projects/comment-notifications/unread", {}, token));
+  if (!result.success) throw new ApiError("Unread comments could not be loaded.", 500);
+  return result.data;
+}
+
+export async function markTaskCommentsRead(token: string, projectId: string, taskId: string): Promise<void> {
+  await apiRequest<void>(`/projects/comment-notifications/${projectId}/tasks/${taskId}/read`, { method: "POST" }, token);
 }
 
 export async function createTaskComment(

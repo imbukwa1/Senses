@@ -466,6 +466,8 @@ export const taskCommentSchema = z.object({
 });
 
 export const taskCommentsSchema = z.array(taskCommentSchema);
+export const commentNotificationSchema = z.object({ id: z.uuid(), project_id: z.uuid(), project_name: z.string().min(1), phase_id: z.uuid(), phase_name: z.string().min(1), task_id: z.uuid(), task_name: z.string().min(1), commenter_name: z.string().min(1), comment: z.string().min(1), created_at: z.string().min(1) });
+export const commentNotificationsSchema = z.array(commentNotificationSchema);
 
 export const taskFileSchema = z.object({
   id: z.uuid(),
