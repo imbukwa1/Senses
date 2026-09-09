@@ -467,6 +467,23 @@ export type ProjectSetupMonitoringReportingPayload = {
   reporting_notes: string | null;
 };
 
+export type SetupDocumentType = "Proposal" | "Contract / Agreement" | "Terms of Reference" | "Baseline documents" | "Other supporting files";
+
+export type ProjectSetupApproval = {
+  id: string; project_id: string; required_approval: string; approver_id: string | null;
+  approver: ProjectLead | null; due_date: string | null;
+  status: "Required" | "Pending" | "Approved" | "Rejected" | "Not Required";
+  approval_document_file_id: string | null; approval_document_name: string | null;
+  created_by: string | null; created_at: string; updated_at: string;
+};
+export type ProjectSetupApprovalPayload = Omit<ProjectSetupApproval, "id" | "project_id" | "approver" | "approval_document_name" | "created_by" | "created_at" | "updated_at">;
+export type ProjectSetupChange = { id: string; project_id: string; change_description: string; reason: string; approved_by_id: string | null; approved_by: ProjectLead | null; approved_date: string | null; notes: string | null; created_by: string | null; created_at: string; updated_at: string };
+export type ProjectSetupChangePayload = { change_description: string; reason: string; approved_by_id: string | null; approved_date: string | null; notes: string | null };
+export type ProjectSetupSpecificInformation = { id: string; project_id: string; label: string; value: string; created_by: string | null; created_at: string; updated_at: string };
+export type ProjectSetupSpecificInformationPayload = { label: string; value: string };
+export type ProjectSetupNote = { id: string; project_id: string; note: string; created_by: string | null; created_at: string; updated_at: string };
+export type ProjectSetupNotePayload = { note: string };
+
 export type Task = {
   id: string;
   project_id: string;
@@ -593,6 +610,7 @@ export type TaskFile = {
   file_type: string | null;
   file_size: number;
   file_category: "reference" | "work_submission" | "finance";
+  setup_document_type?: SetupDocumentType | null;
   created_at: string;
 };
 

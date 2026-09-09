@@ -28,6 +28,14 @@ import {
   projectSetupMilestonesSchema,
   projectSetupMonitoringReportingSchema,
   projectSetupMonitoringReportingsSchema,
+  projectSetupApprovalSchema,
+  projectSetupApprovalsSchema,
+  projectSetupChangeSchema,
+  projectSetupChangesSchema,
+  projectSetupSpecificInformationSchema,
+  projectSetupSpecificInformationSchemaArray,
+  projectSetupNoteSchema,
+  projectSetupNotesSchema,
   projectSetupRiskIssueSchema,
   projectSetupRisksIssuesSchema,
   projectSetupResourceSchema,
@@ -82,6 +90,14 @@ import type {
   ProjectSetupResourcePayload,
   ProjectSetupMonitoringReporting,
   ProjectSetupMonitoringReportingPayload,
+  ProjectSetupApproval,
+  ProjectSetupApprovalPayload,
+  ProjectSetupChange,
+  ProjectSetupChangePayload,
+  ProjectSetupSpecificInformation,
+  ProjectSetupSpecificInformationPayload,
+  ProjectSetupNote,
+  ProjectSetupNotePayload,
   ProjectMember,
   ProjectMutationPayload,
   ProjectSetup,
@@ -278,6 +294,47 @@ export async function createProjectSetupResource(
     throw new ApiError("Project setup resource could not be saved.", 500);
   }
 
+  return result.data;
+}
+
+export async function listProjectSetupApprovals(token: string, projectId: string): Promise<ProjectSetupApproval[]> {
+  const result = projectSetupApprovalsSchema.safeParse(await apiRequest<unknown>(`/projects/${projectId}/setup/approvals`, {}, token));
+  if (!result.success) throw new ApiError("Project approvals could not be loaded.", 500);
+  return result.data;
+}
+export async function createProjectSetupApproval(token: string, projectId: string, payload: ProjectSetupApprovalPayload): Promise<ProjectSetupApproval> {
+  const result = projectSetupApprovalSchema.safeParse(await apiRequest<unknown>(`/projects/${projectId}/setup/approvals`, { method: "POST", body: JSON.stringify(payload) }, token));
+  if (!result.success) throw new ApiError("Project approval could not be saved.", 500);
+  return result.data;
+}
+export async function listProjectSetupChanges(token: string, projectId: string): Promise<ProjectSetupChange[]> {
+  const result = projectSetupChangesSchema.safeParse(await apiRequest<unknown>(`/projects/${projectId}/setup/changes`, {}, token));
+  if (!result.success) throw new ApiError("Project changes could not be loaded.", 500);
+  return result.data;
+}
+export async function createProjectSetupChange(token: string, projectId: string, payload: ProjectSetupChangePayload): Promise<ProjectSetupChange> {
+  const result = projectSetupChangeSchema.safeParse(await apiRequest<unknown>(`/projects/${projectId}/setup/changes`, { method: "POST", body: JSON.stringify(payload) }, token));
+  if (!result.success) throw new ApiError("Project change could not be saved.", 500);
+  return result.data;
+}
+export async function listProjectSetupSpecificInformation(token: string, projectId: string): Promise<ProjectSetupSpecificInformation[]> {
+  const result = projectSetupSpecificInformationSchemaArray.safeParse(await apiRequest<unknown>(`/projects/${projectId}/setup/project-specific-information`, {}, token));
+  if (!result.success) throw new ApiError("Project-specific information could not be loaded.", 500);
+  return result.data;
+}
+export async function createProjectSetupSpecificInformation(token: string, projectId: string, payload: ProjectSetupSpecificInformationPayload): Promise<ProjectSetupSpecificInformation> {
+  const result = projectSetupSpecificInformationSchema.safeParse(await apiRequest<unknown>(`/projects/${projectId}/setup/project-specific-information`, { method: "POST", body: JSON.stringify(payload) }, token));
+  if (!result.success) throw new ApiError("Project-specific information could not be saved.", 500);
+  return result.data;
+}
+export async function listProjectSetupNotes(token: string, projectId: string): Promise<ProjectSetupNote[]> {
+  const result = projectSetupNotesSchema.safeParse(await apiRequest<unknown>(`/projects/${projectId}/setup/notes`, {}, token));
+  if (!result.success) throw new ApiError("Project setup notes could not be loaded.", 500);
+  return result.data;
+}
+export async function createProjectSetupNote(token: string, projectId: string, payload: ProjectSetupNotePayload): Promise<ProjectSetupNote> {
+  const result = projectSetupNoteSchema.safeParse(await apiRequest<unknown>(`/projects/${projectId}/setup/notes`, { method: "POST", body: JSON.stringify(payload) }, token));
+  if (!result.success) throw new ApiError("Project setup note could not be saved.", 500);
   return result.data;
 }
 
@@ -1210,9 +1267,11 @@ export async function uploadTaskFile(
   taskId: string,
   file: File,
   fileCategory: TaskFile["file_category"] = "work_submission",
+  setupDocumentType?: TaskFile["setup_document_type"],
 ): Promise<TaskFile> {
   const body = new FormData();
   body.append("file_category", fileCategory);
+  if (setupDocumentType) body.append("setup_document_type", setupDocumentType);
   body.append("file", file);
   const data = await apiRequest<unknown>(
     `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/files`,

@@ -1,5 +1,5 @@
-import { Check, CheckCircle2, Circle, ClipboardList, Edit, Eye, FileClock, Plus, Save, UserPlus, Users, X, XCircle } from "lucide-react";
-import type { FormEvent } from "react";
+import { Check, CheckCircle2, Circle, ClipboardList, Edit, Eye, FileClock, Plus, Save, Upload, UserPlus, Users, X, XCircle } from "lucide-react";
+import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/common/empty-state";
@@ -28,6 +28,10 @@ import {
   useCreateProjectSetupRiskIssueMutation,
   useCreateProjectSetupResourceMutation,
   useCreateProjectSetupStakeholderMutation,
+  useCreateProjectSetupApprovalMutation,
+  useCreateProjectSetupChangeMutation,
+  useCreateProjectSetupSpecificInformationMutation,
+  useCreateProjectSetupNoteMutation,
   usePhaseMembersQuery,
   useProjectMembersQuery,
   useProjectBudgetQuery,
@@ -40,6 +44,12 @@ import {
   useProjectSetupRisksIssuesQuery,
   useProjectSetupResourcesQuery,
   useProjectSetupStakeholdersQuery,
+  useProjectSetupApprovalsQuery,
+  useProjectSetupChangesQuery,
+  useProjectSetupSpecificInformationQuery,
+  useProjectSetupNotesQuery,
+  useProjectFilesQuery,
+  useUploadTaskFileMutation,
   useProjectSetupBudgetQuery,
   useProjectSetupQuery,
   useUpdateProjectSetupBudgetMutation,
@@ -71,6 +81,10 @@ import type {
   ProjectSetupSection,
   ProjectSetupStatus,
   ProjectSetupStakeholderPayload,
+  ProjectSetupApprovalPayload,
+  ProjectSetupChangePayload,
+  ProjectSetupSpecificInformationPayload,
+  SetupDocumentType,
 } from "./types";
 
 const SETUP_STATUSES: ProjectSetupStatus[] = ["Complete", "In Progress", "Not Started", "Not Applicable"];
@@ -388,6 +402,11 @@ function renderFirstPassSection({
   if (activeSection.key === "monitoring_reporting") {
     return <Phase0MonitoringReportingSection canEdit={canEdit} members={members} projectId={setup.project_id} />;
   }
+  if (activeSection.key === "approvals_signoff") return <Phase0ApprovalsSection canEdit={canEdit} members={members} projectId={setup.project_id} />;
+  if (activeSection.key === "change_management") return <Phase0ChangesSection canEdit={canEdit} members={members} projectId={setup.project_id} />;
+  if (activeSection.key === "project_specific_information") return <Phase0SpecificInformationSection canEdit={canEdit} projectId={setup.project_id} />;
+  if (activeSection.key === "documents_attachments") return <Phase0DocumentsSection canEdit={canEdit} dashboard={dashboard} projectId={setup.project_id} />;
+  if (activeSection.key === "notes") return <Phase0NotesSection canEdit={canEdit} projectId={setup.project_id} />;
   return null;
 }
 
@@ -406,6 +425,11 @@ function isFirstPassSection(sectionKey: string) {
     "stakeholders",
     "communication_plan",
     "monitoring_reporting",
+    "approvals_signoff",
+    "change_management",
+    "project_specific_information",
+    "documents_attachments",
+    "notes",
   ].includes(sectionKey);
 }
 
@@ -1394,6 +1418,47 @@ function Phase0DependenciesSection({
       </div>
     </div>
   );
+}
+
+function Phase0ApprovalsSection({ canEdit, members, projectId }: { canEdit: boolean; members: ProjectMember[]; projectId: string }) {
+  const query = useProjectSetupApprovalsQuery(projectId);
+  const filesQuery = useProjectFilesQuery(projectId);
+  const create = useCreateProjectSetupApprovalMutation(projectId);
+  const [form, setForm] = useState<ProjectSetupApprovalPayload>({ required_approval: "", approver_id: null, due_date: null, status: "Required", approval_document_file_id: null });
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); await create.mutateAsync({ ...form, required_approval: form.required_approval.trim(), due_date: form.due_date || null, approval_document_file_id: form.approval_document_file_id || null }); setForm({ required_approval: "", approver_id: null, due_date: null, status: "Required", approval_document_file_id: null }); }
+  return <SetupRecordSection loading={query.isLoading} error={query.error} empty="No approvals have been added." items={query.data} canEdit={canEdit} onSubmit={submit} form={
+    <div className="grid gap-3 md:grid-cols-2"><SetupInput label="Required Approval" value={form.required_approval} onChange={(value) => setForm((current) => ({ ...current, required_approval: value }))} /><MemberSelect label="Approver" members={members} value={form.approver_id} onChange={(value) => setForm((current) => ({ ...current, approver_id: value }))} /><SetupInput label="Due Date" type="date" value={form.due_date ?? ""} onChange={(value) => setForm((current) => ({ ...current, due_date: value || null }))} /><Select value={form.status} onValueChange={(value) => setForm((current) => ({ ...current, status: value as ProjectSetupApprovalPayload["status"] }))}><SelectTrigger aria-label="Approval status"><SelectValue /></SelectTrigger><SelectContent>{["Required", "Pending", "Approved", "Rejected", "Not Required"].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select><Select value={form.approval_document_file_id ?? "none"} onValueChange={(value) => setForm((current) => ({ ...current, approval_document_file_id: value === "none" ? null : value }))}><SelectTrigger aria-label="Approval document"><SelectValue placeholder="Approval Document" /></SelectTrigger><SelectContent><SelectItem value="none">No document</SelectItem>{(filesQuery.data ?? []).map((file) => <SelectItem key={file.id} value={file.id}>{file.file_name}</SelectItem>)}</SelectContent></Select></div>
+  }>{(query.data ?? []).map((item) => <div key={item.id} className="rounded-md border bg-background p-3"><div className="flex flex-wrap justify-between gap-2"><span className="font-medium">{item.required_approval}</span><Badge variant="outline">{item.status}</Badge></div><p className="mt-1 text-sm text-muted-foreground">Approver: {item.approver?.name ?? "Unassigned"} | Due: {formatSetupDate(item.due_date)}</p>{item.approval_document_name ? <p className="mt-1 text-xs text-muted-foreground">Document: {item.approval_document_name}</p> : null}</div>)}</SetupRecordSection>;
+}
+
+function Phase0ChangesSection({ canEdit, members, projectId }: { canEdit: boolean; members: ProjectMember[]; projectId: string }) {
+  const query = useProjectSetupChangesQuery(projectId); const create = useCreateProjectSetupChangeMutation(projectId);
+  const [form, setForm] = useState<ProjectSetupChangePayload>({ change_description: "", reason: "", approved_by_id: null, approved_date: null, notes: null });
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); await create.mutateAsync({ ...form, change_description: form.change_description.trim(), reason: form.reason.trim(), notes: form.notes?.trim() || null, approved_date: form.approved_date || null }); setForm({ change_description: "", reason: "", approved_by_id: null, approved_date: null, notes: null }); }
+  return <SetupRecordSection loading={query.isLoading} error={query.error} empty="No change records have been added." items={query.data} canEdit={canEdit} onSubmit={submit} form={<div className="grid gap-3 md:grid-cols-2"><SetupInput label="Change Description" value={form.change_description} onChange={(value) => setForm((current) => ({ ...current, change_description: value }))} /><SetupInput label="Reason" value={form.reason} onChange={(value) => setForm((current) => ({ ...current, reason: value }))} /><MemberSelect label="Who Approved" members={members} value={form.approved_by_id} onChange={(value) => setForm((current) => ({ ...current, approved_by_id: value }))} /><SetupInput label="Date" type="date" value={form.approved_date ?? ""} onChange={(value) => setForm((current) => ({ ...current, approved_date: value || null }))} /><SetupTextarea label="Notes" value={form.notes ?? ""} onChange={(value) => setForm((current) => ({ ...current, notes: value }))} /></div>}>{(query.data ?? []).map((item) => <div key={item.id} className="rounded-md border bg-background p-3"><p className="font-medium">{item.change_description}</p><p className="mt-1 text-sm text-muted-foreground">{item.reason} | Approved by: {item.approved_by?.name ?? "Not recorded"}</p>{item.notes ? <p className="mt-2 whitespace-pre-wrap text-sm">{item.notes}</p> : null}</div>)}</SetupRecordSection>;
+}
+
+function Phase0SpecificInformationSection({ canEdit, projectId }: { canEdit: boolean; projectId: string }) {
+  const query = useProjectSetupSpecificInformationQuery(projectId); const create = useCreateProjectSetupSpecificInformationMutation(projectId); const [form, setForm] = useState<ProjectSetupSpecificInformationPayload>({ label: "", value: "" });
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); await create.mutateAsync({ label: form.label.trim(), value: form.value.trim() }); setForm({ label: "", value: "" }); }
+  return <SetupRecordSection loading={query.isLoading} error={query.error} empty="No project-specific information has been added." items={query.data} canEdit={canEdit} onSubmit={submit} form={<div className="grid gap-3 md:grid-cols-2"><SetupInput label="Field" value={form.label} onChange={(value) => setForm((current) => ({ ...current, label: value }))} /><SetupTextarea label="Value" value={form.value} onChange={(value) => setForm((current) => ({ ...current, value }))} /></div>}>{(query.data ?? []).map((item) => <div key={item.id} className="rounded-md border bg-background p-3"><p className="text-sm font-semibold">{item.label}</p><p className="mt-1 whitespace-pre-wrap text-sm">{item.value}</p></div>)}</SetupRecordSection>;
+}
+
+function Phase0NotesSection({ canEdit, projectId }: { canEdit: boolean; projectId: string }) {
+  const query = useProjectSetupNotesQuery(projectId); const create = useCreateProjectSetupNoteMutation(projectId); const [note, setNote] = useState("");
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); await create.mutateAsync({ note: note.trim() }); setNote(""); }
+  return <SetupRecordSection loading={query.isLoading} error={query.error} empty="No setup notes have been added." items={query.data} canEdit={canEdit} onSubmit={submit} form={<SetupTextarea label="General Project Setup Note" value={note} onChange={setNote} />}>{(query.data ?? []).map((item) => <div key={item.id} className="rounded-md border bg-background p-3 whitespace-pre-wrap text-sm">{item.note}</div>)}</SetupRecordSection>;
+}
+
+function Phase0DocumentsSection({ canEdit, dashboard, projectId }: { canEdit: boolean; dashboard: ProjectDashboard; projectId: string }) {
+  const filesQuery = useProjectFilesQuery(projectId); const [phaseId, setPhaseId] = useState(dashboard.phases[0]?.id ?? ""); const [taskId, setTaskId] = useState(""); const [kind, setKind] = useState<SetupDocumentType>("Other supporting files"); const [files, setFiles] = useState<File[]>([]); const tasksQuery = useTasksQuery(projectId, phaseId, Boolean(phaseId)); const upload = useUploadTaskFileMutation(projectId, phaseId, taskId);
+  useEffect(() => { setTaskId(""); }, [phaseId]);
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); for (const file of files) await upload.mutateAsync({ file, fileCategory: "reference", setupDocumentType: kind }); setFiles([]); }
+  return <div className="space-y-4">{canEdit ? <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void submit(event)}><div className="grid gap-3 md:grid-cols-2"><Select value={kind} onValueChange={(value) => setKind(value as SetupDocumentType)}><SelectTrigger aria-label="Supporting document type"><SelectValue /></SelectTrigger><SelectContent>{["Proposal", "Contract / Agreement", "Terms of Reference", "Baseline documents", "Other supporting files"].map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}</SelectContent></Select><Select value={phaseId} onValueChange={setPhaseId}><SelectTrigger aria-label="Upload phase"><SelectValue placeholder="Select phase" /></SelectTrigger><SelectContent>{dashboard.phases.map((phase) => <SelectItem key={phase.id} value={phase.id}>{phase.name}</SelectItem>)}</SelectContent></Select><Select value={taskId} onValueChange={setTaskId} disabled={!phaseId || tasksQuery.isLoading}><SelectTrigger aria-label="Upload task"><SelectValue placeholder="Select task" /></SelectTrigger><SelectContent>{(tasksQuery.data ?? []).map((task) => <SelectItem key={task.id} value={task.id}>{task.name}</SelectItem>)}</SelectContent></Select><Input type="file" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []))} /></div><Button type="submit" disabled={!phaseId || !taskId || files.length === 0 || upload.isPending}><Upload className="size-4" aria-hidden="true" /> Upload Supporting Document</Button>{upload.error ? <p className="text-sm text-error">{userFacingErrorMessage(upload.error, { action: "supporting document upload" })}</p> : null}</form> : null}{filesQuery.isLoading ? <LoadingState label="Loading project documents" /> : null}{filesQuery.isError ? <ErrorState title="Project documents could not be loaded" message={userFacingErrorMessage(filesQuery.error, { action: "project documents" })} /> : null}{filesQuery.data?.length === 0 ? <EmptyState title="No permitted project documents are available." /> : null}<div className="space-y-2">{filesQuery.data?.map((file) => <div key={file.id} className="rounded-md border bg-background p-3"><p className="font-medium">{file.file_name}</p><p className="text-xs text-muted-foreground">{file.setup_document_type ?? "Existing project file"} | {file.file_category}</p></div>)}</div></div>;
+}
+
+function SetupRecordSection({ canEdit, empty, error, form, items, loading, onSubmit, children }: { canEdit: boolean; empty: string; error: Error | null; form: ReactNode; items: unknown[] | undefined; loading: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void; children: ReactNode }) {
+  return <div className="space-y-4">{canEdit ? <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={onSubmit}>{form}<Button type="submit"><Plus className="size-4" aria-hidden="true" /> Add Entry</Button></form> : null}{error ? <ErrorState title="Setup records could not be loaded" message={userFacingErrorMessage(error, { action: "setup records" })} /> : null}{loading ? <LoadingState label="Loading setup records" /> : null}{!loading && !error && items?.length === 0 ? <EmptyState title={empty} /> : null}<div className="space-y-2">{children}</div></div>;
 }
 
 function MemberSelect({ label, members, onChange, value }: { label: string; members: ProjectMember[]; onChange: (value: string | null) => void; value: string | null }) {

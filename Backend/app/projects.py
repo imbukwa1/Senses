@@ -33,6 +33,7 @@ TaskStatus = Literal["Not Started", "In Progress", "Blocked", "Completed"]
 PriorityLevel = Literal["Low", "Medium", "High"]
 ProjectMemberRole = Literal["PM", "Team Member", "Finance"]
 TaskFileCategory = Literal["reference", "work_submission", "finance"]
+SetupDocumentType = Literal["Proposal", "Contract / Agreement", "Terms of Reference", "Baseline documents", "Other supporting files"]
 UserFacingProjectHealth = Literal["On track", "Needs attention", "At risk", "Completed"]
 ProjectSetupSectionStatus = Literal["Complete", "In Progress", "Not Started", "Not Applicable"]
 ProjectSetupMilestoneStatus = Literal["Not Started", "In Progress", "Complete"]
@@ -42,6 +43,7 @@ ProjectSetupRiskLevel = Literal["Low", "Medium", "High"]
 ProjectSetupRiskStatus = Literal["Open", "In Progress", "Mitigated", "Closed"]
 ProjectSetupAssumptionConstraintType = Literal["Assumption", "Constraint"]
 ProjectSetupDependencyType = Literal["Internal", "External"]
+ProjectSetupApprovalStatus = Literal["Required", "Pending", "Approved", "Rejected", "Not Required"]
 
 PROJECT_SETUP_SECTIONS: tuple[tuple[str, str, bool], ...] = (
     ("project_overview", "Project Overview", False),
@@ -422,6 +424,7 @@ class TaskFileResponse(BaseModel):
     file_type: str | None
     file_size: int
     file_category: str
+    setup_document_type: str | None = None
     created_at: datetime
 
 
@@ -674,6 +677,39 @@ class ProjectSetupMonitoringReportingCreateRequest(BaseModel):
     reporting_notes: str | None = None
 
 
+class ProjectSetupApprovalCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    required_approval: str = Field(min_length=1)
+    approver_id: UUID | None = None
+    due_date: date | None = None
+    status: ProjectSetupApprovalStatus = "Required"
+    approval_document_file_id: UUID | None = None
+
+
+class ProjectSetupChangeCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    change_description: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    approved_by_id: UUID | None = None
+    approved_date: date | None = None
+    notes: str | None = None
+
+
+class ProjectSetupSpecificInformationCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(min_length=1, max_length=200)
+    value: str = Field(min_length=1)
+
+
+class ProjectSetupNoteCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    note: str = Field(min_length=1)
+
+
 class ProjectSetupLeadResponse(BaseModel):
     id: UUID
     name: str
@@ -841,6 +877,54 @@ class ProjectSetupMonitoringReportingResponse(BaseModel):
     responsible_person: ProjectSetupLeadResponse | None
     key_measures: str | None
     reporting_notes: str | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupApprovalResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    required_approval: str
+    approver_id: UUID | None
+    approver: ProjectSetupLeadResponse | None
+    due_date: date | None
+    status: str
+    approval_document_file_id: UUID | None
+    approval_document_name: str | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupChangeResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    change_description: str
+    reason: str
+    approved_by_id: UUID | None
+    approved_by: ProjectSetupLeadResponse | None
+    approved_date: date | None
+    notes: str | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupSpecificInformationResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    label: str
+    value: str
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupNoteResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    note: str
     created_by: UUID | None
     created_at: datetime
     updated_at: datetime
@@ -2187,6 +2271,174 @@ def create_project_setup_monitoring_reporting(
     return project_setup_monitoring_reporting_to_response(fetch_project_setup_monitoring_reporting_item_or_404(session, project_id, row["id"]))
 
 
+@router.get("/{project_id}/setup/approvals", response_model=list[ProjectSetupApprovalResponse])
+def list_project_setup_approvals(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupApprovalResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [project_setup_approval_to_response(row) for row in fetch_project_setup_approvals(session, project_id)]
+
+
+@router.post("/{project_id}/setup/approvals", response_model=ProjectSetupApprovalResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_approval(
+    project_id: UUID,
+    payload: ProjectSetupApprovalCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupApprovalResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if payload.approver_id is not None:
+        fetch_project_member(session, project_id, payload.approver_id)
+    if payload.approval_document_file_id is not None:
+        fetch_project_file_or_404(session, project_id, payload.approval_document_file_id)
+    required_approval = payload.required_approval.strip()
+    if not required_approval:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Required approval is required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_approvals (
+          project_id, required_approval, approver_id, due_date, status, approval_document_file_id, created_by
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            project_id,
+            required_approval,
+            payload.approver_id,
+            payload.due_date,
+            payload.status,
+            payload.approval_document_file_id,
+            current_user.id,
+        ),
+    )
+    return project_setup_approval_to_response(fetch_project_setup_approval_or_404(session, project_id, row["id"]))
+
+
+@router.get("/{project_id}/setup/changes", response_model=list[ProjectSetupChangeResponse])
+def list_project_setup_changes(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupChangeResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [project_setup_change_to_response(row) for row in fetch_project_setup_changes(session, project_id)]
+
+
+@router.post("/{project_id}/setup/changes", response_model=ProjectSetupChangeResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_change(
+    project_id: UUID,
+    payload: ProjectSetupChangeCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupChangeResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if payload.approved_by_id is not None:
+        fetch_project_member(session, project_id, payload.approved_by_id)
+    change_description = payload.change_description.strip()
+    reason = payload.reason.strip()
+    if not change_description or not reason:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Change description and reason are required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_changes (
+          project_id, change_description, reason, approved_by_id, approved_date, notes, created_by
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            project_id,
+            change_description,
+            reason,
+            payload.approved_by_id,
+            payload.approved_date,
+            normalize_optional_text(payload.notes),
+            current_user.id,
+        ),
+    )
+    return project_setup_change_to_response(fetch_project_setup_change_or_404(session, project_id, row["id"]))
+
+
+@router.get("/{project_id}/setup/project-specific-information", response_model=list[ProjectSetupSpecificInformationResponse])
+def list_project_setup_specific_information(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupSpecificInformationResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [ProjectSetupSpecificInformationResponse(**row) for row in fetch_project_setup_specific_information(session, project_id)]
+
+
+@router.post("/{project_id}/setup/project-specific-information", response_model=ProjectSetupSpecificInformationResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_specific_information(
+    project_id: UUID,
+    payload: ProjectSetupSpecificInformationCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupSpecificInformationResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    label = payload.label.strip()
+    value = payload.value.strip()
+    if not label or not value:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Project-specific label and value are required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_specific_information (project_id, label, value, created_by)
+        VALUES (%s, %s, %s, %s)
+        RETURNING *
+        """,
+        (project_id, label, value, current_user.id),
+    )
+    return ProjectSetupSpecificInformationResponse(**row)
+
+
+@router.get("/{project_id}/setup/notes", response_model=list[ProjectSetupNoteResponse])
+def list_project_setup_notes(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupNoteResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [ProjectSetupNoteResponse(**row) for row in fetch_project_setup_notes(session, project_id)]
+
+
+@router.post("/{project_id}/setup/notes", response_model=ProjectSetupNoteResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_note(
+    project_id: UUID,
+    payload: ProjectSetupNoteCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupNoteResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    note = payload.note.strip()
+    if not note:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Project setup note is required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_setup_notes (project_id, note, created_by)
+        VALUES (%s, %s, %s)
+        RETURNING *
+        """,
+        (project_id, note, current_user.id),
+    )
+    return ProjectSetupNoteResponse(**row)
+
+
 @router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
 def get_project_dashboard(
     project_id: UUID,
@@ -3007,6 +3259,7 @@ async def upload_task_file(
     phase_id: UUID,
     task_id: UUID,
     file_category: TaskFileCategory = Form("work_submission"),
+    setup_document_type: SetupDocumentType | None = Form(None),
     file: UploadFile = File(...),
     current_user: AuthenticatedUser = Depends(get_current_user),
 ) -> TaskFileResponse:
@@ -3041,9 +3294,10 @@ async def upload_task_file(
                   storage_key,
                   file_type,
                   file_size,
-                  file_category
+                  file_category,
+                  setup_document_type
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -3054,6 +3308,7 @@ async def upload_task_file(
                     file.content_type,
                     len(content),
                     file_category,
+                    setup_document_type,
                 ),
             )
             response = task_file_to_response(fetch_task_file_or_404(session, task_id, row["id"]))
@@ -4080,6 +4335,7 @@ def fetch_task_files(session: DatabaseSession, task_id: UUID) -> list[Row]:
           task_files.file_type,
           task_files.file_size,
           task_files.file_category,
+          task_files.setup_document_type,
           task_files.created_at
         FROM task_files
         JOIN users ON users.id = task_files.uploaded_by
@@ -4104,6 +4360,7 @@ def fetch_task_file(session: DatabaseSession, task_id: UUID, file_id: UUID) -> R
           task_files.file_type,
           task_files.file_size,
           task_files.file_category,
+          task_files.setup_document_type,
           task_files.created_at
         FROM task_files
         JOIN users ON users.id = task_files.uploaded_by
@@ -4136,6 +4393,7 @@ def fetch_project_files(session: DatabaseSession, project_id: UUID, include_fina
           task_files.file_type,
           task_files.file_size,
           task_files.file_category,
+          task_files.setup_document_type,
           task_files.folder_id,
           task_files.created_at,
           phases.project_id,
@@ -4168,6 +4426,7 @@ def fetch_project_file_or_404(session: DatabaseSession, project_id: UUID, file_i
           task_files.file_type,
           task_files.file_size,
           task_files.file_category,
+          task_files.setup_document_type,
           task_files.folder_id,
           task_files.created_at,
           phases.project_id,
@@ -4235,6 +4494,7 @@ def fetch_workspace_files(
           task_files.file_type,
           task_files.file_size,
           task_files.file_category,
+          task_files.setup_document_type,
           task_files.folder_id,
           task_files.created_at,
           phases.project_id,
@@ -5315,6 +5575,146 @@ def fetch_project_setup_monitoring_reporting_item_or_404(session: DatabaseSessio
     return row
 
 
+def fetch_project_setup_approvals(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          project_approvals.id,
+          project_approvals.project_id,
+          project_approvals.required_approval,
+          project_approvals.approver_id,
+          approvers.name AS approver_name,
+          approvers.email AS approver_email,
+          project_approvals.due_date,
+          project_approvals.status,
+          project_approvals.approval_document_file_id,
+          task_files.file_name AS approval_document_name,
+          project_approvals.created_by,
+          project_approvals.created_at,
+          project_approvals.updated_at
+        FROM project_approvals
+        LEFT JOIN users AS approvers
+          ON approvers.id = project_approvals.approver_id
+        LEFT JOIN task_files
+          ON task_files.id = project_approvals.approval_document_file_id
+        WHERE project_approvals.project_id = %s
+        ORDER BY project_approvals.due_date NULLS LAST, project_approvals.created_at, project_approvals.id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_approval_or_404(session: DatabaseSession, project_id: UUID, approval_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT
+          project_approvals.id,
+          project_approvals.project_id,
+          project_approvals.required_approval,
+          project_approvals.approver_id,
+          approvers.name AS approver_name,
+          approvers.email AS approver_email,
+          project_approvals.due_date,
+          project_approvals.status,
+          project_approvals.approval_document_file_id,
+          task_files.file_name AS approval_document_name,
+          project_approvals.created_by,
+          project_approvals.created_at,
+          project_approvals.updated_at
+        FROM project_approvals
+        LEFT JOIN users AS approvers
+          ON approvers.id = project_approvals.approver_id
+        LEFT JOIN task_files
+          ON task_files.id = project_approvals.approval_document_file_id
+        WHERE project_approvals.project_id = %s
+          AND project_approvals.id = %s
+        """,
+        (project_id, approval_id),
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project approval not found")
+    return row
+
+
+def fetch_project_setup_changes(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          project_changes.id,
+          project_changes.project_id,
+          project_changes.change_description,
+          project_changes.reason,
+          project_changes.approved_by_id,
+          approvers.name AS approved_by_name,
+          approvers.email AS approved_by_email,
+          project_changes.approved_date,
+          project_changes.notes,
+          project_changes.created_by,
+          project_changes.created_at,
+          project_changes.updated_at
+        FROM project_changes
+        LEFT JOIN users AS approvers
+          ON approvers.id = project_changes.approved_by_id
+        WHERE project_changes.project_id = %s
+        ORDER BY project_changes.approved_date NULLS LAST, project_changes.created_at, project_changes.id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_change_or_404(session: DatabaseSession, project_id: UUID, change_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT
+          project_changes.id,
+          project_changes.project_id,
+          project_changes.change_description,
+          project_changes.reason,
+          project_changes.approved_by_id,
+          approvers.name AS approved_by_name,
+          approvers.email AS approved_by_email,
+          project_changes.approved_date,
+          project_changes.notes,
+          project_changes.created_by,
+          project_changes.created_at,
+          project_changes.updated_at
+        FROM project_changes
+        LEFT JOIN users AS approvers
+          ON approvers.id = project_changes.approved_by_id
+        WHERE project_changes.project_id = %s
+          AND project_changes.id = %s
+        """,
+        (project_id, change_id),
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project change not found")
+    return row
+
+
+def fetch_project_setup_specific_information(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT id, project_id, label, value, created_by, created_at, updated_at
+        FROM project_specific_information
+        WHERE project_id = %s
+        ORDER BY created_at, id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_notes(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT id, project_id, note, created_by, created_at, updated_at
+        FROM project_setup_notes
+        WHERE project_id = %s
+        ORDER BY created_at, id
+        """,
+        (project_id,),
+    )
+
+
 def next_task_deliverable_display_order(session: DatabaseSession, task_id: UUID) -> int:
     row = session.fetch_one(
         """
@@ -5479,6 +5879,53 @@ def project_setup_monitoring_reporting_to_response(row: Row) -> ProjectSetupMoni
     )
 
 
+def project_setup_approval_to_response(row: Row) -> ProjectSetupApprovalResponse:
+    approver = None
+    if row["approver_id"] is not None:
+        approver = ProjectSetupLeadResponse(
+            id=row["approver_id"],
+            name=row["approver_name"],
+            email=row["approver_email"],
+        )
+    return ProjectSetupApprovalResponse(
+        id=row["id"],
+        project_id=row["project_id"],
+        required_approval=row["required_approval"],
+        approver_id=row["approver_id"],
+        approver=approver,
+        due_date=row["due_date"],
+        status=row["status"],
+        approval_document_file_id=row["approval_document_file_id"],
+        approval_document_name=row["approval_document_name"],
+        created_by=row["created_by"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def project_setup_change_to_response(row: Row) -> ProjectSetupChangeResponse:
+    approved_by = None
+    if row["approved_by_id"] is not None:
+        approved_by = ProjectSetupLeadResponse(
+            id=row["approved_by_id"],
+            name=row["approved_by_name"],
+            email=row["approved_by_email"],
+        )
+    return ProjectSetupChangeResponse(
+        id=row["id"],
+        project_id=row["project_id"],
+        change_description=row["change_description"],
+        reason=row["reason"],
+        approved_by_id=row["approved_by_id"],
+        approved_by=approved_by,
+        approved_date=row["approved_date"],
+        notes=row["notes"],
+        created_by=row["created_by"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) -> Row:
     return session.fetch_one(
         """
@@ -5560,6 +6007,26 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
           SELECT COUNT(*) AS monitoring_reporting_count
           FROM project_monitoring_reporting_items
           WHERE project_id = %(project_id)s
+        ),
+        approval_counts AS (
+          SELECT COUNT(*) AS approval_count
+          FROM project_approvals
+          WHERE project_id = %(project_id)s
+        ),
+        change_counts AS (
+          SELECT COUNT(*) AS change_count
+          FROM project_changes
+          WHERE project_id = %(project_id)s
+        ),
+        specific_information_counts AS (
+          SELECT COUNT(*) AS specific_information_count
+          FROM project_specific_information
+          WHERE project_id = %(project_id)s
+        ),
+        setup_note_counts AS (
+          SELECT COUNT(*) AS setup_note_count
+          FROM project_setup_notes
+          WHERE project_id = %(project_id)s
         )
         SELECT
           project_phase_counts.phase_count,
@@ -5581,6 +6048,10 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
           stakeholder_counts.stakeholder_count,
           communication_plan_counts.communication_plan_count,
           monitoring_reporting_counts.monitoring_reporting_count,
+          approval_counts.approval_count,
+          change_counts.change_count,
+          specific_information_counts.specific_information_count,
+          setup_note_counts.setup_note_count,
           projects.budget_allocated AS project_budget_allocated
         FROM projects
         CROSS JOIN project_phase_counts
@@ -5596,6 +6067,10 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
         CROSS JOIN stakeholder_counts
         CROSS JOIN communication_plan_counts
         CROSS JOIN monitoring_reporting_counts
+        CROSS JOIN approval_counts
+        CROSS JOIN change_counts
+        CROSS JOIN specific_information_counts
+        CROSS JOIN setup_note_counts
         WHERE projects.id = %(project_id)s
         """,
         {"project_id": project_id},
@@ -5678,9 +6153,17 @@ def project_setup_live_status(
         return project_setup_status_from_count(int(live.get("communication_plan_count") or 0), 1, "project_communication_plan_items")
     if section_key == "monitoring_reporting":
         return project_setup_status_from_count(int(live.get("monitoring_reporting_count") or 0), 1, "project_monitoring_reporting_items")
+    if section_key == "approvals_signoff":
+        return project_setup_status_from_count(int(live.get("approval_count") or 0), 1, "project_approvals")
+    if section_key == "change_management":
+        return project_setup_status_from_count(int(live.get("change_count") or 0), 1, "project_changes")
+    if section_key == "project_specific_information":
+        return project_setup_status_from_count(int(live.get("specific_information_count") or 0), 1, "project_specific_information")
     if section_key == "documents_attachments":
         document_count = int(live.get("file_count") or 0) + int(live.get("document_count") or 0) + int(live.get("spreadsheet_count") or 0)
         return project_setup_status_from_count(document_count, 1, "task_files/workspace_documents/workspace_spreadsheets")
+    if section_key == "notes":
+        return project_setup_status_from_count(int(live.get("setup_note_count") or 0), 1, "project_setup_notes")
     if section_key == "phase0_completion":
         applicable = [section for section in previous_sections if section.status != "Not Applicable"]
         if applicable and all(section.status == "Complete" for section in applicable):

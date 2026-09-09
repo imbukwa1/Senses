@@ -21,6 +21,10 @@ import {
   createProjectSetupRiskIssue,
   createProjectSetupResource,
   createProjectSetupStakeholder,
+  createProjectSetupApproval,
+  createProjectSetupChange,
+  createProjectSetupSpecificInformation,
+  createProjectSetupNote,
   createWorkspaceNativeResource,
   createWorkspaceFolder,
   createChecklistItem,
@@ -52,6 +56,10 @@ import {
   listProjectSetupRisksIssues,
   listProjectSetupResources,
   listProjectSetupStakeholders,
+  listProjectSetupApprovals,
+  listProjectSetupChanges,
+  listProjectSetupSpecificInformation,
+  listProjectSetupNotes,
   listProjectFiles,
   listProjectMembers,
   listProjects,
@@ -132,6 +140,10 @@ export const projectSetupDependenciesQueryKey = (projectId: string) => ["project
 export const projectSetupStakeholdersQueryKey = (projectId: string) => ["projects", projectId, "setup", "stakeholders"] as const;
 export const projectSetupCommunicationPlanQueryKey = (projectId: string) => ["projects", projectId, "setup", "communication-plan"] as const;
 export const projectSetupMonitoringReportingQueryKey = (projectId: string) => ["projects", projectId, "setup", "monitoring-reporting"] as const;
+export const projectSetupApprovalsQueryKey = (projectId: string) => ["projects", projectId, "setup", "approvals"] as const;
+export const projectSetupChangesQueryKey = (projectId: string) => ["projects", projectId, "setup", "changes"] as const;
+export const projectSetupSpecificInformationQueryKey = (projectId: string) => ["projects", projectId, "setup", "project-specific-information"] as const;
+export const projectSetupNotesQueryKey = (projectId: string) => ["projects", projectId, "setup", "notes"] as const;
 export const workspaceContentsQueryKey = (projectId: string, folderId: string | null) => ["projects", projectId, "workspace", folderId ?? "root"] as const;
 export const workspaceNativeResourceQueryKey = (projectId: string, kind: WorkspaceResourceKind, resourceId: string) =>
   ["projects", projectId, "workspace", kind, resourceId] as const;
@@ -451,6 +463,18 @@ export function useProjectSetupMonitoringReportingQuery(projectId: string, enabl
 
   return query;
 }
+
+function useSetupListQuery<T>(enabled: boolean, queryKey: readonly string[], queryFn: (token: string) => Promise<T>) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({ queryKey, queryFn: () => queryFn(requireToken(token)), enabled: enabled && status === "authenticated" && Boolean(token), retry: false });
+  useEffect(() => { if (query.error instanceof ApiError && query.error.status === 401) logout(); }, [logout, query.error]);
+  return query;
+}
+
+export function useProjectSetupApprovalsQuery(projectId: string, enabled = true) { return useSetupListQuery(enabled, projectSetupApprovalsQueryKey(projectId), (token) => listProjectSetupApprovals(token, projectId)); }
+export function useProjectSetupChangesQuery(projectId: string, enabled = true) { return useSetupListQuery(enabled, projectSetupChangesQueryKey(projectId), (token) => listProjectSetupChanges(token, projectId)); }
+export function useProjectSetupSpecificInformationQuery(projectId: string, enabled = true) { return useSetupListQuery(enabled, projectSetupSpecificInformationQueryKey(projectId), (token) => listProjectSetupSpecificInformation(token, projectId)); }
+export function useProjectSetupNotesQuery(projectId: string, enabled = true) { return useSetupListQuery(enabled, projectSetupNotesQueryKey(projectId), (token) => listProjectSetupNotes(token, projectId)); }
 
 export function useProjectBudgetQuery(projectId: string, enabled = true) {
   const { logout, status, token } = useAuth();
@@ -890,6 +914,20 @@ export function useCreateProjectSetupMonitoringReportingMutation(projectId: stri
   });
 }
 
+function useSetupCreateMutation<TPayload>(projectId: string, mutate: (token: string, projectId: string, payload: TPayload) => Promise<unknown>, queryKey: readonly string[]) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+  return useMutation({
+    mutationFn: (payload: TPayload) => mutate(requireToken(token), projectId, payload),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey }); void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) }); },
+    onError: authFailureHandler(logout),
+  });
+}
+export function useCreateProjectSetupApprovalMutation(projectId: string) { return useSetupCreateMutation(projectId, createProjectSetupApproval, projectSetupApprovalsQueryKey(projectId)); }
+export function useCreateProjectSetupChangeMutation(projectId: string) { return useSetupCreateMutation(projectId, createProjectSetupChange, projectSetupChangesQueryKey(projectId)); }
+export function useCreateProjectSetupSpecificInformationMutation(projectId: string) { return useSetupCreateMutation(projectId, createProjectSetupSpecificInformation, projectSetupSpecificInformationQueryKey(projectId)); }
+export function useCreateProjectSetupNoteMutation(projectId: string) { return useSetupCreateMutation(projectId, createProjectSetupNote, projectSetupNotesQueryKey(projectId)); }
+
 export function useUpdatePhaseBudgetMutation(projectId: string) {
   const queryClient = useQueryClient();
   const { logout, token } = useAuth();
@@ -1231,13 +1269,17 @@ export function useUploadTaskFileMutation(projectId: string, phaseId: string, ta
       file,
       fileCategory = "work_submission",
       taskIdOverride,
+      setupDocumentType,
     }: {
       file: File;
       fileCategory?: TaskFile["file_category"];
       taskIdOverride?: string;
-    }) => uploadTaskFile(requireToken(token), projectId, phaseId, taskIdOverride ?? taskId, file, fileCategory),
+      setupDocumentType?: TaskFile["setup_document_type"];
+    }) => uploadTaskFile(requireToken(token), projectId, phaseId, taskIdOverride ?? taskId, file, fileCategory, setupDocumentType),
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: taskFilesQueryKey(projectId, phaseId, variables.taskIdOverride ?? taskId) });
+      invalidateWorkspaceQueries(queryClient, projectId);
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
     },
     onError: authFailureHandler(logout),
   });

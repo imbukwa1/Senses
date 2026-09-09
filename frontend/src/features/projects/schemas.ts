@@ -340,6 +340,14 @@ export const projectSetupDependenciesSchema = z.array(projectSetupDependencySche
 export const projectSetupStakeholdersSchema = z.array(projectSetupStakeholderSchema);
 export const projectSetupCommunicationPlansSchema = z.array(projectSetupCommunicationPlanSchema);
 export const projectSetupMonitoringReportingsSchema = z.array(projectSetupMonitoringReportingSchema);
+export const projectSetupApprovalSchema = z.object({ id: z.uuid(), project_id: z.uuid(), required_approval: z.string().min(1), approver_id: z.uuid().nullable(), approver: userSummarySchema.nullable(), due_date: z.string().nullable(), status: z.enum(["Required", "Pending", "Approved", "Rejected", "Not Required"]), approval_document_file_id: z.uuid().nullable(), approval_document_name: z.string().nullable(), created_by: z.uuid().nullable(), created_at: z.string().min(1), updated_at: z.string().min(1) });
+export const projectSetupApprovalsSchema = z.array(projectSetupApprovalSchema);
+export const projectSetupChangeSchema = z.object({ id: z.uuid(), project_id: z.uuid(), change_description: z.string().min(1), reason: z.string().min(1), approved_by_id: z.uuid().nullable(), approved_by: userSummarySchema.nullable(), approved_date: z.string().nullable(), notes: z.string().nullable(), created_by: z.uuid().nullable(), created_at: z.string().min(1), updated_at: z.string().min(1) });
+export const projectSetupChangesSchema = z.array(projectSetupChangeSchema);
+export const projectSetupSpecificInformationSchema = z.object({ id: z.uuid(), project_id: z.uuid(), label: z.string().min(1), value: z.string().min(1), created_by: z.uuid().nullable(), created_at: z.string().min(1), updated_at: z.string().min(1) });
+export const projectSetupSpecificInformationSchemaArray = z.array(projectSetupSpecificInformationSchema);
+export const projectSetupNoteSchema = z.object({ id: z.uuid(), project_id: z.uuid(), note: z.string().min(1), created_by: z.uuid().nullable(), created_at: z.string().min(1), updated_at: z.string().min(1) });
+export const projectSetupNotesSchema = z.array(projectSetupNoteSchema);
 
 export const projectDashboardSchema = z.object({
   project: dashboardProjectSchema,
@@ -467,6 +475,7 @@ export const taskFileSchema = z.object({
   file_type: z.string().nullable(),
   file_size: z.number(),
   file_category: z.enum(["reference", "work_submission", "finance"]),
+  setup_document_type: z.enum(["Proposal", "Contract / Agreement", "Terms of Reference", "Baseline documents", "Other supporting files"]).nullable().optional(),
   created_at: z.string().min(1),
 });
 
