@@ -24,6 +24,7 @@ import {
   useDownloadProjectFileMutation,
   useMoveWorkspaceNativeResourceMutation,
   useMoveWorkspaceFileMutation,
+  useProjectTaskOptionsQuery,
   useRenameWorkspaceNativeResourceMutation,
   useUpdateWorkspaceNativeResourceTaskLinkMutation,
   useUpdateWorkspaceFolderMutation,
@@ -31,19 +32,20 @@ import {
   useWorkspaceFolderTreeQuery,
 } from "./hooks";
 import { WorkspaceDocumentEditor, WorkspaceSpreadsheetEditor } from "./workspace-native-editors";
-import type { WorkspaceFile, WorkspaceFolder, WorkspaceNativeResource, WorkspaceResourceKind } from "./types";
+import type { DashboardPhase, WorkspaceFile, WorkspaceFolder, WorkspaceNativeResource, WorkspaceResourceKind } from "./types";
 
 type BreadcrumbItem = {
   id: string | null;
   name: string;
 };
 
-export function ProjectWorkspace({ canManage, projectId }: { projectId: string; canManage: boolean }) {
+export function ProjectWorkspace({ canManage, phases = [], projectId }: { projectId: string; canManage: boolean; phases?: DashboardPhase[] }) {
   const [breadcrumbs, setBreadcrumbs] = useState<BreadcrumbItem[]>([{ id: null, name: "Workspace" }]);
   const [openResource, setOpenResource] = useState<{ id: string; kind: WorkspaceResourceKind } | null>(null);
   const currentFolderId = breadcrumbs[breadcrumbs.length - 1]?.id ?? null;
   const contentsQuery = useWorkspaceContentsQuery(projectId, currentFolderId);
   const folderTreeQuery = useWorkspaceFolderTreeQuery(projectId);
+  const taskOptionsQuery = useProjectTaskOptionsQuery(projectId, phases);
   const createFolder = useCreateWorkspaceFolderMutation(projectId);
   const createDocument = useCreateWorkspaceNativeResourceMutation(projectId, "documents");
   const createSpreadsheet = useCreateWorkspaceNativeResourceMutation(projectId, "spreadsheets");
@@ -65,6 +67,7 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
   const documents = contentsQuery.data?.documents ?? [];
   const spreadsheets = contentsQuery.data?.spreadsheets ?? [];
   const folderTree = folderTreeQuery.data ?? [];
+  const taskOptions = taskOptionsQuery.data ?? [];
 
   useEffect(() => {
     setActionError(null);
@@ -255,6 +258,7 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
                   onOpen={(resource) => setOpenResource({ id: resource.id, kind: "documents" })}
                   onRename={onRenameNativeResource}
                   onTaskLink={onUpdateNativeResourceTaskLink}
+                  taskOptions={taskOptions}
                   resource={document}
                 />
               ))}
@@ -271,6 +275,7 @@ export function ProjectWorkspace({ canManage, projectId }: { projectId: string; 
                   onOpen={(resource) => setOpenResource({ id: resource.id, kind: "spreadsheets" })}
                   onRename={onRenameNativeResource}
                   onTaskLink={onUpdateNativeResourceTaskLink}
+                  taskOptions={taskOptions}
                   resource={spreadsheet}
                 />
               ))}
@@ -305,6 +310,7 @@ function NativeResourceRow({
   onRename,
   onTaskLink,
   resource,
+  taskOptions,
 }: {
   disabled: boolean;
   folderTree: WorkspaceFolder[];
@@ -317,6 +323,7 @@ function NativeResourceRow({
   onRename: (kind: WorkspaceResourceKind, resourceId: string, name: string) => Promise<void>;
   onTaskLink: (kind: WorkspaceResourceKind, resourceId: string, taskId: string | null) => Promise<void>;
   resource: WorkspaceNativeResource;
+  taskOptions: { task: { id: string; name: string; status: string }; phaseName: string }[];
 }) {
   const Icon = icon === "spreadsheet" ? Table2 : FileText;
 
@@ -356,7 +363,7 @@ function NativeResourceRow({
           items={folderTree.map((folder) => ({ id: folder.id, label: folderPath(folderTree, folder) }))}
           onSubmit={(folderId) => onMove(kind, resource.id, folderId)}
         />
-        <TaskLinkDialog disabled={disabled} currentTaskId={resource.task_id} onSubmit={(taskId) => onTaskLink(kind, resource.id, taskId)} />
+        <TaskLinkDialog disabled={disabled} currentTaskId={resource.task_id} onSubmit={(taskId) => onTaskLink(kind, resource.id, taskId)} taskOptions={taskOptions} />
         <ConfirmAction
           title={`Delete ${label.toLowerCase()}?`}
           description="This removes the native workspace item. Uploaded files are not affected."
@@ -661,21 +668,26 @@ function NativeResourceFormDialog({
   );
 }
 
-function TaskLinkDialog({ currentTaskId, disabled, onSubmit }: { currentTaskId: string | null; disabled: boolean; onSubmit: (taskId: string | null) => Promise<void> }) {
+function TaskLinkDialog({ currentTaskId, disabled, onSubmit, taskOptions }: { currentTaskId: string | null; disabled: boolean; onSubmit: (taskId: string | null) => Promise<void>; taskOptions: { task: { id: string; name: string; status: string }; phaseName: string }[] }) {
   const [open, setOpen] = useState(false);
-  const [taskId, setTaskId] = useState(currentTaskId ?? "");
+  const [taskId, setTaskId] = useState(currentTaskId ?? "none");
   const [error, setError] = useState<string | null>(null);
+  const taskNameCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    taskOptions.forEach(({ task }) => counts.set(task.name, (counts.get(task.name) ?? 0) + 1));
+    return counts;
+  }, [taskOptions]);
 
   useEffect(() => {
     if (open) {
-      setTaskId(currentTaskId ?? "");
+      setTaskId(currentTaskId ?? "none");
       setError(null);
     }
   }, [currentTaskId, open]);
 
   async function submit() {
     try {
-      await onSubmit(taskId.trim() || null);
+      await onSubmit(taskId === "none" ? null : taskId);
       setOpen(false);
     } catch (submitError) {
       setError(workspaceErrorMessage(submitError));
@@ -695,8 +707,20 @@ function TaskLinkDialog({ currentTaskId, disabled, onSubmit }: { currentTaskId: 
           <DialogDescription>Set or remove the optional task association.</DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="workspace-task-link">Task ID</Label>
-          <Input id="workspace-task-link" value={taskId} placeholder="Empty removes the task link" onChange={(event) => setTaskId(event.target.value)} />
+          <Label>Task</Label>
+          <Select value={taskId} onValueChange={setTaskId}>
+            <SelectTrigger aria-label="Workspace task link">
+              <SelectValue placeholder="No task" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No task / Unlink task</SelectItem>
+              {taskOptions.map(({ task, phaseName }) => (
+                <SelectItem key={task.id} value={task.id}>
+                  {taskNameCounts.get(task.name) && taskNameCounts.get(task.name)! > 1 ? `${task.name} — ${phaseName} (${task.status})` : task.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {error ? <p className="text-sm text-error">{error}</p> : null}
         </div>
         <DialogFooter>

@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo } from "react";
 
 import { ApiError } from "@/features/auth/api";
 import { useAuth } from "@/features/auth/hooks";
@@ -104,6 +103,7 @@ import {
 } from "./api";
 import type {
   PhaseBudgetMutationPayload,
+  DashboardPhase,
   PhaseMutationPayload,
   ProjectBudgetMutationPayload,
   ProjectSetupAssumptionConstraintPayload,
@@ -1167,6 +1167,36 @@ export function useTasksQuery(projectId: string, phaseId: string, enabled = true
   }, [logout, query.error]);
 
   return query;
+}
+
+export function useProjectTaskOptionsQuery(projectId: string, phases: DashboardPhase[], enabled = true) {
+  const { logout, status, token } = useAuth();
+  const queries = useQueries({
+    queries: phases.map((phase) => ({
+      queryKey: tasksQueryKey(projectId, phase.id),
+      queryFn: () => listTasks(requireToken(token), projectId, phase.id),
+      enabled: enabled && status === "authenticated" && Boolean(token),
+      retry: false,
+    })),
+  });
+  const error = queries.find((query) => query.error)?.error ?? null;
+  const data = useMemo(
+    () => phases.flatMap((phase, index) => (queries[index].data ?? []).map((task) => ({ task, phaseName: phase.name }))),
+    [phases, queries],
+  );
+
+  useEffect(() => {
+    if (queries.some((query) => query.error instanceof ApiError && query.error.status === 401)) {
+      logout();
+    }
+  }, [logout, queries]);
+
+  return {
+    data,
+    error,
+    isError: queries.some((query) => query.isError),
+    isLoading: queries.some((query) => query.isLoading),
+  };
 }
 
 export function useTaskSupportersQuery(projectId: string, phaseId: string, taskId: string, enabled = true) {

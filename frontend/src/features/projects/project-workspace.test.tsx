@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   updateSpreadsheetTaskLink: vi.fn(),
   workspaceError: null as Error | null,
   workspaceByFolder: {} as Record<string, WorkspaceContents>,
+  taskOptions: [] as { task: { id: string; name: string; status: string }; phaseName: string }[],
 }));
 
 vi.mock("./hooks", () => ({
@@ -44,6 +45,7 @@ vi.mock("./hooks", () => ({
     isPending: false,
     mutateAsync: kind === "documents" ? mocks.moveDocument : mocks.moveSpreadsheet,
   }),
+  useProjectTaskOptionsQuery: () => ({ data: mocks.taskOptions, error: null, isError: false, isLoading: false }),
   useRenameWorkspaceNativeResourceMutation: (_projectId: string, kind: "documents" | "spreadsheets") => ({
     error: null,
     isPending: false,
@@ -172,6 +174,7 @@ describe("ProjectWorkspace", () => {
     mocks.updateFolder.mockResolvedValue(rootFolder);
     mocks.updateSpreadsheetTaskLink.mockResolvedValue(childSpreadsheet);
     mocks.workspaceError = null;
+    mocks.taskOptions = [];
     mocks.workspaceByFolder = {
       root: { folders: [rootFolder], files: [rootFile], documents: [rootDocument], spreadsheets: [] },
       [rootFolder.id]: { folders: [childFolder], files: [], documents: [], spreadsheets: [childSpreadsheet] },
@@ -215,6 +218,35 @@ describe("ProjectWorkspace", () => {
 
     await waitFor(() => {
       expect(mocks.createFolder).toHaveBeenCalledWith({ name: "New Research", parent_folder_id: null });
+    });
+  });
+
+  it("links a resource using a project task name and supports unlinking", async () => {
+    mocks.taskOptions = [
+      { task: { id: taskId, name: "Review field plan", status: "Not Started" }, phaseName: "Discovery" },
+      { task: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", name: "Review field plan", status: "In Progress" }, phaseName: "Delivery" },
+    ];
+    render(<ProjectWorkspace canManage projectId={projectId} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Link Task" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Workspace task link" }));
+    expect(screen.getByText("Review field plan — Discovery (Not Started)")).toBeInTheDocument();
+    expect(screen.getByText("Review field plan — Delivery (In Progress)")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Review field plan — Discovery (Not Started)"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mocks.updateDocumentTaskLink).toHaveBeenCalledWith({ resourceId: rootDocument.id, payload: { task_id: taskId } });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Link Task" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Workspace task link" }));
+    fireEvent.click(screen.getAllByText("No task / Unlink task").at(-1)!);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mocks.updateDocumentTaskLink).toHaveBeenLastCalledWith({ resourceId: rootDocument.id, payload: { task_id: null } });
     });
   });
 
