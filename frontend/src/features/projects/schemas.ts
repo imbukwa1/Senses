@@ -290,12 +290,56 @@ export const projectSetupDependencySchema = z.object({
   updated_at: z.string().min(1),
 });
 
+export const projectSetupStakeholderSchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  name: z.string().min(1),
+  organisation_group: z.string().nullable(),
+  interest_role: z.string().min(1),
+  influence_importance: z.string().nullable(),
+  engagement_notes: z.string().nullable(),
+  created_by: z.uuid().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const projectSetupCommunicationPlanSchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  audience: z.string().min(1),
+  information: z.string().min(1),
+  frequency: z.string().min(1),
+  responsible_user_id: z.uuid().nullable(),
+  responsible_person: userSummarySchema.nullable(),
+  method: z.string().min(1),
+  created_by: z.uuid().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const projectSetupMonitoringReportingSchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  monitored_item: z.string().min(1),
+  reporting_frequency: z.string().min(1),
+  responsible_user_id: z.uuid().nullable(),
+  responsible_person: userSummarySchema.nullable(),
+  key_measures: z.string().nullable(),
+  reporting_notes: z.string().nullable(),
+  created_by: z.uuid().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
 export const projectSetupMilestonesSchema = z.array(projectSetupMilestoneSchema);
 export const projectSetupDeliverablesSchema = z.array(projectSetupDeliverableSchema);
 export const projectSetupResourcesSchema = z.array(projectSetupResourceSchema);
 export const projectSetupRisksIssuesSchema = z.array(projectSetupRiskIssueSchema);
 export const projectSetupAssumptionsConstraintsSchema = z.array(projectSetupAssumptionConstraintSchema);
 export const projectSetupDependenciesSchema = z.array(projectSetupDependencySchema);
+export const projectSetupStakeholdersSchema = z.array(projectSetupStakeholderSchema);
+export const projectSetupCommunicationPlansSchema = z.array(projectSetupCommunicationPlanSchema);
+export const projectSetupMonitoringReportingsSchema = z.array(projectSetupMonitoringReportingSchema);
 
 export const projectDashboardSchema = z.object({
   project: dashboardProjectSchema,

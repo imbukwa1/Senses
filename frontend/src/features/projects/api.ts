@@ -18,16 +18,22 @@ import {
   projectSetupBudgetSchema,
   projectSetupAssumptionConstraintSchema,
   projectSetupAssumptionsConstraintsSchema,
+  projectSetupCommunicationPlanSchema,
+  projectSetupCommunicationPlansSchema,
   projectSetupDependencySchema,
   projectSetupDependenciesSchema,
   projectSetupDeliverableSchema,
   projectSetupDeliverablesSchema,
   projectSetupMilestoneSchema,
   projectSetupMilestonesSchema,
+  projectSetupMonitoringReportingSchema,
+  projectSetupMonitoringReportingsSchema,
   projectSetupRiskIssueSchema,
   projectSetupRisksIssuesSchema,
   projectSetupResourceSchema,
   projectSetupResourcesSchema,
+  projectSetupStakeholderSchema,
+  projectSetupStakeholdersSchema,
   projectSetupSchema,
   projectSummariesSchema,
   projectSummarySchema,
@@ -59,6 +65,8 @@ import type {
   ProjectSetupAssumptionConstraint,
   ProjectSetupAssumptionConstraintPayload,
   ProjectSetupBudgetDetails,
+  ProjectSetupCommunicationPlan,
+  ProjectSetupCommunicationPlanPayload,
   ProjectSetupDetailsPayload,
   ProjectSetupDetailsSection,
   ProjectSetupBudgetPayload,
@@ -72,10 +80,14 @@ import type {
   ProjectSetupRiskIssuePayload,
   ProjectSetupResource,
   ProjectSetupResourcePayload,
+  ProjectSetupMonitoringReporting,
+  ProjectSetupMonitoringReportingPayload,
   ProjectMember,
   ProjectMutationPayload,
   ProjectSetup,
   ProjectSetupSectionStatusPayload,
+  ProjectSetupStakeholder,
+  ProjectSetupStakeholderPayload,
   ProjectSummary,
   Task,
   Checklist,
@@ -363,6 +375,105 @@ export async function createProjectSetupDependency(
 
   if (!result.success) {
     throw new ApiError("Project setup dependency could not be saved.", 500);
+  }
+
+  return result.data;
+}
+
+export async function listProjectSetupStakeholders(token: string, projectId: string): Promise<ProjectSetupStakeholder[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/stakeholders`, {}, token);
+  const result = projectSetupStakeholdersSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup stakeholders could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createProjectSetupStakeholder(
+  token: string,
+  projectId: string,
+  payload: ProjectSetupStakeholderPayload,
+): Promise<ProjectSetupStakeholder> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/stakeholders`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectSetupStakeholderSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup stakeholder could not be saved.", 500);
+  }
+
+  return result.data;
+}
+
+export async function listProjectSetupCommunicationPlan(token: string, projectId: string): Promise<ProjectSetupCommunicationPlan[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/communication-plan`, {}, token);
+  const result = projectSetupCommunicationPlansSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup communication plan could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createProjectSetupCommunicationPlan(
+  token: string,
+  projectId: string,
+  payload: ProjectSetupCommunicationPlanPayload,
+): Promise<ProjectSetupCommunicationPlan> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/communication-plan`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectSetupCommunicationPlanSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup communication plan item could not be saved.", 500);
+  }
+
+  return result.data;
+}
+
+export async function listProjectSetupMonitoringReporting(token: string, projectId: string): Promise<ProjectSetupMonitoringReporting[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/monitoring-reporting`, {}, token);
+  const result = projectSetupMonitoringReportingsSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup monitoring and reporting could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createProjectSetupMonitoringReporting(
+  token: string,
+  projectId: string,
+  payload: ProjectSetupMonitoringReportingPayload,
+): Promise<ProjectSetupMonitoringReporting> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/monitoring-reporting`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectSetupMonitoringReportingSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup monitoring and reporting item could not be saved.", 500);
   }
 
   return result.data;

@@ -402,6 +402,71 @@ export type ProjectSetupDependencyPayload = {
   required_by_date: string | null;
 };
 
+export type ProjectSetupStakeholder = {
+  id: string;
+  project_id: string;
+  name: string;
+  organisation_group: string | null;
+  interest_role: string;
+  influence_importance: string | null;
+  engagement_notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectSetupStakeholderPayload = {
+  name: string;
+  organisation_group: string | null;
+  interest_role: string;
+  influence_importance: string | null;
+  engagement_notes: string | null;
+};
+
+export type ProjectSetupCommunicationPlan = {
+  id: string;
+  project_id: string;
+  audience: string;
+  information: string;
+  frequency: string;
+  responsible_user_id: string | null;
+  responsible_person: ProjectLead | null;
+  method: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectSetupCommunicationPlanPayload = {
+  audience: string;
+  information: string;
+  frequency: string;
+  responsible_user_id: string | null;
+  method: string;
+};
+
+export type ProjectSetupMonitoringReporting = {
+  id: string;
+  project_id: string;
+  monitored_item: string;
+  reporting_frequency: string;
+  responsible_user_id: string | null;
+  responsible_person: ProjectLead | null;
+  key_measures: string | null;
+  reporting_notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectSetupMonitoringReportingPayload = {
+  monitored_item: string;
+  reporting_frequency: string;
+  responsible_user_id: string | null;
+  key_measures: string | null;
+  reporting_notes: string | null;
+};
+
 export type Task = {
   id: string;
   project_id: string;

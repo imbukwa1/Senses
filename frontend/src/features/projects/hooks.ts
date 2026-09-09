@@ -13,11 +13,14 @@ import {
   addTaskSupporter,
   completePhase,
   createProjectSetupAssumptionConstraint,
+  createProjectSetupCommunicationPlan,
   createProjectSetupDependency,
   createProjectSetupDeliverable,
   createProjectSetupMilestone,
+  createProjectSetupMonitoringReporting,
   createProjectSetupRiskIssue,
   createProjectSetupResource,
+  createProjectSetupStakeholder,
   createWorkspaceNativeResource,
   createWorkspaceFolder,
   createChecklistItem,
@@ -41,11 +44,14 @@ import {
   listMyWork,
   listPhaseMembers,
   listProjectSetupAssumptionsConstraints,
+  listProjectSetupCommunicationPlan,
   listProjectSetupDependencies,
   listProjectSetupDeliverables,
   listProjectSetupMilestones,
+  listProjectSetupMonitoringReporting,
   listProjectSetupRisksIssues,
   listProjectSetupResources,
+  listProjectSetupStakeholders,
   listProjectFiles,
   listProjectMembers,
   listProjects,
@@ -84,11 +90,14 @@ import type {
   ProjectBudgetMutationPayload,
   ProjectSetupAssumptionConstraintPayload,
   ProjectSetupBudgetPayload,
+  ProjectSetupCommunicationPlanPayload,
   ProjectSetupDependencyPayload,
   ProjectSetupDeliverablePayload,
   ProjectSetupMilestonePayload,
+  ProjectSetupMonitoringReportingPayload,
   ProjectSetupRiskIssuePayload,
   ProjectSetupResourcePayload,
+  ProjectSetupStakeholderPayload,
   ProjectMutationPayload,
   ProjectSetupDetailsPayload,
   ProjectSetupDetailsSection,
@@ -120,6 +129,9 @@ export const projectSetupResourcesQueryKey = (projectId: string) => ["projects",
 export const projectSetupRisksIssuesQueryKey = (projectId: string) => ["projects", projectId, "setup", "risks-issues"] as const;
 export const projectSetupAssumptionsConstraintsQueryKey = (projectId: string) => ["projects", projectId, "setup", "assumptions-constraints"] as const;
 export const projectSetupDependenciesQueryKey = (projectId: string) => ["projects", projectId, "setup", "dependencies"] as const;
+export const projectSetupStakeholdersQueryKey = (projectId: string) => ["projects", projectId, "setup", "stakeholders"] as const;
+export const projectSetupCommunicationPlanQueryKey = (projectId: string) => ["projects", projectId, "setup", "communication-plan"] as const;
+export const projectSetupMonitoringReportingQueryKey = (projectId: string) => ["projects", projectId, "setup", "monitoring-reporting"] as const;
 export const workspaceContentsQueryKey = (projectId: string, folderId: string | null) => ["projects", projectId, "workspace", folderId ?? "root"] as const;
 export const workspaceNativeResourceQueryKey = (projectId: string, kind: WorkspaceResourceKind, resourceId: string) =>
   ["projects", projectId, "workspace", kind, resourceId] as const;
@@ -373,6 +385,60 @@ export function useProjectSetupDependenciesQuery(projectId: string, enabled = tr
   const query = useQuery({
     queryKey: projectSetupDependenciesQueryKey(projectId),
     queryFn: () => listProjectSetupDependencies(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useProjectSetupStakeholdersQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectSetupStakeholdersQueryKey(projectId),
+    queryFn: () => listProjectSetupStakeholders(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useProjectSetupCommunicationPlanQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectSetupCommunicationPlanQueryKey(projectId),
+    queryFn: () => listProjectSetupCommunicationPlan(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useProjectSetupMonitoringReportingQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectSetupMonitoringReportingQueryKey(projectId),
+    queryFn: () => listProjectSetupMonitoringReporting(requireToken(token), projectId),
     enabled: enabled && status === "authenticated" && Boolean(token),
     retry: false,
   });
@@ -774,6 +840,51 @@ export function useCreateProjectSetupDependencyMutation(projectId: string) {
       void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: attentionQueryKey });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useCreateProjectSetupStakeholderMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: ProjectSetupStakeholderPayload) => createProjectSetupStakeholder(requireToken(token), projectId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectSetupStakeholdersQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useCreateProjectSetupCommunicationPlanMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: ProjectSetupCommunicationPlanPayload) => createProjectSetupCommunicationPlan(requireToken(token), projectId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectSetupCommunicationPlanQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useCreateProjectSetupMonitoringReportingMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (payload: ProjectSetupMonitoringReportingPayload) => createProjectSetupMonitoringReporting(requireToken(token), projectId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectSetupMonitoringReportingQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
     },
     onError: authFailureHandler(logout),
   });

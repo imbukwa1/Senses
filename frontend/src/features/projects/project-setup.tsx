@@ -20,20 +20,26 @@ import { cn } from "@/lib/utils";
 import {
   useAddPhaseMemberMutation,
   useCreateProjectSetupAssumptionConstraintMutation,
+  useCreateProjectSetupCommunicationPlanMutation,
   useCreateProjectSetupDependencyMutation,
   useCreateProjectSetupDeliverableMutation,
   useCreateProjectSetupMilestoneMutation,
+  useCreateProjectSetupMonitoringReportingMutation,
   useCreateProjectSetupRiskIssueMutation,
   useCreateProjectSetupResourceMutation,
+  useCreateProjectSetupStakeholderMutation,
   usePhaseMembersQuery,
   useProjectMembersQuery,
   useProjectBudgetQuery,
   useProjectSetupAssumptionsConstraintsQuery,
+  useProjectSetupCommunicationPlanQuery,
   useProjectSetupDependenciesQuery,
   useProjectSetupDeliverablesQuery,
   useProjectSetupMilestonesQuery,
+  useProjectSetupMonitoringReportingQuery,
   useProjectSetupRisksIssuesQuery,
   useProjectSetupResourcesQuery,
+  useProjectSetupStakeholdersQuery,
   useProjectSetupBudgetQuery,
   useProjectSetupQuery,
   useUpdateProjectSetupBudgetMutation,
@@ -51,9 +57,11 @@ import type {
   ProjectMember,
   ProjectSetupAssumptionConstraintPayload,
   ProjectSetupBudgetPayload,
+  ProjectSetupCommunicationPlanPayload,
   ProjectSetupDependencyPayload,
   ProjectSetupDeliverablePayload,
   ProjectSetupMilestonePayload,
+  ProjectSetupMonitoringReportingPayload,
   ProjectSetupRiskIssuePayload,
   ProjectSetupResourcePayload,
   ProjectSetupResourceType,
@@ -62,6 +70,7 @@ import type {
   ProjectSetupDetailsSection,
   ProjectSetupSection,
   ProjectSetupStatus,
+  ProjectSetupStakeholderPayload,
 } from "./types";
 
 const SETUP_STATUSES: ProjectSetupStatus[] = ["Complete", "In Progress", "Not Started", "Not Applicable"];
@@ -355,8 +364,14 @@ function renderFirstPassSection({
       />
     );
   }
+  if (activeSection.key === "stakeholders") {
+    return <Phase0StakeholdersSection canEdit={canEdit} projectId={setup.project_id} />;
+  }
   if (activeSection.key === "budget_setup") {
     return <Phase0BudgetSection canEdit={canEdit} dashboard={dashboard} projectId={setup.project_id} />;
+  }
+  if (activeSection.key === "communication_plan") {
+    return <Phase0CommunicationPlanSection canEdit={canEdit} members={members} projectId={setup.project_id} />;
   }
   if (activeSection.key === "resources") {
     return <Phase0ResourcesSection canEdit={canEdit} projectId={setup.project_id} />;
@@ -369,6 +384,9 @@ function renderFirstPassSection({
   }
   if (activeSection.key === "dependencies") {
     return <Phase0DependenciesSection canEdit={canEdit} dashboard={dashboard} members={members} projectId={setup.project_id} />;
+  }
+  if (activeSection.key === "monitoring_reporting") {
+    return <Phase0MonitoringReportingSection canEdit={canEdit} members={members} projectId={setup.project_id} />;
   }
   return null;
 }
@@ -385,6 +403,9 @@ function isFirstPassSection(sectionKey: string) {
     "risks_issues",
     "assumptions_constraints",
     "dependencies",
+    "stakeholders",
+    "communication_plan",
+    "monitoring_reporting",
   ].includes(sectionKey);
 }
 
@@ -930,6 +951,192 @@ function Phase0ResourcesSection({ canEdit, projectId }: { canEdit: boolean; proj
               <p className="font-medium text-foreground">{resource.name}</p>
             </div>
             {resource.notes ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{resource.notes}</p> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Phase0StakeholdersSection({ canEdit, projectId }: { canEdit: boolean; projectId: string }) {
+  const stakeholdersQuery = useProjectSetupStakeholdersQuery(projectId);
+  const createStakeholder = useCreateProjectSetupStakeholderMutation(projectId);
+  const [form, setForm] = useState<ProjectSetupStakeholderPayload>({
+    engagement_notes: null,
+    influence_importance: null,
+    interest_role: "",
+    name: "",
+    organisation_group: null,
+  });
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createStakeholder.mutateAsync({
+      ...form,
+      engagement_notes: form.engagement_notes?.trim() || null,
+      influence_importance: form.influence_importance?.trim() || null,
+      interest_role: form.interest_role.trim(),
+      name: form.name.trim(),
+      organisation_group: form.organisation_group?.trim() || null,
+    });
+    setForm({ engagement_notes: null, influence_importance: null, interest_role: "", name: "", organisation_group: null });
+  }
+
+  return (
+    <div className="space-y-4">
+      {canEdit ? (
+        <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <SetupInput label="Stakeholder" value={form.name} onChange={(value) => setForm((current) => ({ ...current, name: value }))} />
+            <SetupInput label="Organisation / Group" value={form.organisation_group ?? ""} onChange={(value) => setForm((current) => ({ ...current, organisation_group: value }))} />
+            <SetupInput label="Interest / Role" value={form.interest_role} onChange={(value) => setForm((current) => ({ ...current, interest_role: value }))} />
+            <SetupInput label="Influence / Importance" value={form.influence_importance ?? ""} onChange={(value) => setForm((current) => ({ ...current, influence_importance: value }))} />
+          </div>
+          <SetupTextarea label="Engagement Notes" value={form.engagement_notes ?? ""} onChange={(value) => setForm((current) => ({ ...current, engagement_notes: value }))} />
+          <Button type="submit" disabled={!form.name.trim() || !form.interest_role.trim() || createStakeholder.isPending}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add Stakeholder
+          </Button>
+          {createStakeholder.error ? <p className="text-sm text-error">{userFacingErrorMessage(createStakeholder.error, { action: "stakeholder" })}</p> : null}
+        </form>
+      ) : null}
+      {stakeholdersQuery.isLoading ? <LoadingState label="Loading stakeholders" /> : null}
+      {stakeholdersQuery.isError ? <ErrorState title="Stakeholders could not be loaded" message={userFacingErrorMessage(stakeholdersQuery.error, { action: "stakeholders" })} /> : null}
+      {stakeholdersQuery.data?.length === 0 ? <EmptyState title="No stakeholders have been added." /> : null}
+      <div className="space-y-2">
+        {stakeholdersQuery.data?.map((stakeholder) => (
+          <div key={stakeholder.id} className="rounded-md border bg-background p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium text-foreground">{stakeholder.name}</p>
+              {stakeholder.influence_importance ? <Badge variant="outline">{stakeholder.influence_importance}</Badge> : null}
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {stakeholder.organisation_group ?? "No organisation"} / {stakeholder.interest_role}
+            </p>
+            {stakeholder.engagement_notes ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{stakeholder.engagement_notes}</p> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Phase0CommunicationPlanSection({ canEdit, members, projectId }: { canEdit: boolean; members: ProjectMember[]; projectId: string }) {
+  const communicationQuery = useProjectSetupCommunicationPlanQuery(projectId);
+  const createCommunication = useCreateProjectSetupCommunicationPlanMutation(projectId);
+  const [form, setForm] = useState<ProjectSetupCommunicationPlanPayload>({
+    audience: "",
+    frequency: "",
+    information: "",
+    method: "",
+    responsible_user_id: null,
+  });
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createCommunication.mutateAsync({
+      ...form,
+      audience: form.audience.trim(),
+      frequency: form.frequency.trim(),
+      information: form.information.trim(),
+      method: form.method.trim(),
+    });
+    setForm({ audience: "", frequency: "", information: "", method: "", responsible_user_id: null });
+  }
+
+  return (
+    <div className="space-y-4">
+      {canEdit ? (
+        <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <SetupInput label="Who Needs Updates" value={form.audience} onChange={(value) => setForm((current) => ({ ...current, audience: value }))} />
+            <SetupInput label="Frequency" value={form.frequency} onChange={(value) => setForm((current) => ({ ...current, frequency: value }))} />
+            <SetupInput label="Communication Method" value={form.method} onChange={(value) => setForm((current) => ({ ...current, method: value }))} />
+            <MemberSelect label="Responsible Person" members={members} value={form.responsible_user_id} onChange={(value) => setForm((current) => ({ ...current, responsible_user_id: value }))} />
+          </div>
+          <SetupTextarea label="What Information" value={form.information} onChange={(value) => setForm((current) => ({ ...current, information: value }))} />
+          <Button type="submit" disabled={!form.audience.trim() || !form.frequency.trim() || !form.information.trim() || !form.method.trim() || createCommunication.isPending}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add Communication Item
+          </Button>
+          {createCommunication.error ? <p className="text-sm text-error">{userFacingErrorMessage(createCommunication.error, { action: "communication plan" })}</p> : null}
+        </form>
+      ) : null}
+      {communicationQuery.isLoading ? <LoadingState label="Loading communication plan" /> : null}
+      {communicationQuery.isError ? <ErrorState title="Communication plan could not be loaded" message={userFacingErrorMessage(communicationQuery.error, { action: "communication plan" })} /> : null}
+      {communicationQuery.data?.length === 0 ? <EmptyState title="No communication plan items have been added." /> : null}
+      <div className="space-y-2">
+        {communicationQuery.data?.map((item) => (
+          <div key={item.id} className="rounded-md border bg-background p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium text-foreground">{item.audience}</p>
+              <Badge variant="outline">{item.frequency}</Badge>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Method: {item.method} / Responsible: {item.responsible_person?.name ?? "Unassigned"}
+            </p>
+            <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{item.information}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Phase0MonitoringReportingSection({ canEdit, members, projectId }: { canEdit: boolean; members: ProjectMember[]; projectId: string }) {
+  const monitoringQuery = useProjectSetupMonitoringReportingQuery(projectId);
+  const createMonitoring = useCreateProjectSetupMonitoringReportingMutation(projectId);
+  const [form, setForm] = useState<ProjectSetupMonitoringReportingPayload>({
+    key_measures: null,
+    monitored_item: "",
+    reporting_frequency: "",
+    reporting_notes: null,
+    responsible_user_id: null,
+  });
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createMonitoring.mutateAsync({
+      ...form,
+      key_measures: form.key_measures?.trim() || null,
+      monitored_item: form.monitored_item.trim(),
+      reporting_frequency: form.reporting_frequency.trim(),
+      reporting_notes: form.reporting_notes?.trim() || null,
+    });
+    setForm({ key_measures: null, monitored_item: "", reporting_frequency: "", reporting_notes: null, responsible_user_id: null });
+  }
+
+  return (
+    <div className="space-y-4">
+      {canEdit ? (
+        <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <SetupInput label="What Will Be Monitored" value={form.monitored_item} onChange={(value) => setForm((current) => ({ ...current, monitored_item: value }))} />
+            <SetupInput label="Reporting Frequency" value={form.reporting_frequency} onChange={(value) => setForm((current) => ({ ...current, reporting_frequency: value }))} />
+            <MemberSelect label="Responsible Person" members={members} value={form.responsible_user_id} onChange={(value) => setForm((current) => ({ ...current, responsible_user_id: value }))} />
+          </div>
+          <SetupTextarea label="Key Measures" value={form.key_measures ?? ""} onChange={(value) => setForm((current) => ({ ...current, key_measures: value }))} />
+          <SetupTextarea label="Reporting Notes" value={form.reporting_notes ?? ""} onChange={(value) => setForm((current) => ({ ...current, reporting_notes: value }))} />
+          <Button type="submit" disabled={!form.monitored_item.trim() || !form.reporting_frequency.trim() || createMonitoring.isPending}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add Monitoring Item
+          </Button>
+          {createMonitoring.error ? <p className="text-sm text-error">{userFacingErrorMessage(createMonitoring.error, { action: "monitoring and reporting" })}</p> : null}
+        </form>
+      ) : null}
+      {monitoringQuery.isLoading ? <LoadingState label="Loading monitoring and reporting" /> : null}
+      {monitoringQuery.isError ? <ErrorState title="Monitoring and reporting could not be loaded" message={userFacingErrorMessage(monitoringQuery.error, { action: "monitoring and reporting" })} /> : null}
+      {monitoringQuery.data?.length === 0 ? <EmptyState title="No monitoring and reporting items have been added." /> : null}
+      <div className="space-y-2">
+        {monitoringQuery.data?.map((item) => (
+          <div key={item.id} className="rounded-md border bg-background p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-medium text-foreground">{item.monitored_item}</p>
+              <Badge variant="outline">{item.reporting_frequency}</Badge>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">Responsible: {item.responsible_person?.name ?? "Unassigned"}</p>
+            {item.key_measures ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{item.key_measures}</p> : null}
+            {item.reporting_notes ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{item.reporting_notes}</p> : null}
           </div>
         ))}
       </div>

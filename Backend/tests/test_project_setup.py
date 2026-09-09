@@ -384,6 +384,83 @@ def test_project_setup_risks_assumptions_and_dependencies_use_live_records() -> 
         database.close()
 
 
+def test_project_setup_stakeholders_communication_and_monitoring_use_live_records() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Setup Comms PM", _unique_email("setup.comms.pm"))
+        team = _create_auth_user(database, "Setup Comms Team", _unique_email("setup.comms.team"))
+        project = _create_project(database, pm["id"], "Setup Comms Project")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], team["id"], "Team Member")
+        app = create_app(settings=_settings(os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            pm_token = _login(client, pm["email"])
+            team_token = _login(client, team["email"])
+            stakeholder = client.post(
+                f"/projects/{project['id']}/setup/stakeholders",
+                headers=_auth_header(pm_token),
+                json={
+                    "name": "County Health Office",
+                    "organisation_group": "County government",
+                    "interest_role": "Approves field activity",
+                    "influence_importance": "High",
+                    "engagement_notes": "Monthly coordination meeting.",
+                },
+            )
+            communication = client.post(
+                f"/projects/{project['id']}/setup/communication-plan",
+                headers=_auth_header(pm_token),
+                json={
+                    "audience": "Project steering group",
+                    "information": "Progress, blockers, budget headlines",
+                    "frequency": "Monthly",
+                    "responsible_user_id": str(team["id"]),
+                    "method": "Review meeting",
+                },
+            )
+            monitoring = client.post(
+                f"/projects/{project['id']}/setup/monitoring-reporting",
+                headers=_auth_header(pm_token),
+                json={
+                    "monitored_item": "Fieldwork completion",
+                    "reporting_frequency": "Weekly",
+                    "responsible_user_id": str(team["id"]),
+                    "key_measures": "Completed interviews",
+                    "reporting_notes": "Use live task progress as supporting context.",
+                },
+            )
+            setup = client.get(f"/projects/{project['id']}/setup", headers=_auth_header(pm_token))
+            team_stakeholders = client.get(f"/projects/{project['id']}/setup/stakeholders", headers=_auth_header(team_token))
+            team_create_communication = client.post(
+                f"/projects/{project['id']}/setup/communication-plan",
+                headers=_auth_header(team_token),
+                json={
+                    "audience": "Denied",
+                    "information": "Denied",
+                    "frequency": "Weekly",
+                    "method": "Email",
+                },
+            )
+
+        assert stakeholder.status_code == 201
+        assert stakeholder.json()["name"] == "County Health Office"
+        assert communication.status_code == 201
+        assert communication.json()["responsible_user_id"] == str(team["id"])
+        assert communication.json()["responsible_person"]["name"] == team["name"]
+        assert monitoring.status_code == 201
+        assert monitoring.json()["responsible_user_id"] == str(team["id"])
+        assert _section(setup.json(), "stakeholders")["status"] == "Complete"
+        assert _section(setup.json(), "communication_plan")["status"] == "Complete"
+        assert _section(setup.json(), "monitoring_reporting")["status"] == "Complete"
+        assert team_stakeholders.status_code == 200
+        assert len(team_stakeholders.json()) == 1
+        assert team_create_communication.status_code == 403
+    finally:
+        database.close()
+
+
 def _section(setup: dict, key: str) -> dict:
     return next(section for section in setup["sections"] if section["key"] == key)
 

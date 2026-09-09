@@ -644,6 +644,36 @@ class ProjectSetupDependencyCreateRequest(BaseModel):
     required_by_date: date | None = None
 
 
+class ProjectSetupStakeholderCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    organisation_group: str | None = Field(default=None, max_length=255)
+    interest_role: str = Field(min_length=1)
+    influence_importance: str | None = Field(default=None, max_length=100)
+    engagement_notes: str | None = None
+
+
+class ProjectSetupCommunicationPlanCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    audience: str = Field(min_length=1)
+    information: str = Field(min_length=1)
+    frequency: str = Field(min_length=1, max_length=100)
+    responsible_user_id: UUID | None = None
+    method: str = Field(min_length=1, max_length=150)
+
+
+class ProjectSetupMonitoringReportingCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    monitored_item: str = Field(min_length=1)
+    reporting_frequency: str = Field(min_length=1, max_length=100)
+    responsible_user_id: UUID | None = None
+    key_measures: str | None = None
+    reporting_notes: str | None = None
+
+
 class ProjectSetupLeadResponse(BaseModel):
     id: UUID
     name: str
@@ -770,6 +800,47 @@ class ProjectSetupDependencyResponse(BaseModel):
     responsible_person: ProjectSetupLeadResponse | None
     responsible_party: str | None
     required_by_date: date | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupStakeholderResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    name: str
+    organisation_group: str | None
+    interest_role: str
+    influence_importance: str | None
+    engagement_notes: str | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupCommunicationPlanResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    audience: str
+    information: str
+    frequency: str
+    responsible_user_id: UUID | None
+    responsible_person: ProjectSetupLeadResponse | None
+    method: str
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupMonitoringReportingResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    monitored_item: str
+    reporting_frequency: str
+    responsible_user_id: UUID | None
+    responsible_person: ProjectSetupLeadResponse | None
+    key_measures: str | None
+    reporting_notes: str | None
     created_by: UUID | None
     created_at: datetime
     updated_at: datetime
@@ -1964,6 +2035,156 @@ def create_project_setup_dependency(
         ),
     )
     return project_setup_dependency_to_response(fetch_project_setup_dependency_or_404(session, project_id, row["id"]))
+
+
+@router.get("/{project_id}/setup/stakeholders", response_model=list[ProjectSetupStakeholderResponse])
+def list_project_setup_stakeholders(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupStakeholderResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [ProjectSetupStakeholderResponse(**row) for row in fetch_project_setup_stakeholders(session, project_id)]
+
+
+@router.post("/{project_id}/setup/stakeholders", response_model=ProjectSetupStakeholderResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_stakeholder(
+    project_id: UUID,
+    payload: ProjectSetupStakeholderCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupStakeholderResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    name = payload.name.strip()
+    interest_role = payload.interest_role.strip()
+    if not name or not interest_role:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Stakeholder and interest or role are required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_stakeholders (
+          project_id, name, organisation_group, interest_role, influence_importance, engagement_notes, created_by
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING *
+        """,
+        (
+            project_id,
+            name,
+            normalize_optional_text(payload.organisation_group),
+            interest_role,
+            normalize_optional_text(payload.influence_importance),
+            normalize_optional_text(payload.engagement_notes),
+            current_user.id,
+        ),
+    )
+    return ProjectSetupStakeholderResponse(**row)
+
+
+@router.get("/{project_id}/setup/communication-plan", response_model=list[ProjectSetupCommunicationPlanResponse])
+def list_project_setup_communication_plan(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupCommunicationPlanResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [project_setup_communication_plan_to_response(row) for row in fetch_project_setup_communication_plan(session, project_id)]
+
+
+@router.post("/{project_id}/setup/communication-plan", response_model=ProjectSetupCommunicationPlanResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_communication_plan(
+    project_id: UUID,
+    payload: ProjectSetupCommunicationPlanCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupCommunicationPlanResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if payload.responsible_user_id is not None:
+        fetch_project_member(session, project_id, payload.responsible_user_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    audience = payload.audience.strip()
+    information = payload.information.strip()
+    frequency = payload.frequency.strip()
+    method = payload.method.strip()
+    if not audience or not information or not frequency or not method:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Communication plan fields are required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_communication_plan_items (
+          project_id, audience, information, frequency, responsible_user_id, method, created_by
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            project_id,
+            audience,
+            information,
+            frequency,
+            payload.responsible_user_id,
+            method,
+            current_user.id,
+        ),
+    )
+    return project_setup_communication_plan_to_response(fetch_project_setup_communication_plan_item_or_404(session, project_id, row["id"]))
+
+
+@router.get("/{project_id}/setup/monitoring-reporting", response_model=list[ProjectSetupMonitoringReportingResponse])
+def list_project_setup_monitoring_reporting(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupMonitoringReportingResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [project_setup_monitoring_reporting_to_response(row) for row in fetch_project_setup_monitoring_reporting(session, project_id)]
+
+
+@router.post("/{project_id}/setup/monitoring-reporting", response_model=ProjectSetupMonitoringReportingResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_monitoring_reporting(
+    project_id: UUID,
+    payload: ProjectSetupMonitoringReportingCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupMonitoringReportingResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if payload.responsible_user_id is not None:
+        fetch_project_member(session, project_id, payload.responsible_user_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    monitored_item = payload.monitored_item.strip()
+    reporting_frequency = payload.reporting_frequency.strip()
+    if not monitored_item or not reporting_frequency:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Monitoring and reporting fields are required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_monitoring_reporting_items (
+          project_id, monitored_item, reporting_frequency, responsible_user_id, key_measures, reporting_notes, created_by
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            project_id,
+            monitored_item,
+            reporting_frequency,
+            payload.responsible_user_id,
+            normalize_optional_text(payload.key_measures),
+            normalize_optional_text(payload.reporting_notes),
+            current_user.id,
+        ),
+    )
+    return project_setup_monitoring_reporting_to_response(fetch_project_setup_monitoring_reporting_item_or_404(session, project_id, row["id"]))
 
 
 @router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
@@ -4962,6 +5183,138 @@ def fetch_project_setup_dependency_or_404(session: DatabaseSession, project_id: 
     return row
 
 
+def fetch_project_setup_stakeholders(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          id,
+          project_id,
+          name,
+          organisation_group,
+          interest_role,
+          influence_importance,
+          engagement_notes,
+          created_by,
+          created_at,
+          updated_at
+        FROM project_stakeholders
+        WHERE project_id = %s
+        ORDER BY created_at, id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_communication_plan(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          project_communication_plan_items.id,
+          project_communication_plan_items.project_id,
+          project_communication_plan_items.audience,
+          project_communication_plan_items.information,
+          project_communication_plan_items.frequency,
+          project_communication_plan_items.responsible_user_id,
+          responsible_users.name AS responsible_user_name,
+          responsible_users.email AS responsible_user_email,
+          project_communication_plan_items.method,
+          project_communication_plan_items.created_by,
+          project_communication_plan_items.created_at,
+          project_communication_plan_items.updated_at
+        FROM project_communication_plan_items
+        LEFT JOIN users AS responsible_users
+          ON responsible_users.id = project_communication_plan_items.responsible_user_id
+        WHERE project_communication_plan_items.project_id = %s
+        ORDER BY project_communication_plan_items.created_at, project_communication_plan_items.id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_communication_plan_item_or_404(session: DatabaseSession, project_id: UUID, item_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT
+          project_communication_plan_items.id,
+          project_communication_plan_items.project_id,
+          project_communication_plan_items.audience,
+          project_communication_plan_items.information,
+          project_communication_plan_items.frequency,
+          project_communication_plan_items.responsible_user_id,
+          responsible_users.name AS responsible_user_name,
+          responsible_users.email AS responsible_user_email,
+          project_communication_plan_items.method,
+          project_communication_plan_items.created_by,
+          project_communication_plan_items.created_at,
+          project_communication_plan_items.updated_at
+        FROM project_communication_plan_items
+        LEFT JOIN users AS responsible_users
+          ON responsible_users.id = project_communication_plan_items.responsible_user_id
+        WHERE project_communication_plan_items.project_id = %s
+          AND project_communication_plan_items.id = %s
+        """,
+        (project_id, item_id),
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project communication plan item not found")
+    return row
+
+
+def fetch_project_setup_monitoring_reporting(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          project_monitoring_reporting_items.id,
+          project_monitoring_reporting_items.project_id,
+          project_monitoring_reporting_items.monitored_item,
+          project_monitoring_reporting_items.reporting_frequency,
+          project_monitoring_reporting_items.responsible_user_id,
+          responsible_users.name AS responsible_user_name,
+          responsible_users.email AS responsible_user_email,
+          project_monitoring_reporting_items.key_measures,
+          project_monitoring_reporting_items.reporting_notes,
+          project_monitoring_reporting_items.created_by,
+          project_monitoring_reporting_items.created_at,
+          project_monitoring_reporting_items.updated_at
+        FROM project_monitoring_reporting_items
+        LEFT JOIN users AS responsible_users
+          ON responsible_users.id = project_monitoring_reporting_items.responsible_user_id
+        WHERE project_monitoring_reporting_items.project_id = %s
+        ORDER BY project_monitoring_reporting_items.created_at, project_monitoring_reporting_items.id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_monitoring_reporting_item_or_404(session: DatabaseSession, project_id: UUID, item_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT
+          project_monitoring_reporting_items.id,
+          project_monitoring_reporting_items.project_id,
+          project_monitoring_reporting_items.monitored_item,
+          project_monitoring_reporting_items.reporting_frequency,
+          project_monitoring_reporting_items.responsible_user_id,
+          responsible_users.name AS responsible_user_name,
+          responsible_users.email AS responsible_user_email,
+          project_monitoring_reporting_items.key_measures,
+          project_monitoring_reporting_items.reporting_notes,
+          project_monitoring_reporting_items.created_by,
+          project_monitoring_reporting_items.created_at,
+          project_monitoring_reporting_items.updated_at
+        FROM project_monitoring_reporting_items
+        LEFT JOIN users AS responsible_users
+          ON responsible_users.id = project_monitoring_reporting_items.responsible_user_id
+        WHERE project_monitoring_reporting_items.project_id = %s
+          AND project_monitoring_reporting_items.id = %s
+        """,
+        (project_id, item_id),
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project monitoring and reporting item not found")
+    return row
+
+
 def next_task_deliverable_display_order(session: DatabaseSession, task_id: UUID) -> int:
     row = session.fetch_one(
         """
@@ -5080,6 +5433,52 @@ def project_setup_dependency_to_response(row: Row) -> ProjectSetupDependencyResp
     )
 
 
+def project_setup_communication_plan_to_response(row: Row) -> ProjectSetupCommunicationPlanResponse:
+    responsible_person = None
+    if row["responsible_user_id"] is not None:
+        responsible_person = ProjectSetupLeadResponse(
+            id=row["responsible_user_id"],
+            name=row["responsible_user_name"],
+            email=row["responsible_user_email"],
+        )
+    return ProjectSetupCommunicationPlanResponse(
+        id=row["id"],
+        project_id=row["project_id"],
+        audience=row["audience"],
+        information=row["information"],
+        frequency=row["frequency"],
+        responsible_user_id=row["responsible_user_id"],
+        responsible_person=responsible_person,
+        method=row["method"],
+        created_by=row["created_by"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def project_setup_monitoring_reporting_to_response(row: Row) -> ProjectSetupMonitoringReportingResponse:
+    responsible_person = None
+    if row["responsible_user_id"] is not None:
+        responsible_person = ProjectSetupLeadResponse(
+            id=row["responsible_user_id"],
+            name=row["responsible_user_name"],
+            email=row["responsible_user_email"],
+        )
+    return ProjectSetupMonitoringReportingResponse(
+        id=row["id"],
+        project_id=row["project_id"],
+        monitored_item=row["monitored_item"],
+        reporting_frequency=row["reporting_frequency"],
+        responsible_user_id=row["responsible_user_id"],
+        responsible_person=responsible_person,
+        key_measures=row["key_measures"],
+        reporting_notes=row["reporting_notes"],
+        created_by=row["created_by"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) -> Row:
     return session.fetch_one(
         """
@@ -5146,6 +5545,21 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
           SELECT COUNT(*) AS dependency_count
           FROM project_dependencies
           WHERE project_id = %(project_id)s
+        ),
+        stakeholder_counts AS (
+          SELECT COUNT(*) AS stakeholder_count
+          FROM project_stakeholders
+          WHERE project_id = %(project_id)s
+        ),
+        communication_plan_counts AS (
+          SELECT COUNT(*) AS communication_plan_count
+          FROM project_communication_plan_items
+          WHERE project_id = %(project_id)s
+        ),
+        monitoring_reporting_counts AS (
+          SELECT COUNT(*) AS monitoring_reporting_count
+          FROM project_monitoring_reporting_items
+          WHERE project_id = %(project_id)s
         )
         SELECT
           project_phase_counts.phase_count,
@@ -5164,6 +5578,9 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
           risk_issue_counts.risk_issue_count,
           assumption_constraint_counts.assumption_constraint_count,
           dependency_counts.dependency_count,
+          stakeholder_counts.stakeholder_count,
+          communication_plan_counts.communication_plan_count,
+          monitoring_reporting_counts.monitoring_reporting_count,
           projects.budget_allocated AS project_budget_allocated
         FROM projects
         CROSS JOIN project_phase_counts
@@ -5176,6 +5593,9 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
         CROSS JOIN risk_issue_counts
         CROSS JOIN assumption_constraint_counts
         CROSS JOIN dependency_counts
+        CROSS JOIN stakeholder_counts
+        CROSS JOIN communication_plan_counts
+        CROSS JOIN monitoring_reporting_counts
         WHERE projects.id = %(project_id)s
         """,
         {"project_id": project_id},
@@ -5232,6 +5652,9 @@ def project_setup_live_status(
             return "In Progress", member_count, "project_members"
         return "Not Started", 0, "project_members"
     if section_key == "stakeholders":
+        stakeholder_count = int(live.get("stakeholder_count") or 0)
+        if stakeholder_count:
+            return "Complete", stakeholder_count, "project_stakeholders"
         return project_setup_status_from_count(max(int(live.get("member_count") or 0) - 1, 0), 1, "project_members")
     if section_key == "resources":
         resource_count = int(live.get("setup_resource_count") or 0)
@@ -5251,6 +5674,10 @@ def project_setup_live_status(
         return project_setup_status_from_count(int(live.get("assumption_constraint_count") or 0), 1, "project_assumptions_constraints")
     if section_key == "dependencies":
         return project_setup_status_from_count(int(live.get("dependency_count") or 0), 1, "project_dependencies")
+    if section_key == "communication_plan":
+        return project_setup_status_from_count(int(live.get("communication_plan_count") or 0), 1, "project_communication_plan_items")
+    if section_key == "monitoring_reporting":
+        return project_setup_status_from_count(int(live.get("monitoring_reporting_count") or 0), 1, "project_monitoring_reporting_items")
     if section_key == "documents_attachments":
         document_count = int(live.get("file_count") or 0) + int(live.get("document_count") or 0) + int(live.get("spreadsheet_count") or 0)
         return project_setup_status_from_count(document_count, 1, "task_files/workspace_documents/workspace_spreadsheets")
