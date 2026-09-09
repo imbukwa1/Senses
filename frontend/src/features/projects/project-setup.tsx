@@ -97,13 +97,67 @@ import type {
 
 const SETUP_STATUSES: ProjectSetupStatus[] = ["Complete", "In Progress", "Not Started", "Not Applicable"];
 
+const VISIBLE_SETUP_SECTION_ORDER = [
+  "project_overview",
+  "objectives_outcomes",
+  "scope",
+  "people_governance",
+  "phases",
+  "milestones",
+  "work_plan",
+  "stakeholders",
+  "resources",
+  "budget_setup",
+  "risks_issues",
+  "assumptions_constraints",
+  "documents_attachments",
+  "notes",
+] as const;
+
+const VISIBLE_SETUP_SECTION_LABELS: Record<(typeof VISIBLE_SETUP_SECTION_ORDER)[number], string> = {
+  project_overview: "Project Overview",
+  objectives_outcomes: "Objectives",
+  scope: "Scope",
+  people_governance: "People & Governance",
+  phases: "Phases",
+  milestones: "Milestones",
+  work_plan: "Work Plan",
+  stakeholders: "Stakeholders",
+  resources: "Resources",
+  budget_setup: "Budget",
+  risks_issues: "Risks & Issues",
+  assumptions_constraints: "Assumptions & Constraints",
+  documents_attachments: "Documents & Attachments",
+  notes: "Notes",
+};
+
+function setupForDisplay(setup: ProjectSetup): ProjectSetup {
+  const sections = VISIBLE_SETUP_SECTION_ORDER.map((key) => {
+    const section = setup.sections.find((candidate) => candidate.key === key);
+    return section ? { ...section, label: VISIBLE_SETUP_SECTION_LABELS[key] } : null;
+  }).filter((section): section is ProjectSetup["sections"][number] => section !== null);
+  const applicableSections = sections.filter((section) => section.status !== "Not Applicable");
+  const completeSections = applicableSections.filter((section) => section.status === "Complete").length;
+
+  return {
+    ...setup,
+    sections,
+    summary: {
+      complete_sections: completeSections,
+      total_applicable_sections: applicableSections.length,
+      percent_complete: applicableSections.length ? Math.round((completeSections / applicableSections.length) * 100) : 100,
+    },
+  };
+}
+
 export function ProjectSetupCard({ onContinue, setup }: { setup: ProjectSetup; onContinue: () => void }) {
+  const displaySetup = setupForDisplay(setup);
   return (
     <Card className="border-brand-red/20">
       <CardHeader className="gap-3 sm:flex-row sm:items-start sm:justify-between sm:space-y-0">
         <div>
           <CardDescription className="font-medium text-brand-red">PROJECT SETUP - PHASE 0</CardDescription>
-          <CardTitle>{setup.title}</CardTitle>
+          <CardTitle>{displaySetup.title}</CardTitle>
           <CardDescription>Complete your project setup to define phases, team, budget, risks and supporting information.</CardDescription>
         </div>
         <Button type="button" className="bg-brand-red text-white hover:bg-brand-red/90" onClick={onContinue}>
@@ -112,7 +166,7 @@ export function ProjectSetupCard({ onContinue, setup }: { setup: ProjectSetup; o
         </Button>
       </CardHeader>
       <CardContent>
-        <SetupProgress setup={setup} />
+        <SetupProgress setup={displaySetup} />
       </CardContent>
     </Card>
   );
@@ -129,20 +183,21 @@ export function ProjectSetupPrompt({
   onClose: () => void;
   onContinue: () => void;
 }) {
+  const displaySetup = setupForDisplay(setup);
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <CardDescription className="font-medium text-brand-red">PROJECT SETUP</CardDescription>
-          <CardTitle>{setup.title}</CardTitle>
+          <CardTitle>{displaySetup.title}</CardTitle>
           <CardDescription>
-            {Math.round(setup.summary.percent_complete)}% Complete for {projectName}
+            {Math.round(displaySetup.summary.percent_complete)}% Complete for {projectName}
           </CardDescription>
         </div>
         <Badge variant="outline">Project remains usable</Badge>
       </div>
       <p className="text-sm text-muted-foreground">Complete your project setup to define phases, team, budget, risks and supporting information.</p>
-      <SetupProgress setup={setup} />
+      <SetupProgress setup={displaySetup} />
       <div className="flex flex-wrap gap-2">
         <Button type="button" className="bg-brand-red text-white hover:bg-brand-red/90" onClick={onContinue}>
           Continue Project Setup
@@ -161,13 +216,14 @@ export function ProjectSetupPanel({ canEdit, dashboard, projectId }: { projectId
   const updateDetails = useUpdateProjectSetupDetailsMutation(projectId);
   const updateSection = useUpdateProjectSetupSectionMutation(projectId);
   const setup = setupQuery.data;
+  const displaySetup = useMemo(() => (setup ? setupForDisplay(setup) : null), [setup]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const activeSection = useMemo(() => {
-    if (!setup) {
+    if (!displaySetup) {
       return null;
     }
-    return setup.sections.find((section) => section.key === activeKey) ?? setup.sections[0] ?? null;
-  }, [activeKey, setup]);
+    return displaySetup.sections.find((section) => section.key === activeKey) ?? displaySetup.sections[0] ?? null;
+  }, [activeKey, displaySetup]);
 
   async function onStatusChange(section: ProjectSetupSection, statusValue: ProjectSetupStatus) {
     await updateSection.mutateAsync({ sectionKey: section.key, payload: { status: statusValue } });
@@ -189,7 +245,7 @@ export function ProjectSetupPanel({ canEdit, dashboard, projectId }: { projectId
     return <ErrorState title="Project setup could not be loaded" message={userFacingErrorMessage(setupQuery.error, { action: "project setup" })} />;
   }
 
-  if (!setup || !activeSection) {
+  if (!setup || !displaySetup || !activeSection) {
     return <EmptyState title="Project setup is unavailable." />;
   }
 
@@ -198,12 +254,12 @@ export function ProjectSetupPanel({ canEdit, dashboard, projectId }: { projectId
       <Card>
         <CardHeader>
           <CardDescription>PROJECT SETUP - PHASE 0</CardDescription>
-          <CardTitle>{setup.title}</CardTitle>
+          <CardTitle>{displaySetup.title}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <SetupProgress setup={setup} />
+          <SetupProgress setup={displaySetup} />
           <nav aria-label="Project setup sections" className="space-y-1">
-            {setup.sections.map((section, index) => (
+            {displaySetup.sections.map((section, index) => (
               <button
                 key={section.key}
                 type="button"
@@ -266,7 +322,7 @@ export function ProjectSetupPanel({ canEdit, dashboard, projectId }: { projectId
             members: membersQuery.data ?? [],
             membersError: membersQuery.error,
             membersLoading: membersQuery.isLoading,
-            setup,
+            setup: displaySetup,
             statusPending: updateSection.isPending,
           })}
           <div className="grid gap-4 md:grid-cols-3">
