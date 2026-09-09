@@ -605,6 +605,21 @@ class ProjectSetupWorkPlanUpdateRequest(BaseModel):
     key_activities: str | None = None
 
 
+class ProjectSetupWorkPlanEntryCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    details: str
+    key_activities: str
+    start_date: date
+    end_date: date
+    phase_id: UUID
+
+
+class ProjectSetupWorkPlanEntryUpdateRequest(ProjectSetupWorkPlanEntryCreateRequest):
+    pass
+
+
 class ProjectSetupPhaseAllocationUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -784,6 +799,22 @@ class ProjectSetupWorkPlanResponse(BaseModel):
     planned_start: date
     planned_completion: date
     key_activities: str | None
+    entries: list["ProjectSetupWorkPlanEntryResponse"]
+
+
+class ProjectSetupWorkPlanEntryResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    name: str
+    details: str
+    key_activities: str
+    start_date: date
+    end_date: date
+    phase_id: UUID
+    phase_name: str
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class ProjectSetupBudgetResponse(BaseModel):
@@ -1875,6 +1906,65 @@ def update_project_setup_work_plan(
         ),
     )
     return build_project_setup_response(session, project_id)
+
+
+@router.post("/{project_id}/setup/work-plan/entries", response_model=ProjectSetupWorkPlanEntryResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_work_plan_entry(
+    project_id: UUID,
+    payload: ProjectSetupWorkPlanEntryCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupWorkPlanEntryResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    validate_work_plan_entry_payload(session, project_id, payload)
+    row = session.fetch_one(
+        """
+        INSERT INTO project_work_plan_entries
+          (project_id, phase_id, name, details, key_activities, start_date, end_date, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (project_id, payload.phase_id, payload.name.strip(), payload.details.strip(), payload.key_activities.strip(), payload.start_date, payload.end_date, current_user.id),
+    )
+    return project_setup_work_plan_entry_to_response(fetch_project_setup_work_plan_entry(session, project_id, row["id"]))
+
+
+@router.patch("/{project_id}/setup/work-plan/entries/{entry_id}", response_model=ProjectSetupWorkPlanEntryResponse)
+def update_project_setup_work_plan_entry(
+    project_id: UUID,
+    entry_id: UUID,
+    payload: ProjectSetupWorkPlanEntryUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupWorkPlanEntryResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    fetch_project_setup_work_plan_entry(session, project_id, entry_id)
+    validate_work_plan_entry_payload(session, project_id, payload)
+    session.execute(
+        """
+        UPDATE project_work_plan_entries
+        SET phase_id = %s, name = %s, details = %s, key_activities = %s,
+            start_date = %s, end_date = %s, updated_at = NOW()
+        WHERE project_id = %s AND id = %s
+        """,
+        (payload.phase_id, payload.name.strip(), payload.details.strip(), payload.key_activities.strip(), payload.start_date, payload.end_date, project_id, entry_id),
+    )
+    return project_setup_work_plan_entry_to_response(fetch_project_setup_work_plan_entry(session, project_id, entry_id))
+
+
+@router.delete("/{project_id}/setup/work-plan/entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project_setup_work_plan_entry(
+    project_id: UUID,
+    entry_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> None:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    fetch_project_setup_work_plan_entry(session, project_id, entry_id)
+    session.execute("DELETE FROM project_work_plan_entries WHERE project_id = %s AND id = %s", (project_id, entry_id))
 
 
 @router.get("/{project_id}/setup/budget", response_model=ProjectSetupBudgetResponse)
@@ -5208,7 +5298,7 @@ def build_project_setup_response(session: DatabaseSession, project_id: UUID) -> 
             percent_complete=percent_complete,
         ),
         sections=raw_sections,
-        details=project_setup_details_to_response(project),
+        details=project_setup_details_to_response(session, project),
     )
 
 
@@ -5250,7 +5340,7 @@ def fetch_project_setup_project(session: DatabaseSession, project_id: UUID) -> R
     )
 
 
-def project_setup_details_to_response(project: Row) -> ProjectSetupDetailsResponse:
+def project_setup_details_to_response(session: DatabaseSession, project: Row) -> ProjectSetupDetailsResponse:
     return ProjectSetupDetailsResponse(
         project_overview=ProjectSetupOverviewResponse(
             name=project["name"],
@@ -5282,6 +5372,7 @@ def project_setup_details_to_response(project: Row) -> ProjectSetupDetailsRespon
             planned_start=project["start_date"],
             planned_completion=project["end_date"],
             key_activities=project.get("key_activities"),
+            entries=[project_setup_work_plan_entry_to_response(row) for row in fetch_project_setup_work_plan_entries(session, project["id"])],
         ),
     )
 
@@ -5295,6 +5386,58 @@ def fetch_project_setup_section_statuses(session: DatabaseSession, project_id: U
         """,
         (project_id,),
     )
+
+
+def fetch_project_setup_work_plan_entries(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT entries.id, entries.project_id, entries.name, entries.details,
+               entries.key_activities, entries.start_date, entries.end_date,
+               entries.phase_id, phases.name AS phase_name, entries.created_by,
+               entries.created_at, entries.updated_at
+        FROM project_work_plan_entries AS entries
+        JOIN phases ON phases.project_id = entries.project_id AND phases.id = entries.phase_id
+        WHERE entries.project_id = %s
+        ORDER BY entries.start_date, entries.end_date, entries.created_at, entries.id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_work_plan_entry(session: DatabaseSession, project_id: UUID, entry_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT entries.id, entries.project_id, entries.name, entries.details,
+               entries.key_activities, entries.start_date, entries.end_date,
+               entries.phase_id, phases.name AS phase_name, entries.created_by,
+               entries.created_at, entries.updated_at
+        FROM project_work_plan_entries AS entries
+        JOIN phases ON phases.project_id = entries.project_id AND phases.id = entries.phase_id
+        WHERE entries.project_id = %s AND entries.id = %s
+        """,
+        (project_id, entry_id),
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Work Plan entry not found")
+    return row
+
+
+def validate_work_plan_entry_payload(
+    session: DatabaseSession,
+    project_id: UUID,
+    payload: ProjectSetupWorkPlanEntryCreateRequest,
+) -> None:
+    if payload.end_date < payload.start_date:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Work Plan end date cannot be before start date")
+    if not payload.name.strip() or not payload.details.strip() or not payload.key_activities.strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Work Plan name, details, and key activities are required")
+    phase = session.fetch_one("SELECT id FROM phases WHERE project_id = %s AND id = %s", (project_id, payload.phase_id))
+    if phase is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Phase must belong to this project")
+
+
+def project_setup_work_plan_entry_to_response(row: Row) -> ProjectSetupWorkPlanEntryResponse:
+    return ProjectSetupWorkPlanEntryResponse(**row)
 
 
 def fetch_project_setup_milestones(session: DatabaseSession, project_id: UUID) -> list[Row]:
@@ -6240,6 +6383,7 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
           change_counts.change_count,
           specific_information_counts.specific_information_count,
           setup_note_counts.setup_note_count,
+          (SELECT COUNT(*) FROM project_work_plan_entries WHERE project_id = %(project_id)s) AS work_plan_entry_count,
           projects.budget_allocated AS project_budget_allocated
         FROM projects
         CROSS JOIN project_phase_counts
@@ -6288,8 +6432,11 @@ def project_setup_live_status(
         return ("In Progress" if required_count or optional_count else "Not Started", required_count + optional_count, "projects.objectives/outcomes")
     if section_key == "work_plan":
         required_count = count_present(project, ("work_plan_details", "start_date", "end_date", "key_activities"))
+        required_count += int(live.get("work_plan_entry_count") or 0)
         if required_count == 4:
             return "Complete", required_count, "projects.work_plan/start_date/end_date"
+        if live.get("work_plan_entry_count"):
+            return "Complete", required_count, "project_work_plan_entries"
         phase_count = int(live.get("phase_count") or 0)
         task_count = int(live.get("task_count") or 0)
         live_count = required_count + phase_count + task_count

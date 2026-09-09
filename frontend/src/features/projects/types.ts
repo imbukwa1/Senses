@@ -216,7 +216,25 @@ export type ProjectSetupWorkPlanDetails = {
   planned_start: string;
   planned_completion: string;
   key_activities: string | null;
+  entries: ProjectSetupWorkPlanEntry[];
 };
+
+export type ProjectSetupWorkPlanEntry = {
+  id: string;
+  project_id: string;
+  name: string;
+  details: string;
+  key_activities: string;
+  start_date: string;
+  end_date: string;
+  phase_id: string;
+  phase_name: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectSetupWorkPlanEntryPayload = Omit<ProjectSetupWorkPlanEntry, "id" | "project_id" | "phase_name" | "created_by" | "created_at" | "updated_at">;
 
 export type ProjectSetupBudgetDetails = {
   total_project_budget: number;

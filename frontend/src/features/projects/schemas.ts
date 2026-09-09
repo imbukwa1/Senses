@@ -181,6 +181,20 @@ export const projectSetupDetailsSchema = z.object({
     planned_start: z.string().min(1),
     planned_completion: z.string().min(1),
     key_activities: z.string().nullable(),
+    entries: z.array(z.object({
+      id: z.uuid(),
+      project_id: z.uuid(),
+      name: z.string().min(1),
+      details: z.string(),
+      key_activities: z.string(),
+      start_date: z.string().min(1),
+      end_date: z.string().min(1),
+      phase_id: z.uuid(),
+      phase_name: z.string().min(1),
+      created_by: z.uuid().nullable(),
+      created_at: z.string(),
+      updated_at: z.string(),
+    })),
   }),
 });
 
@@ -194,6 +208,21 @@ export const projectSetupSchema = z.object({
   }),
   sections: z.array(projectSetupSectionSchema),
   details: projectSetupDetailsSchema,
+});
+
+export const projectSetupWorkPlanEntrySchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  name: z.string().min(1),
+  details: z.string(),
+  key_activities: z.string(),
+  start_date: z.string().min(1),
+  end_date: z.string().min(1),
+  phase_id: z.uuid(),
+  phase_name: z.string().min(1),
+  created_by: z.uuid().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
 });
 
 export const projectSetupBudgetSchema = z.object({

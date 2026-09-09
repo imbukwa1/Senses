@@ -45,6 +45,7 @@ import {
   projectSetupStakeholderSchema,
   projectSetupStakeholdersSchema,
   projectSetupSchema,
+  projectSetupWorkPlanEntrySchema,
   projectSummariesSchema,
   projectSummarySchema,
   taskSchema,
@@ -81,6 +82,8 @@ import type {
   ProjectSetupCommunicationPlan,
   ProjectSetupCommunicationPlanPayload,
   ProjectSetupDetailsPayload,
+  ProjectSetupWorkPlanEntry,
+  ProjectSetupWorkPlanEntryPayload,
   ProjectSetupDetailsSection,
   ProjectSetupBudgetPayload,
   ProjectSetupDependency,
@@ -884,6 +887,24 @@ export async function updateProjectSetupDetails(
   }
 
   return result.data;
+}
+
+export async function createProjectSetupWorkPlanEntry(token: string, projectId: string, payload: ProjectSetupWorkPlanEntryPayload): Promise<ProjectSetupWorkPlanEntry> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/work-plan/entries`, { method: "POST", body: JSON.stringify(payload) }, token);
+  const result = projectSetupWorkPlanEntrySchema.safeParse(data);
+  if (!result.success) throw new ApiError("Work Plan entry could not be saved.", 500);
+  return result.data;
+}
+
+export async function updateProjectSetupWorkPlanEntry(token: string, projectId: string, entryId: string, payload: ProjectSetupWorkPlanEntryPayload): Promise<ProjectSetupWorkPlanEntry> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/work-plan/entries/${entryId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+  const result = projectSetupWorkPlanEntrySchema.safeParse(data);
+  if (!result.success) throw new ApiError("Work Plan entry could not be saved.", 500);
+  return result.data;
+}
+
+export async function deleteProjectSetupWorkPlanEntry(token: string, projectId: string, entryId: string): Promise<void> {
+  await apiRequest<unknown>(`/projects/${projectId}/setup/work-plan/entries/${entryId}`, { method: "DELETE" }, token);
 }
 
 export async function updateProjectSetupBudget(

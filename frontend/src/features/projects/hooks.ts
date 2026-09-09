@@ -91,6 +91,9 @@ import {
   updateProjectBudget,
   updateProjectSetupBudget,
   updateProjectSetupDetails,
+  createProjectSetupWorkPlanEntry,
+  updateProjectSetupWorkPlanEntry,
+  deleteProjectSetupWorkPlanEntry,
   updateProjectSetupSection,
   updateTask,
   updateTaskStatus,
@@ -116,6 +119,7 @@ import type {
   ProjectMutationPayload,
   ProjectSetupDetailsPayload,
   ProjectSetupDetailsSection,
+  ProjectSetupWorkPlanEntryPayload,
   ProjectSetupSectionStatusPayload,
   Task,
   TaskFile,
@@ -138,6 +142,7 @@ export const projectBudgetQueryKey = (projectId: string) => ["projects", project
 export const projectFilesQueryKey = (projectId: string) => ["projects", projectId, "files"] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
 export const projectSetupQueryKey = (projectId: string) => ["projects", projectId, "setup"] as const;
+export const projectSetupWorkPlanEntriesQueryKey = (projectId: string) => ["projects", projectId, "setup", "work-plan", "entries"] as const;
 export const projectSetupBudgetQueryKey = (projectId: string) => ["projects", projectId, "setup", "budget"] as const;
 export const projectSetupMilestonesQueryKey = (projectId: string) => ["projects", projectId, "setup", "milestones"] as const;
 export const projectSetupDeliverablesQueryKey = (projectId: string) => ["projects", projectId, "setup", "deliverables"] as const;
@@ -816,6 +821,36 @@ export function useUpdateProjectSetupDetailsMutation(projectId: string) {
       void queryClient.invalidateQueries({ queryKey: projectsQueryKey });
       void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
     },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useCreateProjectSetupWorkPlanEntryMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+  return useMutation({
+    mutationFn: (payload: ProjectSetupWorkPlanEntryPayload) => createProjectSetupWorkPlanEntry(requireToken(token), projectId, payload),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) }); },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateProjectSetupWorkPlanEntryMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+  return useMutation({
+    mutationFn: ({ entryId, payload }: { entryId: string; payload: ProjectSetupWorkPlanEntryPayload }) => updateProjectSetupWorkPlanEntry(requireToken(token), projectId, entryId, payload),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) }); },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useDeleteProjectSetupWorkPlanEntryMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+  return useMutation({
+    mutationFn: (entryId: string) => deleteProjectSetupWorkPlanEntry(requireToken(token), projectId, entryId),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) }); },
     onError: authFailureHandler(logout),
   });
 }

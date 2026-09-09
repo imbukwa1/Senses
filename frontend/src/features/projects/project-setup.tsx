@@ -61,6 +61,9 @@ import {
   useTasksQuery,
   useUpdateProjectSetupDetailsMutation,
   useUpdateProjectSetupSectionMutation,
+  useCreateProjectSetupWorkPlanEntryMutation,
+  useUpdateProjectSetupWorkPlanEntryMutation,
+  useDeleteProjectSetupWorkPlanEntryMutation,
 } from "./hooks";
 import { PhaseFormDialog } from "./phase-form-dialog";
 import { PhaseTasks } from "./phase-tasks";
@@ -82,6 +85,7 @@ import type {
   ProjectSetup,
   ProjectSetupDetailsPayload,
   ProjectSetupDetailsSection,
+  ProjectSetupWorkPlanEntryPayload,
   ProjectSetupSection,
   ProjectSetupStatus,
   ProjectSetupStakeholderPayload,
@@ -223,7 +227,7 @@ export function ProjectSetupPanel({ canEdit, dashboard, projectId }: { projectId
           <div>
             <CardDescription>Section</CardDescription>
             <CardTitle>{activeSection.label}</CardTitle>
-            {activeSection.live_source ? <CardDescription>Live source: {activeSection.live_source}</CardDescription> : null}
+            {activeSection.live_source && activeSection.key !== "work_plan" ? <CardDescription>Live source: {activeSection.live_source}</CardDescription> : null}
           </div>
           <div className="min-w-52">
             {canEdit && !isFirstPassSection(activeSection.key) ? (
@@ -357,6 +361,7 @@ function renderFirstPassSection({
         isSaving={isSaving}
         onMarkComplete={() => onMarkComplete(activeSection)}
         onSave={(payload) => onSaveDetails("work-plan", payload)}
+        phases={dashboard.phases}
         statusPending={statusPending}
         setup={setup}
       />
@@ -543,7 +548,7 @@ function ObjectivesForm({ canEdit, isSaving, onMarkComplete, onSave, setup, stat
   );
 }
 
-function WorkPlanForm({ canEdit, isSaving, onMarkComplete, onSave, setup, statusPending }: FirstPassFormProps) {
+function WorkPlanForm({ canEdit, isSaving, onMarkComplete, onSave, phases, setup, statusPending }: FirstPassFormProps & { phases: DashboardPhase[] }) {
   const details = setup.details.work_plan;
   const [form, setForm] = useState({
     end_date: details.planned_completion,
@@ -551,6 +556,11 @@ function WorkPlanForm({ canEdit, isSaving, onMarkComplete, onSave, setup, status
     start_date: details.planned_start,
     work_plan_details: details.work_plan_details ?? "",
   });
+  const createEntry = useCreateProjectSetupWorkPlanEntryMutation(setup.project_id);
+  const updateEntry = useUpdateProjectSetupWorkPlanEntryMutation(setup.project_id);
+  const deleteEntry = useDeleteProjectSetupWorkPlanEntryMutation(setup.project_id);
+  const [entryForm, setEntryForm] = useState<ProjectSetupWorkPlanEntryPayload>(() => emptyWorkPlanEntry(phases[0]?.id ?? ""));
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
 
   useEffect(() => {
     setForm({
@@ -561,8 +571,27 @@ function WorkPlanForm({ canEdit, isSaving, onMarkComplete, onSave, setup, status
     });
   }, [details]);
 
+  const entries = details.entries;
+  const entryPending = createEntry.isPending || updateEntry.isPending || deleteEntry.isPending;
+
+  function resetEntryForm() {
+    setEditingEntryId(null);
+    setEntryForm(emptyWorkPlanEntry(phases[0]?.id ?? ""));
+  }
+
+  async function submitEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (editingEntryId) {
+      await updateEntry.mutateAsync({ entryId: editingEntryId, payload: entryForm });
+    } else {
+      await createEntry.mutateAsync(entryForm);
+    }
+    resetEntryForm();
+  }
+
   return (
-    <form className="space-y-4" onSubmit={(event) => void handleSubmit(event, onSave, form)}>
+    <div className="space-y-6">
+      <form className="space-y-4" onSubmit={(event) => void handleSubmit(event, onSave, form)}>
       <div className="grid gap-4 md:grid-cols-2">
         <SetupInput label="Planned Start" type="date" value={form.start_date} disabled={!canEdit} onChange={(value) => setForm((current) => ({ ...current, start_date: value }))} />
         <SetupInput label="Planned Completion" type="date" value={form.end_date} disabled={!canEdit} onChange={(value) => setForm((current) => ({ ...current, end_date: value }))} />
@@ -570,8 +599,32 @@ function WorkPlanForm({ canEdit, isSaving, onMarkComplete, onSave, setup, status
       <SetupTextarea label="Work Plan Details" value={form.work_plan_details} disabled={!canEdit} onChange={(value) => setForm((current) => ({ ...current, work_plan_details: value }))} />
       <SetupTextarea label="Key Activities" value={form.key_activities} disabled={!canEdit} onChange={(value) => setForm((current) => ({ ...current, key_activities: value }))} />
       <SetupActions canEdit={canEdit} isSaving={isSaving} onMarkComplete={onMarkComplete} statusPending={statusPending} />
-    </form>
+      </form>
+      <div className="space-y-3 border-t pt-5">
+        <div>
+          <h3 className="font-semibold">Scheduled Work Plan Entries</h3>
+          <p className="text-sm text-muted-foreground">Plan multiple activities against existing project phases.</p>
+        </div>
+        {canEdit ? <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void submitEntry(event)}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <SetupInput label="Name" value={entryForm.name} onChange={(value) => setEntryForm((current) => ({ ...current, name: value }))} />
+            <div className="space-y-2"><Label htmlFor="work-plan-entry-phase">Phase</Label><Select value={entryForm.phase_id} onValueChange={(value) => setEntryForm((current) => ({ ...current, phase_id: value }))}><SelectTrigger id="work-plan-entry-phase"><SelectValue placeholder="Select phase" /></SelectTrigger><SelectContent>{phases.map((phase) => <SelectItem key={phase.id} value={phase.id}>{phase.name}</SelectItem>)}</SelectContent></Select></div>
+            <SetupInput label="Start Date" type="date" value={entryForm.start_date} onChange={(value) => setEntryForm((current) => ({ ...current, start_date: value }))} />
+            <SetupInput label="End Date" type="date" value={entryForm.end_date} onChange={(value) => setEntryForm((current) => ({ ...current, end_date: value }))} />
+          </div>
+          <SetupTextarea label="Details" value={entryForm.details} onChange={(value) => setEntryForm((current) => ({ ...current, details: value }))} />
+          <SetupTextarea label="Key Activities" value={entryForm.key_activities} onChange={(value) => setEntryForm((current) => ({ ...current, key_activities: value }))} />
+          {createEntry.error || updateEntry.error || deleteEntry.error ? <p className="text-sm text-error">{userFacingErrorMessage(createEntry.error ?? updateEntry.error ?? deleteEntry.error, { action: "Work Plan entry" })}</p> : null}
+          <div className="flex flex-wrap gap-2"><Button type="submit" disabled={entryPending || !entryForm.phase_id}><Save className="size-4" aria-hidden="true" />{editingEntryId ? "Save Entry" : "Add Entry"}</Button>{editingEntryId ? <Button type="button" variant="outline" onClick={resetEntryForm} disabled={entryPending}>Cancel</Button> : null}</div>
+        </form> : null}
+        {entries.length === 0 ? <EmptyState title="No scheduled Work Plan entries." /> : <div className="space-y-3">{entries.map((entry) => <div key={entry.id} className="rounded-md border p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="font-semibold">{entry.name}</h4><p className="mt-1 text-sm text-muted-foreground">{formatSetupDate(entry.start_date)} {entry.start_date === entry.end_date ? "" : `→ ${formatSetupDate(entry.end_date)}`} · Phase: {entry.phase_name}</p></div>{canEdit ? <div className="flex gap-2"><Button type="button" variant="outline" size="sm" onClick={() => { setEditingEntryId(entry.id); setEntryForm({ name: entry.name, details: entry.details, key_activities: entry.key_activities, start_date: entry.start_date, end_date: entry.end_date, phase_id: entry.phase_id }); }}><Edit className="size-4" aria-hidden="true" /> Edit</Button><Button type="button" variant="ghost" size="sm" onClick={() => void deleteEntry.mutateAsync(entry.id)} disabled={entryPending}><X className="size-4" aria-hidden="true" /> Remove</Button></div> : null}</div><dl className="mt-3 grid gap-3 text-sm md:grid-cols-2"><div><dt className="font-medium">Details</dt><dd className="whitespace-pre-wrap text-muted-foreground">{entry.details}</dd></div><div><dt className="font-medium">Key Activities</dt><dd className="whitespace-pre-wrap text-muted-foreground">{entry.key_activities}</dd></div></dl></div>)}</div>}
+      </div>
+    </div>
   );
+}
+
+function emptyWorkPlanEntry(phaseId: string): ProjectSetupWorkPlanEntryPayload {
+  return { name: "", details: "", key_activities: "", start_date: "", end_date: "", phase_id: phaseId };
 }
 
 function Phase0PhasesSection({
