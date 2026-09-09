@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   authToken: null as string | null,
   collaborationSession: null as Record<string, unknown> | null,
   spreadsheetCollaborationSession: null as Record<string, unknown> | null,
+  spreadsheetCollaborationLoading: false,
+  spreadsheetCollaborationError: null as Error | null,
   providerEvents: {} as Record<string, (payload?: unknown) => void>,
   providerDestroy: vi.fn(),
   univerCreate: vi.fn(),
@@ -129,8 +131,8 @@ vi.mock("./hooks", () => ({
   }),
   useSpreadsheetCollaborationSessionQuery: () => ({
     data: mocks.spreadsheetCollaborationSession,
-    error: null,
-    isLoading: false,
+    error: mocks.spreadsheetCollaborationError,
+    isLoading: mocks.spreadsheetCollaborationLoading,
   }),
 }));
 
@@ -144,6 +146,8 @@ describe("workspace native editors", () => {
     mocks.authToken = null;
     mocks.collaborationSession = null;
     mocks.spreadsheetCollaborationSession = null;
+    mocks.spreadsheetCollaborationLoading = false;
+    mocks.spreadsheetCollaborationError = null;
     mocks.providerEvents = {};
     mocks.providerDestroy.mockReset();
     mocks.workspaceResource = {
@@ -307,5 +311,121 @@ describe("workspace native editors", () => {
     cleanup();
     expect(mocks.univerDispose).toHaveBeenCalledTimes(1);
     expect(mocks.univerStatusDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for collaboration provisioning before creating a workbook", async () => {
+    vi.stubGlobal("ResizeObserver", class ResizeObserver {});
+    mocks.workspaceResource = {
+      ...mocks.workspaceResource,
+      name: "Provisioning Tracker",
+      content: { id: "fallback-workbook", sheetOrder: [], sheets: {} },
+    };
+    mocks.spreadsheetCollaborationLoading = true;
+
+    const view = render(<WorkspaceSpreadsheetEditor projectId={projectId} resourceId={resourceId} onBack={vi.fn()} />);
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+    expect(mocks.univerCreate).not.toHaveBeenCalled();
+
+    mocks.spreadsheetCollaborationSession = {
+      resource_type: "spreadsheet",
+      project_id: projectId,
+      resource_id: resourceId,
+      room: `project:${projectId}:spreadsheets:${resourceId}`,
+      endpoint: "http://127.0.0.1:8000",
+      unit_id: "official-unit-123",
+      ready: true,
+      service: { configured: true, reachable: true, required: [], url: null, detail: null },
+    };
+    mocks.spreadsheetCollaborationLoading = false;
+    view.rerender(<WorkspaceSpreadsheetEditor projectId={projectId} resourceId={resourceId} onBack={vi.fn()} />);
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
+    expect(mocks.univerCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.univerLoad).toHaveBeenCalledTimes(1);
+    expect(mocks.univerCreate.mock.results[0]?.value.univer.createUnit).not.toHaveBeenCalled();
+  });
+
+  it("starts the local fallback only after collaboration fails", async () => {
+    vi.stubGlobal("ResizeObserver", class ResizeObserver {});
+    mocks.workspaceResource = {
+      ...mocks.workspaceResource,
+      name: "Fallback Tracker",
+      content: { id: "fallback-workbook", sheetOrder: [], sheets: {} },
+    };
+    mocks.spreadsheetCollaborationLoading = true;
+    const view = render(<WorkspaceSpreadsheetEditor projectId={projectId} resourceId={resourceId} onBack={vi.fn()} />);
+    expect(mocks.univerCreate).not.toHaveBeenCalled();
+
+    mocks.spreadsheetCollaborationLoading = false;
+    mocks.spreadsheetCollaborationError = new Error("Provisioning unavailable");
+    view.rerender(<WorkspaceSpreadsheetEditor projectId={projectId} resourceId={resourceId} onBack={vi.fn()} />);
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
+    expect(mocks.univerCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.univerLoad).not.toHaveBeenCalled();
+    expect(mocks.univerCreate.mock.results[0]?.value.univer.createUnit).toHaveBeenCalledTimes(1);
+  });
+
+  it("disposes safely when unmounted during server unit loading", async () => {
+    vi.stubGlobal("ResizeObserver", class ResizeObserver {});
+    mocks.workspaceResource = {
+      ...mocks.workspaceResource,
+      content: { id: "fallback-workbook", sheetOrder: [], sheets: {} },
+    };
+    mocks.spreadsheetCollaborationSession = {
+      resource_type: "spreadsheet",
+      project_id: projectId,
+      resource_id: resourceId,
+      room: `project:${projectId}:spreadsheets:${resourceId}`,
+      endpoint: "http://127.0.0.1:8000",
+      unit_id: "official-unit-123",
+      ready: true,
+      service: { configured: true, reachable: true, required: [], url: null, detail: null },
+    };
+    mocks.univerLoad.mockReturnValue(new Promise(() => undefined));
+
+    const view = render(<WorkspaceSpreadsheetEditor projectId={projectId} resourceId={resourceId} onBack={vi.fn()} />);
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+    view.unmount();
+
+    expect(mocks.univerDispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reload the official unit on ordinary rerenders", async () => {
+    vi.stubGlobal("ResizeObserver", class ResizeObserver {});
+    mocks.workspaceResource = {
+      ...mocks.workspaceResource,
+      content: { id: "fallback-workbook", sheetOrder: [], sheets: {} },
+    };
+    mocks.spreadsheetCollaborationSession = {
+      resource_type: "spreadsheet",
+      project_id: projectId,
+      resource_id: resourceId,
+      room: `project:${projectId}:spreadsheets:${resourceId}`,
+      endpoint: "http://127.0.0.1:8000",
+      unit_id: "official-unit-123",
+      ready: true,
+      service: { configured: true, reachable: true, required: [], url: null, detail: null },
+    };
+
+    const view = render(<WorkspaceSpreadsheetEditor projectId={projectId} resourceId={resourceId} onBack={vi.fn()} />);
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+    view.rerender(<WorkspaceSpreadsheetEditor projectId={projectId} resourceId={resourceId} onBack={vi.fn()} />);
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
+    expect(mocks.univerCreate).toHaveBeenCalledTimes(1);
+    expect(mocks.univerLoad).toHaveBeenCalledTimes(1);
   });
 });

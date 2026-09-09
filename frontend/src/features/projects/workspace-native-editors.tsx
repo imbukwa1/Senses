@@ -276,7 +276,6 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
   const renameMutation = useRenameWorkspaceNativeResourceMutation(projectId, "spreadsheets");
   const saveMutation = useUpdateWorkspaceNativeResourceContentMutation(projectId, "spreadsheets", resourceId);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const disposeRef = useRef<(() => void) | null>(null);
   const [title, setTitle] = useState("");
   const [fallbackJson, setFallbackJson] = useState("");
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
@@ -288,6 +287,7 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
   const saveDraftRef = useRef<((content: Record<string, unknown>) => Promise<void>) | null>(null);
 
   const content = useMemo(() => normalizeSpreadsheetContent(query.data?.content), [query.data?.content]);
+  const resourceAvailable = Boolean(query.data?.id);
 
   const saveDraft = useCallback(
     async (nextContent: Record<string, unknown>) => {
@@ -318,7 +318,13 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
   }, [content, query.data]);
 
   useEffect(() => {
-    if (!query.data || !containerRef.current) {
+    if (!resourceAvailable || !containerRef.current) {
+      return undefined;
+    }
+    // Wait for provisioning to settle before creating either a local workbook
+    // or a collaborative one. This prevents two Univer instances during the
+    // normal resource/session request race.
+    if (collaborationQuery.isLoading) {
       return undefined;
     }
     if (typeof window.ResizeObserver === "undefined") {
@@ -326,6 +332,19 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
       return undefined;
     }
     let cancelled = false;
+    let disposed = false;
+    let disposeInstance: (() => void) | null = null;
+    let loadTimeout: number | undefined;
+
+    const disposeCurrentInstance = () => {
+      if (disposed) {
+        return;
+      }
+      disposed = true;
+      window.clearTimeout(loadTimeout);
+      disposeInstance?.();
+      disposeInstance = null;
+    };
 
     async function mountUniver() {
       try {
@@ -388,16 +407,25 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
             });
           }
         }
-        disposeRef.current = () => {
+        disposeInstance = () => {
           window.clearTimeout(reconnectTimer);
           statusDisposable?.dispose?.();
           univer.dispose();
         };
         if (collaborationEnabled && collaborationQuery.data?.unit_id) {
-          const loadedUnit = await (univerAPI as unknown as { loadServerUnit: (unitId: string, type: number) => Promise<unknown> }).loadServerUnit(
-            collaborationQuery.data.unit_id,
-            UniverInstanceType.UNIVER_SHEET,
-          );
+          const loadedUnit = await Promise.race([
+            (univerAPI as unknown as { loadServerUnit: (unitId: string, type: number) => Promise<unknown> }).loadServerUnit(
+              collaborationQuery.data.unit_id,
+              UniverInstanceType.UNIVER_SHEET,
+            ),
+            new Promise<never>((_, reject) => {
+              loadTimeout = window.setTimeout(() => reject(new Error("Collaborative spreadsheet timed out while loading.")), 15000);
+            }),
+          ]).finally(() => window.clearTimeout(loadTimeout));
+          if (cancelled) {
+            disposeCurrentInstance();
+            return;
+          }
           if (!loadedUnit) {
             throw new Error("Collaborative spreadsheet could not be loaded.");
           }
@@ -420,14 +448,19 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
             setActionError(null);
           }
         });
-        const previousDispose = disposeRef.current;
-        disposeRef.current = () => {
+        const previousDispose = disposeInstance;
+        disposeInstance = () => {
           disposable?.dispose?.();
           previousDispose?.();
         };
+        if (cancelled) {
+          disposeCurrentInstance();
+          return;
+        }
         setUniverUnavailable(false);
       } catch (error) {
         if (!cancelled) {
+          disposeCurrentInstance();
           setCollaborationActive(false);
           setSpreadsheetConnectionState("error");
           setUniverUnavailable(true);
@@ -439,10 +472,9 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
     void mountUniver();
     return () => {
       cancelled = true;
-      disposeRef.current?.();
-      disposeRef.current = null;
+      disposeCurrentInstance();
     };
-  }, [collaborationQuery.data, content, query.data, resourceId]);
+  }, [collaborationQuery.data, collaborationQuery.error, collaborationQuery.isLoading, content, resourceAvailable, resourceId]);
 
   useEffect(() => {
     if (!draft || collaborationActive) {
