@@ -6,5 +6,5 @@ if (!normalizedApiBaseUrl && import.meta.env.PROD) {
 }
 
 export const env = {
-  apiBaseUrl: normalizedApiBaseUrl || (import.meta.env.DEV ? "http://localhost:8000" : ""),
+  apiBaseUrl: normalizedApiBaseUrl || (import.meta.env.DEV ? "http://localhost:8001" : ""),
 } as const;

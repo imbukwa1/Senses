@@ -194,7 +194,7 @@ describe("project API mutations", () => {
     const archived = await archiveProject("token", project.id);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `http://localhost:8000/projects/${project.id}/archive`,
+      `http://localhost:8001/projects/${project.id}/archive`,
       expect.objectContaining({
         method: "PATCH",
         headers: expect.objectContaining({ Authorization: "Bearer token" }),
@@ -220,7 +220,7 @@ describe("project API mutations", () => {
     await createProject("token", payload);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8000/projects",
+      "http://localhost:8001/projects",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify(payload),
@@ -235,7 +235,7 @@ describe("project API mutations", () => {
     const added = await addProjectMember("token", project.id, member.user_id);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `http://localhost:8000/projects/${project.id}/members`,
+      `http://localhost:8001/projects/${project.id}/members`,
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ user_id: member.user_id, role: "Team Member" }),
@@ -256,14 +256,14 @@ describe("project API mutations", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      `http://localhost:8000/projects/${project.id}/phases/${phaseId}/members`,
+      `http://localhost:8001/projects/${project.id}/phases/${phaseId}/members`,
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: "Bearer token" }),
       }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      `http://localhost:8000/projects/${project.id}/phases/${phaseId}/members`,
+      `http://localhost:8001/projects/${project.id}/phases/${phaseId}/members`,
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ user_id: member.user_id }),
@@ -280,7 +280,7 @@ describe("project API mutations", () => {
     const items = await listMyWork("token");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8000/my-work",
+      "http://localhost:8001/my-work",
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: "Bearer token" }),
       }),
@@ -294,7 +294,7 @@ describe("project API mutations", () => {
     const items = await listAttention("token");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://localhost:8000/attention",
+      "http://localhost:8001/attention",
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: "Bearer token" }),
       }),
@@ -313,14 +313,14 @@ describe("project API mutations", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      `http://localhost:8000/projects/${project.id}/budget`,
+      `http://localhost:8001/projects/${project.id}/budget`,
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: "Bearer token" }),
       }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      `http://localhost:8000/projects/${project.id}/budget`,
+      `http://localhost:8001/projects/${project.id}/budget`,
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({ allocated: 1200 }),
@@ -337,7 +337,7 @@ describe("project API mutations", () => {
     const files = await listProjectFiles("token", project.id);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `http://localhost:8000/projects/${project.id}/files`,
+      `http://localhost:8001/projects/${project.id}/files`,
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: "Bearer token" }),
       }),
@@ -358,7 +358,7 @@ describe("project API mutations", () => {
     const downloaded = await downloadProjectFile("token", project.id, projectFile.id);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `http://localhost:8000/projects/${project.id}/files/${projectFile.id}/download`,
+      `http://localhost:8001/projects/${project.id}/files/${projectFile.id}/download`,
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: "Bearer token" }),
       }),
@@ -387,7 +387,7 @@ describe("project API mutations", () => {
     const body = request?.body as FormData;
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `http://localhost:8000/projects/${project.id}/phases/${phaseId}/tasks/${myWorkItem.task_id}/files`,
+      `http://localhost:8001/projects/${project.id}/phases/${phaseId}/tasks/${myWorkItem.task_id}/files`,
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ Authorization: "Bearer token" }),
@@ -404,7 +404,7 @@ describe("project API mutations", () => {
     const result = await updateTaskStatus("token", project.id, phaseId, task.id, "Completed");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      `http://localhost:8000/projects/${project.id}/phases/${phaseId}/tasks/${task.id}/status`,
+      `http://localhost:8001/projects/${project.id}/phases/${phaseId}/tasks/${task.id}/status`,
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({ status: "Completed" }),
@@ -429,11 +429,11 @@ describe("project API mutations", () => {
     const renamed = await updateWorkspaceFolder("token", project.id, workspaceFolder.id, { name: "Participant Data" });
     await deleteWorkspaceFolder("token", project.id, workspaceFolder.id);
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, `http://localhost:8000/projects/${project.id}/workspace`, expect.any(Object));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, `http://localhost:8000/projects/${project.id}/workspace/folders/${workspaceFolder.id}`, expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, `http://localhost:8001/projects/${project.id}/workspace`, expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, `http://localhost:8001/projects/${project.id}/workspace/folders/${workspaceFolder.id}`, expect.any(Object));
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      `http://localhost:8000/projects/${project.id}/workspace/folders`,
+      `http://localhost:8001/projects/${project.id}/workspace/folders`,
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ name: "Research", parent_folder_id: null }),
@@ -441,7 +441,7 @@ describe("project API mutations", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
-      `http://localhost:8000/projects/${project.id}/workspace/folders/${workspaceFolder.id}`,
+      `http://localhost:8001/projects/${project.id}/workspace/folders/${workspaceFolder.id}`,
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({ name: "Participant Data" }),
@@ -449,7 +449,7 @@ describe("project API mutations", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       5,
-      `http://localhost:8000/projects/${project.id}/workspace/folders/${workspaceFolder.id}`,
+      `http://localhost:8001/projects/${project.id}/workspace/folders/${workspaceFolder.id}`,
       expect.objectContaining({ method: "DELETE" }),
     );
     expect(root.files[0]?.id).toBe(projectFile.id);
@@ -469,7 +469,7 @@ describe("project API mutations", () => {
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      `http://localhost:8000/projects/${project.id}/workspace/files/${projectFile.id}/folder`,
+      `http://localhost:8001/projects/${project.id}/workspace/files/${projectFile.id}/folder`,
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({ folder_id: workspaceFolder.id }),
@@ -477,7 +477,7 @@ describe("project API mutations", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      `http://localhost:8000/projects/${project.id}/workspace/files/${projectFile.id}/folder`,
+      `http://localhost:8001/projects/${project.id}/workspace/files/${projectFile.id}/folder`,
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({ folder_id: null }),
@@ -515,11 +515,11 @@ describe("project API mutations", () => {
     const linked = await updateWorkspaceNativeResourceTaskLink("token", project.id, "documents", workspaceDocument.id, { task_id: myWorkItem.task_id });
     await deleteWorkspaceNativeResource("token", project.id, "documents", workspaceDocument.id);
 
-    expect(fetchMock).toHaveBeenNthCalledWith(1, `http://localhost:8000/projects/${project.id}/workspace/documents`, expect.any(Object));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}`, expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, `http://localhost:8001/projects/${project.id}/workspace/documents`, expect.any(Object));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, `http://localhost:8001/projects/${project.id}/workspace/documents/${workspaceDocument.id}`, expect.any(Object));
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
-      `http://localhost:8000/projects/${project.id}/workspace/documents`,
+      `http://localhost:8001/projects/${project.id}/workspace/documents`,
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ content: workspaceDocument.content, folder_id: null, name: "Interview Notes", task_id: null }),
@@ -527,7 +527,7 @@ describe("project API mutations", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
-      `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}/content`,
+      `http://localhost:8001/projects/${project.id}/workspace/documents/${workspaceDocument.id}/content`,
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({ content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Saved" }] }] } }),
@@ -535,22 +535,22 @@ describe("project API mutations", () => {
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       5,
-      `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}/name`,
+      `http://localhost:8001/projects/${project.id}/workspace/documents/${workspaceDocument.id}/name`,
       expect.objectContaining({ method: "PATCH", body: JSON.stringify({ name: "Renamed Notes" }) }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       6,
-      `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}/folder`,
+      `http://localhost:8001/projects/${project.id}/workspace/documents/${workspaceDocument.id}/folder`,
       expect.objectContaining({ method: "PATCH", body: JSON.stringify({ folder_id: workspaceFolder.id }) }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       7,
-      `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}/task-link`,
+      `http://localhost:8001/projects/${project.id}/workspace/documents/${workspaceDocument.id}/task-link`,
       expect.objectContaining({ method: "PATCH", body: JSON.stringify({ task_id: myWorkItem.task_id }) }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       8,
-      `http://localhost:8000/projects/${project.id}/workspace/documents/${workspaceDocument.id}`,
+      `http://localhost:8001/projects/${project.id}/workspace/documents/${workspaceDocument.id}`,
       expect.objectContaining({ method: "DELETE" }),
     );
     expect(listed[0]?.id).toBe(workspaceDocument.id);
