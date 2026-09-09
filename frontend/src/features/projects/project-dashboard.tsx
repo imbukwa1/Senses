@@ -1,4 +1,4 @@
-import { AlertTriangle, Archive, CalendarDays, CheckCircle2, Clock, DollarSign, Download, Edit, FileText, ListChecks, Save, UserPlus, Users, X } from "lucide-react";
+import { AlertTriangle, Archive, CalendarDays, CheckCircle2, Clock, DollarSign, Download, Edit, Eye, FileText, ListChecks, Save, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -774,6 +774,17 @@ function ProjectFileRow({ file, projectId }: { file: ProjectFile; projectId: str
     }
   }
 
+  async function onView() {
+    try {
+      const downloadedFile = await downloadFile.mutateAsync(file.id);
+      const objectUrl = URL.createObjectURL(downloadedFile.blob);
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch {
+      return;
+    }
+  }
+
   return (
     <div className="px-3 py-3">
       {downloadError ? <p className="mb-2 text-sm text-error">{downloadError}</p> : null}
@@ -784,14 +795,12 @@ function ProjectFileRow({ file, projectId }: { file: ProjectFile; projectId: str
           <p className="mt-1 text-xs text-muted-foreground">
             {file.phase_name} / {file.task_name} / {formatFileCategory(file.file_category)}
           </p>
+          {file.setup_document_type ? <p className="mt-1 text-xs text-muted-foreground">Document category: {file.setup_document_type}</p> : null}
           <p className="mt-1 text-xs text-muted-foreground">
             Uploaded by {file.uploader_name} on {formatDateTime(file.created_at)}
           </p>
         </div>
-        <Button type="button" variant="outline" size="sm" disabled={downloadFile.isPending} onClick={onDownload} aria-label={`Download ${file.file_name}`}>
-          <Download className="size-4" aria-hidden="true" />
-          {downloadFile.isPending ? "Downloading..." : "Download"}
-        </Button>
+        <div className="flex gap-2"><Button type="button" variant="outline" size="sm" disabled={downloadFile.isPending} onClick={() => void onView()} aria-label={`View ${file.file_name}`}><Eye className="size-4" aria-hidden="true" />View</Button><Button type="button" variant="outline" size="sm" disabled={downloadFile.isPending} onClick={() => void onDownload()} aria-label={`Download ${file.file_name}`}><Download className="size-4" aria-hidden="true" />{downloadFile.isPending ? "Downloading..." : "Download"}</Button></div>
       </div>
     </div>
   );

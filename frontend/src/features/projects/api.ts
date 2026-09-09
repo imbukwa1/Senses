@@ -36,6 +36,8 @@ import {
   projectSetupSpecificInformationSchemaArray,
   projectSetupNoteSchema,
   projectSetupNotesSchema,
+  projectSetupDocumentCategoriesSchema,
+  projectSetupDocumentCategorySchema,
   projectSetupRiskIssueSchema,
   projectSetupRisksIssuesSchema,
   projectSetupResourceSchema,
@@ -98,6 +100,7 @@ import type {
   ProjectSetupSpecificInformationPayload,
   ProjectSetupNote,
   ProjectSetupNotePayload,
+  ProjectSetupDocumentCategory,
   ProjectMember,
   ProjectMutationPayload,
   ProjectSetup,
@@ -338,6 +341,17 @@ export async function createProjectSetupNote(token: string, projectId: string, p
   return result.data;
 }
 
+export async function listProjectSetupDocumentCategories(token: string, projectId: string): Promise<ProjectSetupDocumentCategory[]> {
+  const result = projectSetupDocumentCategoriesSchema.safeParse(await apiRequest<unknown>(`/projects/${projectId}/setup/document-categories`, {}, token));
+  if (!result.success) throw new ApiError("Project document categories could not be loaded.", 500);
+  return result.data;
+}
+export async function updateProjectSetupDocumentCategory(token: string, projectId: string, category: string, status: ProjectSetupDocumentCategory["status"]): Promise<ProjectSetupDocumentCategory> {
+  const result = projectSetupDocumentCategorySchema.safeParse(await apiRequest<unknown>(`/projects/${projectId}/setup/document-categories/${encodeURIComponent(category)}`, { method: "PATCH", body: JSON.stringify({ status }) }, token));
+  if (!result.success) throw new ApiError("Project document category could not be saved.", 500);
+  return result.data;
+}
+
 export async function listProjectSetupRisksIssues(token: string, projectId: string): Promise<ProjectSetupRiskIssue[]> {
   const data = await apiRequest<unknown>(`/projects/${projectId}/setup/risks-issues`, {}, token);
   const result = projectSetupRisksIssuesSchema.safeParse(data);
@@ -573,6 +587,10 @@ export async function downloadProjectFile(token: string, projectId: string, file
     blob: await response.blob(),
     fileName: parseDownloadFileName(response.headers.get("content-disposition")) ?? "attachment",
   };
+}
+
+export async function deleteProjectFile(token: string, projectId: string, fileId: string): Promise<void> {
+  await apiRequest<void>(`/projects/${projectId}/files/${fileId}`, { method: "DELETE" }, token);
 }
 
 export async function getWorkspaceContents(token: string, projectId: string, folderId: string | null = null): Promise<WorkspaceContents> {

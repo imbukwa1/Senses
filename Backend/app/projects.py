@@ -33,7 +33,21 @@ TaskStatus = Literal["Not Started", "In Progress", "Blocked", "Completed"]
 PriorityLevel = Literal["Low", "Medium", "High"]
 ProjectMemberRole = Literal["PM", "Team Member", "Finance"]
 TaskFileCategory = Literal["reference", "work_submission", "finance"]
-SetupDocumentType = Literal["Proposal", "Contract / Agreement", "Terms of Reference", "Baseline documents", "Other supporting files"]
+SetupDocumentType = Literal[
+    "Proposal",
+    "Contract / Agreement",
+    "Research Licence",
+    "Baseline",
+    "Inception",
+    "Middle Health",
+    "1st Draft Project Document",
+    "Final Draft",
+    "Other Documents",
+    # Legacy metadata values remain readable after the checklist categories change.
+    "Terms of Reference",
+    "Baseline documents",
+    "Other supporting files",
+]
 UserFacingProjectHealth = Literal["On track", "Needs attention", "At risk", "Completed"]
 ProjectSetupSectionStatus = Literal["Complete", "In Progress", "Not Started", "Not Applicable"]
 ProjectSetupMilestoneStatus = Literal["Not Started", "In Progress", "Complete"]
@@ -44,6 +58,12 @@ ProjectSetupRiskStatus = Literal["Open", "In Progress", "Mitigated", "Closed"]
 ProjectSetupAssumptionConstraintType = Literal["Assumption", "Constraint"]
 ProjectSetupDependencyType = Literal["Internal", "External"]
 ProjectSetupApprovalStatus = Literal["Required", "Pending", "Approved", "Rejected", "Not Required"]
+ProjectSetupDocumentCategoryStatus = Literal["Not Started", "In Progress", "Complete", "Not Applicable"]
+
+PROJECT_SETUP_DOCUMENT_CATEGORIES: tuple[str, ...] = (
+    "Proposal", "Contract / Agreement", "Research Licence", "Baseline", "Inception",
+    "Middle Health", "1st Draft Project Document", "Final Draft", "Other Documents",
+)
 
 PROJECT_SETUP_SECTIONS: tuple[tuple[str, str, bool], ...] = (
     ("project_overview", "Project Overview", False),
@@ -710,6 +730,12 @@ class ProjectSetupNoteCreateRequest(BaseModel):
     note: str = Field(min_length=1)
 
 
+class ProjectSetupDocumentCategoryStatusRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ProjectSetupDocumentCategoryStatus
+
+
 class ProjectSetupLeadResponse(BaseModel):
     id: UUID
     name: str
@@ -928,6 +954,12 @@ class ProjectSetupNoteResponse(BaseModel):
     created_by: UUID | None
     created_at: datetime
     updated_at: datetime
+
+
+class ProjectSetupDocumentCategoryResponse(BaseModel):
+    category: str
+    status: ProjectSetupDocumentCategoryStatus
+    file_count: int
 
 
 class ProjectSetupDetailsResponse(BaseModel):
@@ -1222,6 +1254,70 @@ def download_project_file(
         media_type=content_type,
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted_name}"},
     )
+
+
+@router.delete("/{project_id}/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project_file(
+    request: Request,
+    project_id: UUID,
+    file_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> Response:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    metadata = fetch_project_file_or_404(session, project_id, file_id)
+    ensure_project_file_visible(session, current_user.id, project_id, metadata)
+    try:
+        get_file_storage(request).delete(metadata["storage_key"])
+    except FileStorageError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="File could not be removed from storage") from exc
+    deleted = session.fetch_one(
+        "DELETE FROM task_files WHERE id = %s AND task_id = %s RETURNING id",
+        (file_id, metadata["task_id"]),
+    )
+    if deleted is None:
+        raise_task_file_not_found()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/{project_id}/setup/document-categories", response_model=list[ProjectSetupDocumentCategoryResponse])
+def list_project_setup_document_categories(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupDocumentCategoryResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [ProjectSetupDocumentCategoryResponse(**row) for row in fetch_project_setup_document_categories(session, project_id, current_user.id)]
+
+
+@router.patch("/{project_id}/setup/document-categories/{category}", response_model=ProjectSetupDocumentCategoryResponse)
+def update_project_setup_document_category(
+    project_id: UUID,
+    category: str,
+    payload: ProjectSetupDocumentCategoryStatusRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupDocumentCategoryResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if category not in PROJECT_SETUP_DOCUMENT_CATEGORIES:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project document category not found")
+    if payload.status == "Not Applicable" and category != "Research Licence":
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Only Research Licence can be marked Not Applicable")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_setup_document_categories (project_id, category, status, created_by)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (project_id, category) DO UPDATE SET status = EXCLUDED.status
+        RETURNING category, status
+        """,
+        (project_id, category, payload.status, current_user.id),
+    )
+    category_row = fetch_project_setup_document_categories(session, project_id, current_user.id)
+    return ProjectSetupDocumentCategoryResponse(**next(item for item in category_row if item["category"] == row["category"]))
 
 
 @router.get("/{project_id}/workspace", response_model=WorkspaceContentsResponse)
@@ -5601,6 +5697,31 @@ def fetch_project_setup_approvals(session: DatabaseSession, project_id: UUID) ->
         ORDER BY project_approvals.due_date NULLS LAST, project_approvals.created_at, project_approvals.id
         """,
         (project_id,),
+    )
+
+
+def fetch_project_setup_document_categories(session: DatabaseSession, project_id: UUID, user_id: UUID) -> list[Row]:
+    finance_filter = "" if project_file_finance_visible(session, user_id, project_id) else "AND task_files.file_category <> 'finance'"
+    values = ", ".join("(%s)" for _ in PROJECT_SETUP_DOCUMENT_CATEGORIES)
+    return session.fetch_all(
+        f"""
+        WITH categories(category) AS (VALUES {values})
+        SELECT categories.category,
+               COALESCE(project_setup_document_categories.status, 'Not Started') AS status,
+               COUNT(phases.id)::int AS file_count
+        FROM categories
+        LEFT JOIN project_setup_document_categories
+          ON project_setup_document_categories.project_id = %s
+         AND project_setup_document_categories.category = categories.category
+        LEFT JOIN task_files
+          ON task_files.setup_document_type = categories.category
+         {finance_filter}
+        LEFT JOIN tasks ON tasks.id = task_files.task_id
+        LEFT JOIN phases ON phases.id = tasks.phase_id AND phases.project_id = %s
+        GROUP BY categories.category, project_setup_document_categories.status
+        ORDER BY MIN(array_position(ARRAY[{', '.join('%s' for _ in PROJECT_SETUP_DOCUMENT_CATEGORIES)}]::varchar[], categories.category))
+        """,
+        [*PROJECT_SETUP_DOCUMENT_CATEGORIES, project_id, project_id, *PROJECT_SETUP_DOCUMENT_CATEGORIES],
     )
 
 

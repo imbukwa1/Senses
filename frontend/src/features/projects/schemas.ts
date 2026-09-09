@@ -348,6 +348,8 @@ export const projectSetupSpecificInformationSchema = z.object({ id: z.uuid(), pr
 export const projectSetupSpecificInformationSchemaArray = z.array(projectSetupSpecificInformationSchema);
 export const projectSetupNoteSchema = z.object({ id: z.uuid(), project_id: z.uuid(), note: z.string().min(1), created_by: z.uuid().nullable(), created_at: z.string().min(1), updated_at: z.string().min(1) });
 export const projectSetupNotesSchema = z.array(projectSetupNoteSchema);
+export const projectSetupDocumentCategorySchema = z.object({ category: z.enum(["Proposal", "Contract / Agreement", "Research Licence", "Baseline", "Inception", "Middle Health", "1st Draft Project Document", "Final Draft", "Other Documents"]), status: projectSetupStatusSchema, file_count: z.number() });
+export const projectSetupDocumentCategoriesSchema = z.array(projectSetupDocumentCategorySchema);
 
 export const projectDashboardSchema = z.object({
   project: dashboardProjectSchema,
@@ -475,7 +477,7 @@ export const taskFileSchema = z.object({
   file_type: z.string().nullable(),
   file_size: z.number(),
   file_category: z.enum(["reference", "work_submission", "finance"]),
-  setup_document_type: z.enum(["Proposal", "Contract / Agreement", "Terms of Reference", "Baseline documents", "Other supporting files"]).nullable().optional(),
+  setup_document_type: z.enum(["Proposal", "Contract / Agreement", "Research Licence", "Baseline", "Inception", "Middle Health", "1st Draft Project Document", "Final Draft", "Other Documents", "Terms of Reference", "Baseline documents", "Other supporting files"]).nullable().optional(),
   created_at: z.string().min(1),
 });
 

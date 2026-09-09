@@ -6,6 +6,33 @@ ADD COLUMN IF NOT EXISTS setup_document_type VARCHAR(80) NULL;
 
 CREATE INDEX IF NOT EXISTS task_files_setup_document_type_idx ON task_files(setup_document_type);
 
+CREATE TABLE IF NOT EXISTS project_setup_document_categories (
+  project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  category VARCHAR(80) NOT NULL,
+  status VARCHAR(30) NOT NULL DEFAULT 'Not Started',
+  created_by UUID NULL REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (project_id, category),
+  CHECK (category IN ('Proposal', 'Contract / Agreement', 'Research Licence', 'Baseline', 'Inception', 'Middle Health', '1st Draft Project Document', 'Final Draft', 'Other Documents')),
+  CHECK (status IN ('Not Started', 'In Progress', 'Complete', 'Not Applicable'))
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'set_project_setup_document_categories_updated_at'
+      AND tgrelid = 'project_setup_document_categories'::regclass
+  ) THEN
+    CREATE TRIGGER set_project_setup_document_categories_updated_at
+    BEFORE UPDATE ON project_setup_document_categories
+    FOR EACH ROW
+    EXECUTE FUNCTION set_updated_at();
+  END IF;
+END;
+$$;
+
 CREATE TABLE IF NOT EXISTS project_approvals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -125,6 +152,7 @@ $$;
 
 -- Rollback:
 -- DROP TABLE IF EXISTS project_setup_notes;
+-- DROP TABLE IF EXISTS project_setup_document_categories;
 -- DROP TABLE IF EXISTS project_specific_information;
 -- DROP TABLE IF EXISTS project_changes;
 -- DROP TABLE IF EXISTS project_approvals;

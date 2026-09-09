@@ -35,6 +35,7 @@ import {
   deleteWorkspaceFolder,
   deleteWorkspaceNativeResource,
   downloadProjectFile,
+  deleteProjectFile,
   downloadTaskFile,
   getChecklist,
   getProject,
@@ -60,6 +61,8 @@ import {
   listProjectSetupChanges,
   listProjectSetupSpecificInformation,
   listProjectSetupNotes,
+  listProjectSetupDocumentCategories,
+  updateProjectSetupDocumentCategory,
   listProjectFiles,
   listProjectMembers,
   listProjects,
@@ -120,6 +123,7 @@ import type {
   WorkspaceNativeResourceTaskLinkPayload,
   WorkspaceResourceKind,
   WorkspaceFolderMutationPayload,
+  ProjectSetupDocumentCategory,
 } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
@@ -144,6 +148,7 @@ export const projectSetupApprovalsQueryKey = (projectId: string) => ["projects",
 export const projectSetupChangesQueryKey = (projectId: string) => ["projects", projectId, "setup", "changes"] as const;
 export const projectSetupSpecificInformationQueryKey = (projectId: string) => ["projects", projectId, "setup", "project-specific-information"] as const;
 export const projectSetupNotesQueryKey = (projectId: string) => ["projects", projectId, "setup", "notes"] as const;
+export const projectSetupDocumentCategoriesQueryKey = (projectId: string) => ["projects", projectId, "setup", "document-categories"] as const;
 export const workspaceContentsQueryKey = (projectId: string, folderId: string | null) => ["projects", projectId, "workspace", folderId ?? "root"] as const;
 export const workspaceNativeResourceQueryKey = (projectId: string, kind: WorkspaceResourceKind, resourceId: string) =>
   ["projects", projectId, "workspace", kind, resourceId] as const;
@@ -475,6 +480,7 @@ export function useProjectSetupApprovalsQuery(projectId: string, enabled = true)
 export function useProjectSetupChangesQuery(projectId: string, enabled = true) { return useSetupListQuery(enabled, projectSetupChangesQueryKey(projectId), (token) => listProjectSetupChanges(token, projectId)); }
 export function useProjectSetupSpecificInformationQuery(projectId: string, enabled = true) { return useSetupListQuery(enabled, projectSetupSpecificInformationQueryKey(projectId), (token) => listProjectSetupSpecificInformation(token, projectId)); }
 export function useProjectSetupNotesQuery(projectId: string, enabled = true) { return useSetupListQuery(enabled, projectSetupNotesQueryKey(projectId), (token) => listProjectSetupNotes(token, projectId)); }
+export function useProjectSetupDocumentCategoriesQuery(projectId: string, enabled = true) { return useSetupListQuery(enabled, projectSetupDocumentCategoriesQueryKey(projectId), (token) => listProjectSetupDocumentCategories(token, projectId)); }
 
 export function useProjectBudgetQuery(projectId: string, enabled = true) {
   const { logout, status, token } = useAuth();
@@ -517,6 +523,16 @@ export function useDownloadProjectFileMutation(projectId: string) {
 
   return useMutation({
     mutationFn: (fileId: string) => downloadProjectFile(requireToken(token), projectId, fileId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useDeleteProjectFileMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+  return useMutation({
+    mutationFn: (fileId: string) => deleteProjectFile(requireToken(token), projectId, fileId),
+    onSuccess: () => { invalidateWorkspaceQueries(queryClient, projectId); void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) }); },
     onError: authFailureHandler(logout),
   });
 }
@@ -927,6 +943,14 @@ export function useCreateProjectSetupApprovalMutation(projectId: string) { retur
 export function useCreateProjectSetupChangeMutation(projectId: string) { return useSetupCreateMutation(projectId, createProjectSetupChange, projectSetupChangesQueryKey(projectId)); }
 export function useCreateProjectSetupSpecificInformationMutation(projectId: string) { return useSetupCreateMutation(projectId, createProjectSetupSpecificInformation, projectSetupSpecificInformationQueryKey(projectId)); }
 export function useCreateProjectSetupNoteMutation(projectId: string) { return useSetupCreateMutation(projectId, createProjectSetupNote, projectSetupNotesQueryKey(projectId)); }
+export function useUpdateProjectSetupDocumentCategoryMutation(projectId: string) {
+  const queryClient = useQueryClient(); const { logout, token } = useAuth();
+  return useMutation({
+    mutationFn: ({ category, status }: { category: string; status: ProjectSetupDocumentCategory["status"] }) => updateProjectSetupDocumentCategory(requireToken(token), projectId, category, status),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: projectSetupDocumentCategoriesQueryKey(projectId) }); },
+    onError: authFailureHandler(logout),
+  });
+}
 
 export function useUpdatePhaseBudgetMutation(projectId: string) {
   const queryClient = useQueryClient();

@@ -467,7 +467,7 @@ export type ProjectSetupMonitoringReportingPayload = {
   reporting_notes: string | null;
 };
 
-export type SetupDocumentType = "Proposal" | "Contract / Agreement" | "Terms of Reference" | "Baseline documents" | "Other supporting files";
+export type SetupDocumentType = "Proposal" | "Contract / Agreement" | "Research Licence" | "Baseline" | "Inception" | "Middle Health" | "1st Draft Project Document" | "Final Draft" | "Other Documents" | "Terms of Reference" | "Baseline documents" | "Other supporting files";
 
 export type ProjectSetupApproval = {
   id: string; project_id: string; required_approval: string; approver_id: string | null;
@@ -483,6 +483,7 @@ export type ProjectSetupSpecificInformation = { id: string; project_id: string; 
 export type ProjectSetupSpecificInformationPayload = { label: string; value: string };
 export type ProjectSetupNote = { id: string; project_id: string; note: string; created_by: string | null; created_at: string; updated_at: string };
 export type ProjectSetupNotePayload = { note: string };
+export type ProjectSetupDocumentCategory = { category: SetupDocumentType; status: ProjectSetupStatus; file_count: number };
 
 export type Task = {
   id: string;
