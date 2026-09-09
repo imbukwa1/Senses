@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => ({
   univerCreate: vi.fn(),
   univerLoad: vi.fn(),
   univerDispose: vi.fn(),
+  univerAddEvent: vi.fn(),
+  univerStatusEvents: {} as Record<string, (payload: { unitId: string; status: string }) => void>,
+  univerStatusDispose: vi.fn(),
   workspaceResource: {
     id: "88888888-8888-4888-8888-888888888888",
     project_id: "11111111-1111-4111-8111-111111111111",
@@ -153,9 +156,21 @@ describe("workspace native editors", () => {
     mocks.univerCreate.mockReset();
     mocks.univerLoad.mockReset();
     mocks.univerDispose.mockReset();
+    mocks.univerAddEvent.mockReset();
+    mocks.univerStatusEvents = {};
+    mocks.univerStatusDispose.mockReset();
+    mocks.univerAddEvent.mockImplementation((event: string, callback: (payload: { unitId: string; status: string }) => void) => {
+      mocks.univerStatusEvents[event] = callback;
+      return { dispose: mocks.univerStatusDispose };
+    });
     mocks.univerCreate.mockImplementation(() => ({
       univer: { createUnit: vi.fn(), dispose: mocks.univerDispose },
-      univerAPI: { loadServerUnit: mocks.univerLoad, onCommandExecuted: vi.fn() },
+      univerAPI: {
+        loadServerUnit: mocks.univerLoad,
+        onCommandExecuted: vi.fn(),
+        Event: { CollaborationStatusChanged: "CollaborationStatusChanged" },
+        addEvent: mocks.univerAddEvent,
+      },
     }));
     mocks.univerLoad.mockResolvedValue({ id: "unit-1" });
   });
@@ -281,7 +296,16 @@ describe("workspace native editors", () => {
     );
     expect(mocks.univerLoad).toHaveBeenCalledWith("official-unit-123", 2);
     expect(mocks.saveContent).not.toHaveBeenCalled();
+    await act(async () => {
+      mocks.univerStatusEvents.CollaborationStatusChanged?.({ unitId: "official-unit-123", status: "offline" });
+    });
+    expect(screen.getByText("Offline")).toBeInTheDocument();
+    await act(async () => {
+      mocks.univerStatusEvents.CollaborationStatusChanged?.({ unitId: "official-unit-123", status: "synced" });
+    });
+    expect(screen.getByText("Reconnected")).toBeInTheDocument();
     cleanup();
     expect(mocks.univerDispose).toHaveBeenCalledTimes(1);
+    expect(mocks.univerStatusDispose).toHaveBeenCalledTimes(1);
   });
 });

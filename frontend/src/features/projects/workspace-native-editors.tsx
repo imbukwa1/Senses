@@ -284,6 +284,7 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
   const [actionError, setActionError] = useState<string | null>(null);
   const [univerUnavailable, setUniverUnavailable] = useState(false);
   const [collaborationActive, setCollaborationActive] = useState(false);
+  const [spreadsheetConnectionState, setSpreadsheetConnectionState] = useState<"connecting" | "online" | "reconnected" | "offline" | "error">("connecting");
   const saveDraftRef = useRef<((content: Record<string, unknown>) => Promise<void>) | null>(null);
 
   const content = useMemo(() => normalizeSpreadsheetContent(query.data?.content), [query.data?.content]);
@@ -360,6 +361,38 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
               : []),
           ],
         });
+        let reconnectTimer: number | undefined;
+        let statusDisposable: { dispose?: () => void } | undefined;
+        if (collaborationEnabled) {
+          const api = univerAPI as unknown as {
+            Event?: { CollaborationStatusChanged?: string };
+            addEvent?: (event: string, callback: (payload: { unitId: string; status: string }) => void) => { dispose?: () => void };
+          };
+          const statusEvent = api.Event?.CollaborationStatusChanged;
+          if (statusEvent && api.addEvent) {
+            statusDisposable = api.addEvent(statusEvent, ({ unitId, status }) => {
+              if (unitId !== collaborationQuery.data?.unit_id) {
+                return;
+              }
+              if (status === "offline") {
+                setSpreadsheetConnectionState("offline");
+                return;
+              }
+              if (status === "synced") {
+                setSpreadsheetConnectionState((previous) => previous === "offline" ? "reconnected" : "online");
+                window.clearTimeout(reconnectTimer);
+                reconnectTimer = window.setTimeout(() => setSpreadsheetConnectionState("online"), 2000);
+                return;
+              }
+              setSpreadsheetConnectionState("connecting");
+            });
+          }
+        }
+        disposeRef.current = () => {
+          window.clearTimeout(reconnectTimer);
+          statusDisposable?.dispose?.();
+          univer.dispose();
+        };
         if (collaborationEnabled && collaborationQuery.data?.unit_id) {
           const loadedUnit = await (univerAPI as unknown as { loadServerUnit: (unitId: string, type: number) => Promise<unknown> }).loadServerUnit(
             collaborationQuery.data.unit_id,
@@ -369,6 +402,7 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
             throw new Error("Collaborative spreadsheet could not be loaded.");
           }
           setCollaborationActive(true);
+          setSpreadsheetConnectionState("online");
         } else {
           univer.createUnit(UniverInstanceType.UNIVER_SHEET, content);
           setCollaborationActive(false);
@@ -386,14 +420,16 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
             setActionError(null);
           }
         });
+        const previousDispose = disposeRef.current;
         disposeRef.current = () => {
           disposable?.dispose?.();
-          univer.dispose();
+          previousDispose?.();
         };
         setUniverUnavailable(false);
       } catch (error) {
         if (!cancelled) {
           setCollaborationActive(false);
+          setSpreadsheetConnectionState("error");
           setUniverUnavailable(true);
           setActionError(nativeEditorErrorMessage(error));
         }
@@ -469,7 +505,19 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
       onBack={onBack}
       queryError={query.error}
       saveState={saveState}
-      statusLabel={collaborationActive ? "Collaborative" : univerUnavailable ? "Local fallback" : "Connecting"}
+      statusLabel={
+        collaborationActive
+          ? spreadsheetConnectionState === "reconnected"
+            ? "Reconnected"
+            : spreadsheetConnectionState === "offline"
+              ? "Offline"
+              : spreadsheetConnectionState === "error"
+                ? "Collaboration error"
+                : "Collaborative"
+          : univerUnavailable
+            ? "Local fallback"
+            : "Connecting"
+      }
       titleControls={<TitleControls disabled={renameMutation.isPending} label="Spreadsheet Name" onRename={rename} setTitle={setTitle} title={title} />}
     >
       <div className="space-y-3">

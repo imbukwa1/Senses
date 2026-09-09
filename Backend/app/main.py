@@ -16,6 +16,7 @@ from app.projects import router as projects_router
 from app.search import router as search_router
 from app.storage import FileStorage, GCSFileStorage
 from app.users import router as users_router
+from app.versions import router as versions_router
 
 
 def configure_logging(level: str) -> None:
@@ -72,6 +73,7 @@ def create_app(
     app.include_router(projects_router)
     app.include_router(search_router)
     app.include_router(collaboration_router)
+    app.include_router(versions_router)
 
     @app.get("/health")
     def health(request: Request) -> JSONResponse:

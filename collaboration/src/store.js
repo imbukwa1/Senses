@@ -75,6 +75,16 @@ export async function storeDocumentState(pool, resourceId, state) {
     `,
     [resourceId, Buffer.from(state)],
   );
+  await pool.query(
+    `
+    INSERT INTO workspace_resource_revisions
+      (project_id, resource_type, resource_id, yjs_state)
+    SELECT project_id, 'document', id, $2
+    FROM workspace_documents
+    WHERE id = $1
+    `,
+    [resourceId, Buffer.from(state)],
+  );
 }
 
 export async function pingDatabase(pool) {
