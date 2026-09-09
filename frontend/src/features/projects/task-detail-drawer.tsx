@@ -17,6 +17,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/features/auth/hooks";
 import { cn } from "@/lib/utils";
+import { FilePreviewDialog } from "./file-preview-dialog";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import {
@@ -317,6 +318,7 @@ function TaskFileRow({ file, phaseId, projectId, taskId }: { file: TaskFile; pro
             {formatFileType(file.file_type)} - {formatFileSize(file.file_size)} - Uploaded by {file.uploader_name} on {formatDateTime(file.created_at)}
           </p>
         </div>
+        <FilePreviewDialog disabled={downloadFile.isPending} fileName={file.file_name} fileType={file.file_type} loadFile={() => downloadFile.mutateAsync(file.id)} />
         <Button type="button" variant="outline" size="sm" disabled={downloadFile.isPending} onClick={handleDownload} aria-label={`Download ${file.file_name}`}>
           <Download className="size-4" aria-hidden="true" />
           {downloadFile.isPending ? "Downloading..." : "Download"}

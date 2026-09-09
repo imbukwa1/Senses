@@ -32,7 +32,8 @@ import {
   useWorkspaceFolderTreeQuery,
 } from "./hooks";
 import { WorkspaceDocumentEditor, WorkspaceSpreadsheetEditor } from "./workspace-native-editors";
-import type { DashboardPhase, WorkspaceFile, WorkspaceFolder, WorkspaceNativeResource, WorkspaceResourceKind } from "./types";
+import { FilePreviewDialog } from "./file-preview-dialog";
+import type { DashboardPhase, DownloadedTaskFile, WorkspaceFile, WorkspaceFolder, WorkspaceNativeResource, WorkspaceResourceKind } from "./types";
 
 type BreadcrumbItem = {
   id: string | null;
@@ -148,6 +149,10 @@ export function ProjectWorkspace({ canManage, phases = [], projectId }: { projec
     } catch (error) {
       setActionError(workspaceErrorMessage(error));
     }
+  }
+
+  function onPreview(fileId: string): Promise<DownloadedTaskFile> {
+    return downloadFile.mutateAsync(fileId);
   }
 
   const isBusy =
@@ -288,6 +293,7 @@ export function ProjectWorkspace({ canManage, phases = [], projectId }: { projec
                   folderTree={folderTree}
                   onDownload={onDownload}
                   onMove={onMoveFile}
+                  onPreview={onPreview}
                 />
               ))}
             </div>
@@ -486,6 +492,7 @@ function FileRow({
   folderTree,
   onDownload,
   onMove,
+  onPreview,
 }: {
   canManage: boolean;
   disabled: boolean;
@@ -493,6 +500,7 @@ function FileRow({
   folderTree: WorkspaceFolder[];
   onDownload: (file: WorkspaceFile) => Promise<void>;
   onMove: (fileId: string, folderId: string | null) => Promise<void>;
+  onPreview: (fileId: string) => Promise<DownloadedTaskFile>;
 }) {
   return (
     <div className="grid gap-3 border-b px-3 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
@@ -522,6 +530,7 @@ function FileRow({
             onSubmit={(targetFolderId) => onMove(file.id, targetFolderId)}
           />
         ) : null}
+        <FilePreviewDialog disabled={disabled} fileName={file.file_name} fileType={file.file_type} loadFile={() => onPreview(file.id)} />
         <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={() => void onDownload(file)} aria-label={`Download ${file.file_name}`}>
           <Download className="size-4" aria-hidden="true" />
           Download

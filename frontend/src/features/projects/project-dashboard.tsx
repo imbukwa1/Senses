@@ -1,4 +1,4 @@
-import { AlertTriangle, Archive, CalendarDays, CheckCircle2, Clock, DollarSign, Download, Edit, Eye, FileText, ListChecks, Save, UserPlus, Users, X } from "lucide-react";
+import { AlertTriangle, Archive, CalendarDays, CheckCircle2, Clock, DollarSign, Download, Edit, FileText, ListChecks, Save, UserPlus, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
@@ -22,6 +22,7 @@ import { UserSearchSelect } from "@/features/users/user-search-select";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 import { cn } from "@/lib/utils";
 
+import { FilePreviewDialog } from "./file-preview-dialog";
 import {
   useAddPhaseMemberMutation,
   useArchiveProjectMutation,
@@ -774,17 +775,6 @@ function ProjectFileRow({ file, projectId }: { file: ProjectFile; projectId: str
     }
   }
 
-  async function onView() {
-    try {
-      const downloadedFile = await downloadFile.mutateAsync(file.id);
-      const objectUrl = URL.createObjectURL(downloadedFile.blob);
-      window.open(objectUrl, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-    } catch {
-      return;
-    }
-  }
-
   return (
     <div className="px-3 py-3">
       {downloadError ? <p className="mb-2 text-sm text-error">{downloadError}</p> : null}
@@ -800,7 +790,7 @@ function ProjectFileRow({ file, projectId }: { file: ProjectFile; projectId: str
             Uploaded by {file.uploader_name} on {formatDateTime(file.created_at)}
           </p>
         </div>
-        <div className="flex gap-2"><Button type="button" variant="outline" size="sm" disabled={downloadFile.isPending} onClick={() => void onView()} aria-label={`View ${file.file_name}`}><Eye className="size-4" aria-hidden="true" />View</Button><Button type="button" variant="outline" size="sm" disabled={downloadFile.isPending} onClick={() => void onDownload()} aria-label={`Download ${file.file_name}`}><Download className="size-4" aria-hidden="true" />{downloadFile.isPending ? "Downloading..." : "Download"}</Button></div>
+        <div className="flex gap-2"><FilePreviewDialog disabled={downloadFile.isPending} fileName={file.file_name} fileType={file.file_type} loadFile={() => downloadFile.mutateAsync(file.id)} /><Button type="button" variant="outline" size="sm" disabled={downloadFile.isPending} onClick={() => void onDownload()} aria-label={`Download ${file.file_name}`}><Download className="size-4" aria-hidden="true" />{downloadFile.isPending ? "Downloading..." : "Download"}</Button></div>
       </div>
     </div>
   );
