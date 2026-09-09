@@ -62,6 +62,7 @@ import {
   workspaceNativeResourceSchema,
   workspaceNativeResourcesSchema,
   documentCollaborationSessionSchema,
+  spreadsheetCollaborationSessionSchema,
 } from "./schemas";
 import type {
   PhaseMutationPayload,
@@ -132,6 +133,7 @@ import type {
   WorkspaceNativeResourceTaskLinkPayload,
   WorkspaceResourceKind,
   DocumentCollaborationSession,
+  SpreadsheetCollaborationSession,
 } from "./types";
 
 export async function getDocumentCollaborationSession(
@@ -147,6 +149,23 @@ export async function getDocumentCollaborationSession(
   const result = documentCollaborationSessionSchema.safeParse(data);
   if (!result.success) {
     throw new ApiError("Document collaboration session could not be loaded.", 500);
+  }
+  return result.data;
+}
+
+export async function provisionSpreadsheetCollaborationSession(
+  token: string,
+  projectId: string,
+  spreadsheetId: string,
+): Promise<SpreadsheetCollaborationSession> {
+  const data = await apiRequest<unknown>(
+    `/collaboration/projects/${projectId}/spreadsheets/${spreadsheetId}/unit`,
+    { method: "POST" },
+    token,
+  );
+  const result = spreadsheetCollaborationSessionSchema.safeParse(data);
+  if (!result.success) {
+    throw new ApiError("Spreadsheet collaboration session could not be loaded.", 500);
   }
   return result.data;
 }

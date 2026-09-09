@@ -45,6 +45,7 @@ import {
   getProjectSetupBudget,
   getWorkspaceNativeResource,
   getDocumentCollaborationSession,
+  provisionSpreadsheetCollaborationSession,
   getWorkspaceContents,
   listAttention,
   listMyWork,
@@ -157,6 +158,8 @@ export const workspaceNativeResourceQueryKey = (projectId: string, kind: Workspa
   ["projects", projectId, "workspace", kind, resourceId] as const;
 export const documentCollaborationSessionQueryKey = (projectId: string, documentId: string) =>
   ["projects", projectId, "collaboration", "documents", documentId] as const;
+export const spreadsheetCollaborationSessionQueryKey = (projectId: string, spreadsheetId: string) =>
+  ["projects", projectId, "collaboration", "spreadsheets", spreadsheetId] as const;
 export const projectMembersQueryKey = (projectId: string) => ["projects", projectId, "members"] as const;
 export const phaseMembersQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "members"] as const;
 export const tasksQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "tasks"] as const;
@@ -659,6 +662,24 @@ export function useDocumentCollaborationSessionQuery(projectId: string, document
     queryKey: documentCollaborationSessionQueryKey(projectId, documentId ?? "missing"),
     queryFn: () => getDocumentCollaborationSession(requireToken(token), projectId, documentId ?? ""),
     enabled: status === "authenticated" && Boolean(token) && Boolean(documentId),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useSpreadsheetCollaborationSessionQuery(projectId: string, spreadsheetId: string | null) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: spreadsheetCollaborationSessionQueryKey(projectId, spreadsheetId ?? "missing"),
+    queryFn: () => provisionSpreadsheetCollaborationSession(requireToken(token), projectId, spreadsheetId ?? ""),
+    enabled: status === "authenticated" && Boolean(token) && Boolean(spreadsheetId),
     retry: false,
   });
 

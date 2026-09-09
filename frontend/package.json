@@ -34,6 +34,7 @@
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
     "@univerjs/preset-sheets-collaboration": "0.25.1",
+    "@univerjs/preset-sheets-advanced": "0.25.1",
     "@univerjs/preset-sheets-core": "0.25.1",
     "@univerjs/presets": "0.25.1",
     "class-variance-authority": "^0.7.1",

@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import {
   useRenameWorkspaceNativeResourceMutation,
   useDocumentCollaborationSessionQuery,
+  useSpreadsheetCollaborationSessionQuery,
   useUpdateWorkspaceNativeResourceContentMutation,
   useWorkspaceNativeResourceQuery,
 } from "./hooks";
@@ -271,6 +272,7 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
 
 export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: WorkspaceNativeEditorProps) {
   const query = useWorkspaceNativeResourceQuery(projectId, "spreadsheets", resourceId);
+  const collaborationQuery = useSpreadsheetCollaborationSessionQuery(projectId, resourceId);
   const renameMutation = useRenameWorkspaceNativeResourceMutation(projectId, "spreadsheets");
   const saveMutation = useUpdateWorkspaceNativeResourceContentMutation(projectId, "spreadsheets", resourceId);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -281,6 +283,7 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [actionError, setActionError] = useState<string | null>(null);
   const [univerUnavailable, setUniverUnavailable] = useState(false);
+  const [collaborationActive, setCollaborationActive] = useState(false);
   const saveDraftRef = useRef<((content: Record<string, unknown>) => Promise<void>) | null>(null);
 
   const content = useMemo(() => normalizeSpreadsheetContent(query.data?.content), [query.data?.content]);
@@ -326,26 +329,55 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
     async function mountUniver() {
       try {
         await import("@univerjs/preset-sheets-core/lib/index.css");
-        const [{ createUniver, UniverInstanceType }, { UniverSheetsCorePreset }] = await Promise.all([
+        const [{ createUniver, UniverInstanceType }, { UniverSheetsCorePreset }, { UniverSheetsAdvancedPreset }, { UniverSheetsCollaborationPreset }] = await Promise.all([
           import("@univerjs/presets"),
           import("@univerjs/preset-sheets-core"),
+          import("@univerjs/preset-sheets-advanced"),
+          import("@univerjs/preset-sheets-collaboration"),
         ]);
         if (cancelled || !containerRef.current) {
           return;
         }
+        const collaborationEnabled = Boolean(collaborationQuery.data?.unit_id && collaborationQuery.data.endpoint);
+        const univerEndpoint = collaborationQuery.data?.endpoint;
+        const containerId = `univer-spreadsheet-${resourceId}`;
+        containerRef.current.id = containerId;
         const { univer, univerAPI } = createUniver({
-        presets: [
-          UniverSheetsCorePreset({
-            container: containerRef.current,
-            footer: { sheetBar: true, statisticBar: true },
-            formulaBar: true,
-            header: false,
-            toolbar: true,
-          }),
-        ],
+          collaboration: true,
+          presets: [
+            UniverSheetsCorePreset({
+              container: containerId,
+              footer: { sheetBar: true, statisticBar: true },
+              formulaBar: true,
+              header: false,
+              toolbar: true,
+            }),
+            ...(collaborationEnabled && univerEndpoint
+              ? [
+                  UniverSheetsAdvancedPreset({ universerEndpoint: univerEndpoint }),
+                  UniverSheetsCollaborationPreset({ universerEndpoint: univerEndpoint, univerContainerId: containerId }),
+                ]
+              : []),
+          ],
         });
-        univer.createUnit(UniverInstanceType.UNIVER_SHEET, content);
+        if (collaborationEnabled && collaborationQuery.data?.unit_id) {
+          const loadedUnit = await (univerAPI as unknown as { loadServerUnit: (unitId: string, type: number) => Promise<unknown> }).loadServerUnit(
+            collaborationQuery.data.unit_id,
+            UniverInstanceType.UNIVER_SHEET,
+          );
+          if (!loadedUnit) {
+            throw new Error("Collaborative spreadsheet could not be loaded.");
+          }
+          setCollaborationActive(true);
+        } else {
+          univer.createUnit(UniverInstanceType.UNIVER_SHEET, content);
+          setCollaborationActive(false);
+        }
         const disposable = (univerAPI as unknown as { onCommandExecuted?: (callback: () => void) => { dispose?: () => void } }).onCommandExecuted?.(() => {
+          if (collaborationEnabled) {
+            setSaveState("saved");
+            return;
+          }
           const activeWorkbook = (univerAPI as unknown as { getActiveWorkbook?: () => { save?: () => Record<string, unknown> } | null }).getActiveWorkbook?.();
           const snapshot = activeWorkbook?.save?.();
           if (snapshot) {
@@ -361,6 +393,7 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
         setUniverUnavailable(false);
       } catch (error) {
         if (!cancelled) {
+          setCollaborationActive(false);
           setUniverUnavailable(true);
           setActionError(nativeEditorErrorMessage(error));
         }
@@ -373,25 +406,31 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
       disposeRef.current?.();
       disposeRef.current = null;
     };
-  }, [content, query.data]);
+  }, [collaborationQuery.data, content, query.data, resourceId]);
 
   useEffect(() => {
-    if (!draft) {
+    if (!draft || collaborationActive) {
       return;
     }
     const timeout = window.setTimeout(() => {
       void saveDraft(draft);
     }, 800);
     return () => window.clearTimeout(timeout);
-  }, [draft, saveDraft]);
+  }, [collaborationActive, draft, saveDraft]);
 
   useEffect(() => {
     return () => {
-      if (draft && saveDraftRef.current) {
+      if (draft && !collaborationActive && saveDraftRef.current) {
         void saveDraftRef.current(draft);
       }
     };
-  }, [draft]);
+  }, [collaborationActive, draft]);
+
+  useEffect(() => {
+    if (collaborationQuery.error) {
+      setActionError(nativeEditorErrorMessage(collaborationQuery.error));
+    }
+  }, [collaborationQuery.error]);
 
   async function rename() {
     const name = title.trim();
@@ -430,6 +469,7 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
       onBack={onBack}
       queryError={query.error}
       saveState={saveState}
+      statusLabel={collaborationActive ? "Collaborative" : univerUnavailable ? "Local fallback" : "Connecting"}
       titleControls={<TitleControls disabled={renameMutation.isPending} label="Spreadsheet Name" onRename={rename} setTitle={setTitle} title={title} />}
     >
       <div className="space-y-3">

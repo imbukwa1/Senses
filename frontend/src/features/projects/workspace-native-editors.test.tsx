@@ -10,8 +10,12 @@ const mocks = vi.hoisted(() => ({
   setContent: vi.fn(),
   authToken: null as string | null,
   collaborationSession: null as Record<string, unknown> | null,
+  spreadsheetCollaborationSession: null as Record<string, unknown> | null,
   providerEvents: {} as Record<string, (payload?: unknown) => void>,
   providerDestroy: vi.fn(),
+  univerCreate: vi.fn(),
+  univerLoad: vi.fn(),
+  univerDispose: vi.fn(),
   workspaceResource: {
     id: "88888888-8888-4888-8888-888888888888",
     project_id: "11111111-1111-4111-8111-111111111111",
@@ -88,15 +92,7 @@ vi.mock("@/features/auth/hooks", () => ({
 }));
 
 vi.mock("@univerjs/presets", () => ({
-  createUniver: () => ({
-    univer: {
-      createUnit: vi.fn(),
-      dispose: vi.fn(),
-    },
-    univerAPI: {
-      onCommandExecuted: vi.fn(),
-    },
-  }),
+  createUniver: mocks.univerCreate,
   UniverInstanceType: {
     UNIVER_SHEET: 2,
   },
@@ -104,6 +100,14 @@ vi.mock("@univerjs/presets", () => ({
 
 vi.mock("@univerjs/preset-sheets-core", () => ({
   UniverSheetsCorePreset: vi.fn(() => ({ plugins: [] })),
+}));
+
+vi.mock("@univerjs/preset-sheets-advanced", () => ({
+  UniverSheetsAdvancedPreset: vi.fn(() => ({ plugins: [] })),
+}));
+
+vi.mock("@univerjs/preset-sheets-collaboration", () => ({
+  UniverSheetsCollaborationPreset: vi.fn(() => ({ plugins: [] })),
 }));
 
 vi.mock("./hooks", () => ({
@@ -120,6 +124,11 @@ vi.mock("./hooks", () => ({
     error: null,
     isLoading: false,
   }),
+  useSpreadsheetCollaborationSessionQuery: () => ({
+    data: mocks.spreadsheetCollaborationSession,
+    error: null,
+    isLoading: false,
+  }),
 }));
 
 const projectId = "11111111-1111-4111-8111-111111111111";
@@ -131,6 +140,7 @@ describe("workspace native editors", () => {
     mocks.documentJson = { type: "doc", content: [{ type: "paragraph" }] };
     mocks.authToken = null;
     mocks.collaborationSession = null;
+    mocks.spreadsheetCollaborationSession = null;
     mocks.providerEvents = {};
     mocks.providerDestroy.mockReset();
     mocks.workspaceResource = {
@@ -140,6 +150,14 @@ describe("workspace native editors", () => {
     };
     mocks.rename.mockResolvedValue(mocks.workspaceResource);
     mocks.saveContent.mockResolvedValue(mocks.workspaceResource);
+    mocks.univerCreate.mockReset();
+    mocks.univerLoad.mockReset();
+    mocks.univerDispose.mockReset();
+    mocks.univerCreate.mockImplementation(() => ({
+      univer: { createUnit: vi.fn(), dispose: mocks.univerDispose },
+      univerAPI: { loadServerUnit: mocks.univerLoad, onCommandExecuted: vi.fn() },
+    }));
+    mocks.univerLoad.mockResolvedValue({ id: "unit-1" });
   });
 
   afterEach(() => {
@@ -233,5 +251,37 @@ describe("workspace native editors", () => {
 
     expect(screen.getByText("Spreadsheet JSON is malformed.")).toBeInTheDocument();
     expect(mocks.saveContent).not.toHaveBeenCalled();
+  });
+
+  it("loads the provisioned official unit and disables workbook JSON autosave", async () => {
+    vi.stubGlobal("ResizeObserver", class ResizeObserver {});
+    mocks.workspaceResource = {
+      ...mocks.workspaceResource,
+      name: "Collaborative Tracker",
+      content: { id: "fallback-workbook", sheetOrder: [], sheets: {} },
+    };
+    mocks.spreadsheetCollaborationSession = {
+      resource_type: "spreadsheet",
+      project_id: projectId,
+      resource_id: resourceId,
+      room: `project:${projectId}:spreadsheets:${resourceId}`,
+      endpoint: "http://127.0.0.1:8000",
+      unit_id: "official-unit-123",
+      ready: true,
+      service: { configured: true, reachable: true, required: [], url: null, detail: null },
+    };
+
+    render(<WorkspaceSpreadsheetEditor projectId={projectId} resourceId={resourceId} onBack={vi.fn()} />);
+    await act(async () => {
+      await vi.dynamicImportSettled();
+    });
+
+    expect(mocks.univerCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ collaboration: true, presets: expect.any(Array) }),
+    );
+    expect(mocks.univerLoad).toHaveBeenCalledWith("official-unit-123", 2);
+    expect(mocks.saveContent).not.toHaveBeenCalled();
+    cleanup();
+    expect(mocks.univerDispose).toHaveBeenCalledTimes(1);
   });
 });

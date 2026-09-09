@@ -687,6 +687,11 @@ export type DocumentCollaborationSession = {
   };
 };
 
+export type SpreadsheetCollaborationSession = Omit<DocumentCollaborationSession, "resource_type"> & {
+  resource_type: "spreadsheet";
+  unit_id: string;
+};
+
 export type WorkspaceContents = {
   folders: WorkspaceFolder[];
   files: WorkspaceFile[];

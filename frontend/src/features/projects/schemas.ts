@@ -539,6 +539,23 @@ export const documentCollaborationSessionSchema = z.object({
   }),
 });
 
+export const spreadsheetCollaborationSessionSchema = z.object({
+  resource_type: z.literal("spreadsheet"),
+  project_id: z.uuid(),
+  resource_id: z.uuid(),
+  room: z.string().min(1),
+  endpoint: z.string().min(1),
+  unit_id: z.string().min(1),
+  ready: z.boolean(),
+  service: z.object({
+    configured: z.boolean(),
+    reachable: z.boolean(),
+    required: z.array(z.string()),
+    url: z.string().nullable(),
+    detail: z.string().nullable(),
+  }),
+});
+
 export const workspaceContentsSchema = z.object({
   folders: z.array(workspaceFolderSchema),
   files: z.array(workspaceFileSchema),
