@@ -61,6 +61,7 @@ import {
   workspaceFileSchema,
   workspaceNativeResourceSchema,
   workspaceNativeResourcesSchema,
+  documentCollaborationSessionSchema,
 } from "./schemas";
 import type {
   PhaseMutationPayload,
@@ -130,7 +131,25 @@ import type {
   WorkspaceNativeResourceRenamePayload,
   WorkspaceNativeResourceTaskLinkPayload,
   WorkspaceResourceKind,
+  DocumentCollaborationSession,
 } from "./types";
+
+export async function getDocumentCollaborationSession(
+  token: string,
+  projectId: string,
+  documentId: string,
+): Promise<DocumentCollaborationSession> {
+  const data = await apiRequest<unknown>(
+    `/collaboration/projects/${projectId}/documents/${documentId}/session`,
+    {},
+    token,
+  );
+  const result = documentCollaborationSessionSchema.safeParse(data);
+  if (!result.success) {
+    throw new ApiError("Document collaboration session could not be loaded.", 500);
+  }
+  return result.data;
+}
 
 export async function listProjects(token: string): Promise<ProjectSummary[]> {
   const data = await apiRequest<unknown>("/projects", {}, token);

@@ -44,6 +44,7 @@ import {
   getProjectSetup,
   getProjectSetupBudget,
   getWorkspaceNativeResource,
+  getDocumentCollaborationSession,
   getWorkspaceContents,
   listAttention,
   listMyWork,
@@ -154,6 +155,8 @@ export const projectSetupDocumentCategoriesQueryKey = (projectId: string) => ["p
 export const workspaceContentsQueryKey = (projectId: string, folderId: string | null) => ["projects", projectId, "workspace", folderId ?? "root"] as const;
 export const workspaceNativeResourceQueryKey = (projectId: string, kind: WorkspaceResourceKind, resourceId: string) =>
   ["projects", projectId, "workspace", kind, resourceId] as const;
+export const documentCollaborationSessionQueryKey = (projectId: string, documentId: string) =>
+  ["projects", projectId, "collaboration", "documents", documentId] as const;
 export const projectMembersQueryKey = (projectId: string) => ["projects", projectId, "members"] as const;
 export const phaseMembersQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "members"] as const;
 export const tasksQueryKey = (projectId: string, phaseId: string) => ["projects", projectId, "phases", phaseId, "tasks"] as const;
@@ -638,6 +641,24 @@ export function useWorkspaceNativeResourceQuery(projectId: string, kind: Workspa
     queryKey: workspaceNativeResourceQueryKey(projectId, kind, resourceId ?? "missing"),
     queryFn: () => getWorkspaceNativeResource(requireToken(token), projectId, kind, resourceId ?? ""),
     enabled: status === "authenticated" && Boolean(token) && Boolean(resourceId),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useDocumentCollaborationSessionQuery(projectId: string, documentId: string | null) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: documentCollaborationSessionQueryKey(projectId, documentId ?? "missing"),
+    queryFn: () => getDocumentCollaborationSession(requireToken(token), projectId, documentId ?? ""),
+    enabled: status === "authenticated" && Boolean(token) && Boolean(documentId),
     retry: false,
   });
 

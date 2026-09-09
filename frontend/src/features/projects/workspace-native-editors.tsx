@@ -1,7 +1,11 @@
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import StarterKit from "@tiptap/starter-kit";
+import { HocuspocusProvider, WebSocketStatus } from "@hocuspocus/provider";
 import { ArrowLeft, Bold, Heading1, Heading2, Italic, List, ListOrdered, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as Y from "yjs";
 
 import { ErrorState } from "@/components/common/error-state";
 import { LoadingState } from "@/components/common/loading-state";
@@ -12,11 +16,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/features/auth/api";
+import { useAuth } from "@/features/auth/hooks";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 import { cn } from "@/lib/utils";
 
 import {
   useRenameWorkspaceNativeResourceMutation,
+  useDocumentCollaborationSessionQuery,
   useUpdateWorkspaceNativeResourceContentMutation,
   useWorkspaceNativeResourceQuery,
 } from "./hooks";
@@ -35,18 +41,48 @@ const emptyDocument: JSONContent = {
 };
 
 export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: WorkspaceNativeEditorProps) {
+  const { token, user } = useAuth();
   const query = useWorkspaceNativeResourceQuery(projectId, "documents", resourceId);
+  const collaborationQuery = useDocumentCollaborationSessionQuery(projectId, resourceId);
   const renameMutation = useRenameWorkspaceNativeResourceMutation(projectId, "documents");
   const saveMutation = useUpdateWorkspaceNativeResourceContentMutation(projectId, "documents", resourceId);
   const [title, setTitle] = useState("");
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [actionError, setActionError] = useState<string | null>(null);
-  const saveDraftRef = useRef<((content: Record<string, unknown>) => Promise<void>) | null>(null);
+  const [connectionState, setConnectionState] = useState<"connecting" | "online" | "offline" | "error">("connecting");
+
+  const collaborationEndpoint = collaborationQuery.data?.endpoint ?? null;
+  const collaborationRoom = collaborationQuery.data?.room ?? null;
+  const collaborationKey = `${projectId}:${resourceId}`;
+  const collaborative = Boolean(collaborationEndpoint && collaborationRoom && token);
+  const ydoc = useMemo(() => (collaborative && collaborationKey ? new Y.Doc() : null), [collaborationKey, collaborative]);
+  const provider = useMemo(() => {
+    if (!ydoc || !collaborationEndpoint || !collaborationRoom || !token) {
+      return null;
+    }
+    return new HocuspocusProvider({
+      url: collaborationEndpoint,
+      name: collaborationRoom,
+      document: ydoc,
+      token,
+    });
+  }, [collaborationEndpoint, collaborationRoom, token, ydoc]);
 
   const editor = useEditor({
-    extensions: [StarterKit],
-    content: emptyDocument,
+    extensions: [
+      StarterKit.configure({ undoRedo: collaborative ? false : undefined }),
+      ...(provider && ydoc
+        ? [
+            Collaboration.configure({ document: ydoc }),
+            CollaborationCaret.configure({
+              provider,
+              user: { name: user?.name ?? "SENSES user", color: "#c92a2a" },
+            }),
+          ]
+        : []),
+    ],
+    content: collaborative ? undefined : emptyDocument,
     editorProps: {
       attributes: {
         "aria-label": "Document editor",
@@ -55,12 +91,17 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
       },
     },
     onUpdate: ({ editor: currentEditor }) => {
+      if (collaborative) {
+        setSaveState("saved");
+        setActionError(null);
+        return;
+      }
       const nextContent = currentEditor.getJSON() as Record<string, unknown>;
       setDraft(nextContent);
       setSaveState("dirty");
       setActionError(null);
     },
-  });
+  }, [provider, ydoc, collaborative, user?.name]);
 
   const content = useMemo(() => normalizeDocumentContent(query.data?.content), [query.data?.content]);
 
@@ -69,6 +110,7 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
       setSaveState("saving");
       try {
         await saveMutation.mutateAsync({ content: nextContent });
+        setDraft(null);
         setSaveState("saved");
       } catch (error) {
         setSaveState("failed");
@@ -79,36 +121,77 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
   );
 
   useEffect(() => {
-    saveDraftRef.current = saveDraft;
-  }, [saveDraft]);
-
-  useEffect(() => {
     if (!query.data || !editor) {
       return;
     }
     setTitle(query.data.name);
+    if (collaborative) {
+      return;
+    }
     editor.commands.setContent(content, { emitUpdate: false });
     setDraft(null);
     setSaveState("idle");
-  }, [content, editor, query.data]);
+  }, [collaborative, content, editor, query.data]);
 
   useEffect(() => {
-    if (!draft) {
+    if (!provider || !ydoc || !editor || !query.data) {
+      if (!collaborationQuery.isLoading && !collaborative) {
+        setConnectionState("offline");
+      }
+      return undefined;
+    }
+
+    setConnectionState("connecting");
+    const handleSynced = () => {
+      // Only seed an empty shared document. Existing Yjs state always wins
+      // over the JSONB checkpoint to prevent a stale client overwrite.
+      if (ydoc.getXmlFragment("default").length === 0) {
+        editor.commands.setContent(content, { emitUpdate: false });
+      }
+      setConnectionState("online");
+      setSaveState("saved");
+    };
+    const handleStatus = ({ status }: { status: WebSocketStatus }) => {
+      setConnectionState(status === WebSocketStatus.Connected ? "online" : status === WebSocketStatus.Disconnected ? "offline" : "connecting");
+    };
+    const handleAuthenticationFailed = () => {
+      setConnectionState("error");
+      setActionError("Document collaboration authorization was rejected.");
+    };
+    provider.on("synced", handleSynced);
+    provider.on("status", handleStatus);
+    provider.on("authenticationFailed", handleAuthenticationFailed);
+    return () => {
+      provider.off("synced", handleSynced);
+      provider.off("status", handleStatus);
+      provider.off("authenticationFailed", handleAuthenticationFailed);
+      provider.destroy();
+    };
+  }, [collaborationQuery.isLoading, collaborative, content, editor, provider, query.data, ydoc]);
+
+  useEffect(() => {
+    if (!draft || collaborative) {
       return;
     }
     const timeout = window.setTimeout(() => {
       void saveDraft(draft);
     }, 800);
     return () => window.clearTimeout(timeout);
-  }, [draft, saveDraft]);
+  }, [collaborative, draft, saveDraft]);
 
   useEffect(() => {
     return () => {
-      if (draft && saveDraftRef.current) {
-        void saveDraftRef.current(draft);
+      if (draft && !collaborative) {
+        void saveDraft(draft);
       }
     };
-  }, [draft]);
+  }, [collaborative, draft, saveDraft]);
+
+  useEffect(() => {
+    if (collaborationQuery.error) {
+      setActionError(nativeEditorErrorMessage(collaborationQuery.error));
+    }
+  }, [collaborationQuery.error]);
 
   async function rename() {
     const name = title.trim();
@@ -134,6 +217,7 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
       onBack={onBack}
       queryError={query.error}
       saveState={saveState}
+      statusLabel={collaborative ? (connectionState === "online" ? "Collaborative" : connectionState === "offline" ? "Offline" : "Connecting") : "Local fallback"}
       titleControls={
         <TitleControls disabled={renameMutation.isPending} label="Document Name" onRename={rename} setTitle={setTitle} title={title} />
       }
@@ -377,6 +461,7 @@ function NativeEditorShell({
   onBack,
   queryError,
   saveState,
+  statusLabel,
   titleControls,
 }: {
   actionError: string | null;
@@ -388,6 +473,7 @@ function NativeEditorShell({
   onBack: () => void;
   queryError: unknown;
   saveState: SaveState;
+  statusLabel?: string;
   titleControls: React.ReactNode;
 }) {
   return (
@@ -398,7 +484,10 @@ function NativeEditorShell({
             <ArrowLeft className="size-4" aria-hidden="true" />
             Workspace
           </Button>
-          <SaveBadge state={saveState} />
+          <div className="flex items-center gap-2">
+            {statusLabel ? <Badge variant="outline">{statusLabel}</Badge> : null}
+            <SaveBadge state={saveState} />
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <CardTitle className="break-words">{name}</CardTitle>

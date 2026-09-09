@@ -671,6 +671,22 @@ export type WorkspaceDocument = WorkspaceNativeResource;
 
 export type WorkspaceSpreadsheet = WorkspaceNativeResource;
 
+export type DocumentCollaborationSession = {
+  resource_type: "document";
+  project_id: string;
+  resource_id: string;
+  room: string;
+  endpoint: string | null;
+  ready: boolean;
+  service: {
+    configured: boolean;
+    reachable: boolean;
+    required: string[];
+    url: string | null;
+    detail: string | null;
+  };
+};
+
 export type WorkspaceContents = {
   folders: WorkspaceFolder[];
   files: WorkspaceFile[];

@@ -523,6 +523,22 @@ export const workspaceNativeResourceSchema = z.object({
 
 export const workspaceNativeResourcesSchema = z.array(workspaceNativeResourceSchema);
 
+export const documentCollaborationSessionSchema = z.object({
+  resource_type: z.literal("document"),
+  project_id: z.uuid(),
+  resource_id: z.uuid(),
+  room: z.string().min(1),
+  endpoint: z.string().nullable(),
+  ready: z.boolean(),
+  service: z.object({
+    configured: z.boolean(),
+    reachable: z.boolean(),
+    required: z.array(z.string()),
+    url: z.string().nullable(),
+    detail: z.string().nullable(),
+  }),
+});
+
 export const workspaceContentsSchema = z.object({
   folders: z.array(workspaceFolderSchema),
   files: z.array(workspaceFileSchema),
