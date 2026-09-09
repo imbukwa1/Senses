@@ -111,6 +111,40 @@ def list_attention(
             projects.budget_allocated
           HAVING COALESCE(SUM(phases.budget_spent), 0) > projects.budget_allocated
         ),
+        risk_issue_attention AS (
+          SELECT
+            'project'::TEXT AS type,
+            project_risks_issues.item_type || ': ' || project_risks_issues.title AS reason,
+            projects.id AS project_id,
+            projects.name AS project_name,
+            projects.code AS project_code,
+            NULL::UUID AS phase_id,
+            NULL::TEXT AS phase_name,
+            NULL::UUID AS task_id,
+            NULL::TEXT AS task_name,
+            owners.id AS assigned_person_id,
+            owners.name AS assigned_person_name,
+            owners.email AS assigned_person_email,
+            NULL::DATE AS due_date,
+            CASE
+              WHEN project_risks_issues.impact = 'High' THEN 'At risk'
+              ELSE 'Needs attention'
+            END AS severity,
+            2 AS sort_group
+          FROM project_risks_issues
+          JOIN projects
+            ON projects.id = project_risks_issues.project_id
+          JOIN current_memberships
+            ON current_memberships.project_id = projects.id
+          LEFT JOIN users AS owners
+            ON owners.id = project_risks_issues.owner_id
+          WHERE projects.archived_at IS NULL
+            AND project_risks_issues.status IN ('Open', 'In Progress')
+            AND (
+              project_risks_issues.impact = 'High'
+              OR project_risks_issues.likelihood = 'High'
+            )
+        ),
         phase_attention AS (
           SELECT
             'phase'::TEXT AS type,
@@ -207,6 +241,9 @@ def list_attention(
           UNION ALL
           SELECT *
           FROM budget_attention
+          UNION ALL
+          SELECT *
+          FROM risk_issue_attention
         ) AS attention_items
         ORDER BY
           sort_group,

@@ -323,6 +323,85 @@ export type ProjectSetupResourcePayload = {
   notes: string | null;
 };
 
+export type ProjectSetupRiskIssueType = "Risk" | "Issue";
+export type ProjectSetupRiskLevel = "Low" | "Medium" | "High";
+export type ProjectSetupRiskStatus = "Open" | "In Progress" | "Mitigated" | "Closed";
+
+export type ProjectSetupRiskIssue = {
+  id: string;
+  project_id: string;
+  item_type: ProjectSetupRiskIssueType;
+  title: string;
+  likelihood: ProjectSetupRiskLevel;
+  impact: ProjectSetupRiskLevel;
+  mitigation: string | null;
+  owner_id: string | null;
+  owner: ProjectLead | null;
+  status: ProjectSetupRiskStatus;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectSetupRiskIssuePayload = {
+  item_type: ProjectSetupRiskIssueType;
+  title: string;
+  likelihood: ProjectSetupRiskLevel;
+  impact: ProjectSetupRiskLevel;
+  mitigation: string | null;
+  owner_id: string | null;
+  status: ProjectSetupRiskStatus;
+};
+
+export type ProjectSetupAssumptionConstraintType = "Assumption" | "Constraint";
+
+export type ProjectSetupAssumptionConstraint = {
+  id: string;
+  project_id: string;
+  entry_type: ProjectSetupAssumptionConstraintType;
+  description: string;
+  impact_notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectSetupAssumptionConstraintPayload = {
+  entry_type: ProjectSetupAssumptionConstraintType;
+  description: string;
+  impact_notes: string | null;
+};
+
+export type ProjectSetupDependencyType = "Internal" | "External";
+
+export type ProjectSetupDependency = {
+  id: string;
+  project_id: string;
+  description: string;
+  dependency_type: ProjectSetupDependencyType;
+  related_phase_id: string | null;
+  related_phase_name: string | null;
+  related_task_id: string | null;
+  related_task_name: string | null;
+  responsible_user_id: string | null;
+  responsible_person: ProjectLead | null;
+  responsible_party: string | null;
+  required_by_date: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectSetupDependencyPayload = {
+  description: string;
+  dependency_type: ProjectSetupDependencyType;
+  related_phase_id: string | null;
+  related_task_id: string | null;
+  responsible_user_id: string | null;
+  responsible_party: string | null;
+  required_by_date: string | null;
+};
+
 export type Task = {
   id: string;
   project_id: string;

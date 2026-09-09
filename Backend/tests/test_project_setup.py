@@ -303,6 +303,87 @@ def test_project_setup_milestones_deliverables_and_resources_use_live_records() 
         database.close()
 
 
+def test_project_setup_risks_assumptions_and_dependencies_use_live_records() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Setup Planning PM", _unique_email("setup.planning.pm"))
+        team = _create_auth_user(database, "Setup Planning Team", _unique_email("setup.planning.team"))
+        project = _create_project(database, pm["id"], "Setup Planning Project")
+        phase = _create_phase(database, project["id"], pm["id"], "Planning Phase")
+        task = _create_task(database, phase["id"], pm["id"], "Confirm dependency")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], team["id"], "Team Member")
+        app = create_app(settings=_settings(os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            pm_token = _login(client, pm["email"])
+            team_token = _login(client, team["email"])
+            risk = client.post(
+                f"/projects/{project['id']}/setup/risks-issues",
+                headers=_auth_header(pm_token),
+                json={
+                    "item_type": "Risk",
+                    "title": "Partner sign-off may slip",
+                    "likelihood": "High",
+                    "impact": "Medium",
+                    "mitigation": "Weekly confirmation with partner lead.",
+                    "owner_id": str(team["id"]),
+                    "status": "Open",
+                },
+            )
+            assumption = client.post(
+                f"/projects/{project['id']}/setup/assumptions-constraints",
+                headers=_auth_header(pm_token),
+                json={
+                    "entry_type": "Assumption",
+                    "description": "Partner data will be available before fieldwork.",
+                    "impact_notes": "Late data affects planning.",
+                },
+            )
+            dependency = client.post(
+                f"/projects/{project['id']}/setup/dependencies",
+                headers=_auth_header(pm_token),
+                json={
+                    "description": "Partner approves participant list.",
+                    "dependency_type": "External",
+                    "related_phase_id": str(phase["id"]),
+                    "related_task_id": str(task["id"]),
+                    "responsible_user_id": str(team["id"]),
+                    "responsible_party": "Partner focal point",
+                    "required_by_date": "2026-05-31",
+                },
+            )
+            setup = client.get(f"/projects/{project['id']}/setup", headers=_auth_header(pm_token))
+            team_risks = client.get(f"/projects/{project['id']}/setup/risks-issues", headers=_auth_header(team_token))
+            team_create_dependency = client.post(
+                f"/projects/{project['id']}/setup/dependencies",
+                headers=_auth_header(team_token),
+                json={"description": "Denied", "dependency_type": "Internal"},
+            )
+            attention = client.get("/attention", headers=_auth_header(pm_token))
+
+        assert risk.status_code == 201
+        assert risk.json()["owner_id"] == str(team["id"])
+        assert risk.json()["owner"]["name"] == team["name"]
+        assert assumption.status_code == 201
+        assert assumption.json()["description"] == "Partner data will be available before fieldwork."
+        assert dependency.status_code == 201
+        assert dependency.json()["related_phase_id"] == str(phase["id"])
+        assert dependency.json()["related_task_id"] == str(task["id"])
+        assert dependency.json()["responsible_user_id"] == str(team["id"])
+        assert _section(setup.json(), "risks_issues")["status"] == "Complete"
+        assert _section(setup.json(), "assumptions_constraints")["status"] == "Complete"
+        assert _section(setup.json(), "dependencies")["status"] == "Complete"
+        assert team_risks.status_code == 200
+        assert len(team_risks.json()) == 1
+        assert team_create_dependency.status_code == 403
+        assert attention.status_code == 200
+        assert "Risk: Partner sign-off may slip" in [item["reason"] for item in attention.json()]
+    finally:
+        database.close()
+
+
 def _section(setup: dict, key: str) -> dict:
     return next(section for section in setup["sections"] if section["key"] == key)
 

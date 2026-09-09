@@ -37,6 +37,11 @@ UserFacingProjectHealth = Literal["On track", "Needs attention", "At risk", "Com
 ProjectSetupSectionStatus = Literal["Complete", "In Progress", "Not Started", "Not Applicable"]
 ProjectSetupMilestoneStatus = Literal["Not Started", "In Progress", "Complete"]
 ProjectSetupResourceType = Literal["People", "Equipment", "Materials", "Facilities", "Technology", "Other"]
+ProjectSetupRiskIssueType = Literal["Risk", "Issue"]
+ProjectSetupRiskLevel = Literal["Low", "Medium", "High"]
+ProjectSetupRiskStatus = Literal["Open", "In Progress", "Mitigated", "Closed"]
+ProjectSetupAssumptionConstraintType = Literal["Assumption", "Constraint"]
+ProjectSetupDependencyType = Literal["Internal", "External"]
 
 PROJECT_SETUP_SECTIONS: tuple[tuple[str, str, bool], ...] = (
     ("project_overview", "Project Overview", False),
@@ -607,6 +612,38 @@ class ProjectSetupResourceCreateRequest(BaseModel):
     notes: str | None = None
 
 
+class ProjectSetupRiskIssueCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_type: ProjectSetupRiskIssueType
+    title: str = Field(min_length=1, max_length=300)
+    likelihood: ProjectSetupRiskLevel
+    impact: ProjectSetupRiskLevel
+    mitigation: str | None = None
+    owner_id: UUID | None = None
+    status: ProjectSetupRiskStatus = "Open"
+
+
+class ProjectSetupAssumptionConstraintCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entry_type: ProjectSetupAssumptionConstraintType
+    description: str = Field(min_length=1)
+    impact_notes: str | None = None
+
+
+class ProjectSetupDependencyCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    description: str = Field(min_length=1)
+    dependency_type: ProjectSetupDependencyType
+    related_phase_id: UUID | None = None
+    related_task_id: UUID | None = None
+    responsible_user_id: UUID | None = None
+    responsible_party: str | None = Field(default=None, max_length=255)
+    required_by_date: date | None = None
+
+
 class ProjectSetupLeadResponse(BaseModel):
     id: UUID
     name: str
@@ -688,6 +725,51 @@ class ProjectSetupResourceResponse(BaseModel):
     resource_type: str
     name: str
     notes: str | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupRiskIssueResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    item_type: str
+    title: str
+    likelihood: str
+    impact: str
+    mitigation: str | None
+    owner_id: UUID | None
+    owner: ProjectSetupLeadResponse | None
+    status: str
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupAssumptionConstraintResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    entry_type: str
+    description: str
+    impact_notes: str | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectSetupDependencyResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    description: str
+    dependency_type: str
+    related_phase_id: UUID | None
+    related_phase_name: str | None
+    related_task_id: UUID | None
+    related_task_name: str | None
+    responsible_user_id: UUID | None
+    responsible_person: ProjectSetupLeadResponse | None
+    responsible_party: str | None
+    required_by_date: date | None
     created_by: UUID | None
     created_at: datetime
     updated_at: datetime
@@ -1481,8 +1563,8 @@ def update_project_setup_objectives_outcomes(
             success_criteria = %s,
             key_indicators = %s,
             updated_at = NOW()
-        WHERE id = %s
-          AND archived_at IS NULL
+        WHERE projects.id = %s
+          AND projects.archived_at IS NULL
         """,
         (
             normalize_optional_text(payload.objectives),
@@ -1517,8 +1599,8 @@ def update_project_setup_work_plan(
             work_plan_details = %s,
             key_activities = %s,
             updated_at = NOW()
-        WHERE id = %s
-          AND archived_at IS NULL
+        WHERE projects.id = %s
+          AND projects.archived_at IS NULL
         """,
         (
             payload.start_date,
@@ -1735,6 +1817,153 @@ def create_project_setup_resource(
         (project_id, payload.resource_type, name, normalize_optional_text(payload.notes), current_user.id),
     )
     return project_setup_resource_to_response(fetch_project_setup_resource_or_404(session, project_id, row["id"]))
+
+
+@router.get("/{project_id}/setup/risks-issues", response_model=list[ProjectSetupRiskIssueResponse])
+def list_project_setup_risks_issues(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupRiskIssueResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [project_setup_risk_issue_to_response(row) for row in fetch_project_setup_risks_issues(session, project_id)]
+
+
+@router.post("/{project_id}/setup/risks-issues", response_model=ProjectSetupRiskIssueResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_risk_issue(
+    project_id: UUID,
+    payload: ProjectSetupRiskIssueCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupRiskIssueResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if payload.owner_id is not None:
+        fetch_project_member(session, project_id, payload.owner_id)
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Risk or issue is required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_risks_issues (
+          project_id, item_type, title, likelihood, impact, mitigation, owner_id, status, created_by
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            project_id,
+            payload.item_type,
+            title,
+            payload.likelihood,
+            payload.impact,
+            normalize_optional_text(payload.mitigation),
+            payload.owner_id,
+            payload.status,
+            current_user.id,
+        ),
+    )
+    return project_setup_risk_issue_to_response(fetch_project_setup_risk_issue_or_404(session, project_id, row["id"]))
+
+
+@router.get("/{project_id}/setup/assumptions-constraints", response_model=list[ProjectSetupAssumptionConstraintResponse])
+def list_project_setup_assumptions_constraints(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupAssumptionConstraintResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [ProjectSetupAssumptionConstraintResponse(**row) for row in fetch_project_setup_assumptions_constraints(session, project_id)]
+
+
+@router.post("/{project_id}/setup/assumptions-constraints", response_model=ProjectSetupAssumptionConstraintResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_assumption_constraint(
+    project_id: UUID,
+    payload: ProjectSetupAssumptionConstraintCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupAssumptionConstraintResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    description = payload.description.strip()
+    if not description:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Assumption or constraint is required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_assumptions_constraints (project_id, entry_type, description, impact_notes, created_by)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING *
+        """,
+        (project_id, payload.entry_type, description, normalize_optional_text(payload.impact_notes), current_user.id),
+    )
+    return ProjectSetupAssumptionConstraintResponse(**row)
+
+
+@router.get("/{project_id}/setup/dependencies", response_model=list[ProjectSetupDependencyResponse])
+def list_project_setup_dependencies(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectSetupDependencyResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    if fetch_project_setup_project(session, project_id) is None:
+        raise_project_not_found()
+    return [project_setup_dependency_to_response(row) for row in fetch_project_setup_dependencies(session, project_id)]
+
+
+@router.post("/{project_id}/setup/dependencies", response_model=ProjectSetupDependencyResponse, status_code=status.HTTP_201_CREATED)
+def create_project_setup_dependency(
+    project_id: UUID,
+    payload: ProjectSetupDependencyCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupDependencyResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    if payload.related_phase_id is not None:
+        ensure_phase_in_project(session, project_id, payload.related_phase_id)
+    if payload.related_task_id is not None:
+        fetch_task_in_project_or_404(session, project_id, payload.related_task_id)
+    if payload.responsible_user_id is not None:
+        fetch_project_member(session, project_id, payload.responsible_user_id)
+    description = payload.description.strip()
+    if not description:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Dependency is required")
+    row = session.fetch_one(
+        """
+        INSERT INTO project_dependencies (
+          project_id,
+          description,
+          dependency_type,
+          related_phase_id,
+          related_task_id,
+          responsible_user_id,
+          responsible_party,
+          required_by_date,
+          created_by
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            project_id,
+            description,
+            payload.dependency_type,
+            payload.related_phase_id,
+            payload.related_task_id,
+            payload.responsible_user_id,
+            normalize_optional_text(payload.responsible_party),
+            payload.required_by_date,
+            current_user.id,
+        ),
+    )
+    return project_setup_dependency_to_response(fetch_project_setup_dependency_or_404(session, project_id, row["id"]))
 
 
 @router.get("/{project_id}/dashboard", response_model=ProjectDashboardResponse)
@@ -4579,6 +4808,160 @@ def fetch_project_setup_resource_or_404(session: DatabaseSession, project_id: UU
     return row
 
 
+def fetch_project_setup_risks_issues(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          project_risks_issues.id,
+          project_risks_issues.project_id,
+          project_risks_issues.item_type,
+          project_risks_issues.title,
+          project_risks_issues.likelihood,
+          project_risks_issues.impact,
+          project_risks_issues.mitigation,
+          project_risks_issues.owner_id,
+          owners.name AS owner_name,
+          owners.email AS owner_email,
+          project_risks_issues.status,
+          project_risks_issues.created_by,
+          project_risks_issues.created_at,
+          project_risks_issues.updated_at
+        FROM project_risks_issues
+        LEFT JOIN users AS owners ON owners.id = project_risks_issues.owner_id
+        WHERE project_risks_issues.project_id = %s
+        ORDER BY project_risks_issues.created_at, project_risks_issues.id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_risk_issue_or_404(session: DatabaseSession, project_id: UUID, risk_issue_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT
+          project_risks_issues.id,
+          project_risks_issues.project_id,
+          project_risks_issues.item_type,
+          project_risks_issues.title,
+          project_risks_issues.likelihood,
+          project_risks_issues.impact,
+          project_risks_issues.mitigation,
+          project_risks_issues.owner_id,
+          owners.name AS owner_name,
+          owners.email AS owner_email,
+          project_risks_issues.status,
+          project_risks_issues.created_by,
+          project_risks_issues.created_at,
+          project_risks_issues.updated_at
+        FROM project_risks_issues
+        LEFT JOIN users AS owners ON owners.id = project_risks_issues.owner_id
+        WHERE project_risks_issues.project_id = %s
+          AND project_risks_issues.id = %s
+        """,
+        (project_id, risk_issue_id),
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project risk or issue not found")
+    return row
+
+
+def fetch_project_setup_assumptions_constraints(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT id, project_id, entry_type, description, impact_notes, created_by, created_at, updated_at
+        FROM project_assumptions_constraints
+        WHERE project_id = %s
+        ORDER BY entry_type, created_at, id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_dependencies(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          project_dependencies.id,
+          project_dependencies.project_id,
+          project_dependencies.description,
+          project_dependencies.dependency_type,
+          project_dependencies.related_phase_id,
+          phases.name AS related_phase_name,
+          project_dependencies.related_task_id,
+          tasks.name AS related_task_name,
+          project_dependencies.responsible_user_id,
+          responsible_users.name AS responsible_user_name,
+          responsible_users.email AS responsible_user_email,
+          project_dependencies.responsible_party,
+          project_dependencies.required_by_date,
+          project_dependencies.created_by,
+          project_dependencies.created_at,
+          project_dependencies.updated_at
+        FROM project_dependencies
+        LEFT JOIN phases
+          ON phases.id = project_dependencies.related_phase_id
+         AND phases.project_id = project_dependencies.project_id
+        LEFT JOIN tasks
+          ON tasks.id = project_dependencies.related_task_id
+         AND EXISTS (
+           SELECT 1
+           FROM phases AS task_phases
+           WHERE task_phases.id = tasks.phase_id
+             AND task_phases.project_id = project_dependencies.project_id
+         )
+        LEFT JOIN users AS responsible_users
+          ON responsible_users.id = project_dependencies.responsible_user_id
+        WHERE project_dependencies.project_id = %s
+        ORDER BY project_dependencies.required_by_date NULLS LAST, project_dependencies.created_at, project_dependencies.id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_setup_dependency_or_404(session: DatabaseSession, project_id: UUID, dependency_id: UUID) -> Row:
+    row = session.fetch_one(
+        """
+        SELECT
+          project_dependencies.id,
+          project_dependencies.project_id,
+          project_dependencies.description,
+          project_dependencies.dependency_type,
+          project_dependencies.related_phase_id,
+          phases.name AS related_phase_name,
+          project_dependencies.related_task_id,
+          tasks.name AS related_task_name,
+          project_dependencies.responsible_user_id,
+          responsible_users.name AS responsible_user_name,
+          responsible_users.email AS responsible_user_email,
+          project_dependencies.responsible_party,
+          project_dependencies.required_by_date,
+          project_dependencies.created_by,
+          project_dependencies.created_at,
+          project_dependencies.updated_at
+        FROM project_dependencies
+        LEFT JOIN phases
+          ON phases.id = project_dependencies.related_phase_id
+         AND phases.project_id = project_dependencies.project_id
+        LEFT JOIN tasks
+          ON tasks.id = project_dependencies.related_task_id
+         AND EXISTS (
+           SELECT 1
+           FROM phases AS task_phases
+           WHERE task_phases.id = tasks.phase_id
+             AND task_phases.project_id = project_dependencies.project_id
+         )
+        LEFT JOIN users AS responsible_users
+          ON responsible_users.id = project_dependencies.responsible_user_id
+        WHERE project_dependencies.project_id = %s
+          AND project_dependencies.id = %s
+        """,
+        (project_id, dependency_id),
+    )
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project dependency not found")
+    return row
+
+
 def next_task_deliverable_display_order(session: DatabaseSession, task_id: UUID) -> int:
     row = session.fetch_one(
         """
@@ -4645,6 +5028,58 @@ def project_setup_resource_to_response(row: Row) -> ProjectSetupResourceResponse
     return ProjectSetupResourceResponse(**row)
 
 
+def project_setup_risk_issue_to_response(row: Row) -> ProjectSetupRiskIssueResponse:
+    owner = None
+    if row["owner_id"] is not None:
+        owner = ProjectSetupLeadResponse(
+            id=row["owner_id"],
+            name=row["owner_name"],
+            email=row["owner_email"],
+        )
+    return ProjectSetupRiskIssueResponse(
+        id=row["id"],
+        project_id=row["project_id"],
+        item_type=row["item_type"],
+        title=row["title"],
+        likelihood=row["likelihood"],
+        impact=row["impact"],
+        mitigation=row["mitigation"],
+        owner_id=row["owner_id"],
+        owner=owner,
+        status=row["status"],
+        created_by=row["created_by"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
+def project_setup_dependency_to_response(row: Row) -> ProjectSetupDependencyResponse:
+    responsible_person = None
+    if row["responsible_user_id"] is not None:
+        responsible_person = ProjectSetupLeadResponse(
+            id=row["responsible_user_id"],
+            name=row["responsible_user_name"],
+            email=row["responsible_user_email"],
+        )
+    return ProjectSetupDependencyResponse(
+        id=row["id"],
+        project_id=row["project_id"],
+        description=row["description"],
+        dependency_type=row["dependency_type"],
+        related_phase_id=row["related_phase_id"],
+        related_phase_name=row["related_phase_name"],
+        related_task_id=row["related_task_id"],
+        related_task_name=row["related_task_name"],
+        responsible_user_id=row["responsible_user_id"],
+        responsible_person=responsible_person,
+        responsible_party=row["responsible_party"],
+        required_by_date=row["required_by_date"],
+        created_by=row["created_by"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) -> Row:
     return session.fetch_one(
         """
@@ -4696,6 +5131,21 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
           SELECT COUNT(*) AS setup_resource_count
           FROM project_resources
           WHERE project_id = %(project_id)s
+        ),
+        risk_issue_counts AS (
+          SELECT COUNT(*) AS risk_issue_count
+          FROM project_risks_issues
+          WHERE project_id = %(project_id)s
+        ),
+        assumption_constraint_counts AS (
+          SELECT COUNT(*) AS assumption_constraint_count
+          FROM project_assumptions_constraints
+          WHERE project_id = %(project_id)s
+        ),
+        dependency_counts AS (
+          SELECT COUNT(*) AS dependency_count
+          FROM project_dependencies
+          WHERE project_id = %(project_id)s
         )
         SELECT
           project_phase_counts.phase_count,
@@ -4711,6 +5161,9 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
           member_counts.member_count,
           milestone_counts.milestone_count,
           resource_counts.setup_resource_count,
+          risk_issue_counts.risk_issue_count,
+          assumption_constraint_counts.assumption_constraint_count,
+          dependency_counts.dependency_count,
           projects.budget_allocated AS project_budget_allocated
         FROM projects
         CROSS JOIN project_phase_counts
@@ -4720,6 +5173,9 @@ def fetch_project_setup_live_counts(session: DatabaseSession, project_id: UUID) 
         CROSS JOIN member_counts
         CROSS JOIN milestone_counts
         CROSS JOIN resource_counts
+        CROSS JOIN risk_issue_counts
+        CROSS JOIN assumption_constraint_counts
+        CROSS JOIN dependency_counts
         WHERE projects.id = %(project_id)s
         """,
         {"project_id": project_id},
@@ -4789,6 +5245,12 @@ def project_setup_live_status(
         if has_project_budget:
             return "Complete", budget_count, "projects/phases budget fields"
         return ("In Progress" if budget_count else "Not Started", budget_count, "projects/phases budget fields")
+    if section_key == "risks_issues":
+        return project_setup_status_from_count(int(live.get("risk_issue_count") or 0), 1, "project_risks_issues")
+    if section_key == "assumptions_constraints":
+        return project_setup_status_from_count(int(live.get("assumption_constraint_count") or 0), 1, "project_assumptions_constraints")
+    if section_key == "dependencies":
+        return project_setup_status_from_count(int(live.get("dependency_count") or 0), 1, "project_dependencies")
     if section_key == "documents_attachments":
         document_count = int(live.get("file_count") or 0) + int(live.get("document_count") or 0) + int(live.get("spreadsheet_count") or 0)
         return project_setup_status_from_count(document_count, 1, "task_files/workspace_documents/workspace_spreadsheets")
@@ -4913,6 +5375,13 @@ def fetch_project_health_reasons(session: DatabaseSession | None, project_id: UU
             AND projects.archived_at IS NULL
           GROUP BY projects.id, projects.budget_allocated
         ),
+        open_project_risks AS (
+          SELECT COUNT(*) AS count, MIN(title) AS first_title
+          FROM project_risks_issues
+          WHERE project_id = %(project_id)s
+            AND status IN ('Open', 'In Progress')
+            AND (impact = 'High' OR likelihood = 'High')
+        ),
         project_deadline AS (
           SELECT end_date, status
           FROM projects
@@ -4970,6 +5439,16 @@ def fetch_project_health_reasons(session: DatabaseSession | None, project_id: UU
                 OR project_members.role IN ('PM', 'Finance')
               )
           )
+        UNION ALL
+        SELECT
+          CASE
+            WHEN count = 1 THEN 'Risk/issue: ' || first_title
+            ELSE count || ' high risks/issues are open'
+          END AS reason,
+          'Needs attention' AS severity,
+          5 AS sort_order
+        FROM open_project_risks
+        WHERE count > 0
         ORDER BY sort_order
         """,
         {"project_id": project_id, "user_id": user_id},

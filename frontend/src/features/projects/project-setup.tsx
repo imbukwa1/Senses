@@ -19,14 +19,20 @@ import { cn } from "@/lib/utils";
 
 import {
   useAddPhaseMemberMutation,
+  useCreateProjectSetupAssumptionConstraintMutation,
+  useCreateProjectSetupDependencyMutation,
   useCreateProjectSetupDeliverableMutation,
   useCreateProjectSetupMilestoneMutation,
+  useCreateProjectSetupRiskIssueMutation,
   useCreateProjectSetupResourceMutation,
   usePhaseMembersQuery,
   useProjectMembersQuery,
   useProjectBudgetQuery,
+  useProjectSetupAssumptionsConstraintsQuery,
+  useProjectSetupDependenciesQuery,
   useProjectSetupDeliverablesQuery,
   useProjectSetupMilestonesQuery,
+  useProjectSetupRisksIssuesQuery,
   useProjectSetupResourcesQuery,
   useProjectSetupBudgetQuery,
   useProjectSetupQuery,
@@ -43,9 +49,12 @@ import type {
   DashboardPhase,
   ProjectDashboard,
   ProjectMember,
+  ProjectSetupAssumptionConstraintPayload,
   ProjectSetupBudgetPayload,
+  ProjectSetupDependencyPayload,
   ProjectSetupDeliverablePayload,
   ProjectSetupMilestonePayload,
+  ProjectSetupRiskIssuePayload,
   ProjectSetupResourcePayload,
   ProjectSetupResourceType,
   ProjectSetup,
@@ -352,11 +361,31 @@ function renderFirstPassSection({
   if (activeSection.key === "resources") {
     return <Phase0ResourcesSection canEdit={canEdit} projectId={setup.project_id} />;
   }
+  if (activeSection.key === "risks_issues") {
+    return <Phase0RisksIssuesSection canEdit={canEdit} members={members} projectId={setup.project_id} />;
+  }
+  if (activeSection.key === "assumptions_constraints") {
+    return <Phase0AssumptionsConstraintsSection canEdit={canEdit} projectId={setup.project_id} />;
+  }
+  if (activeSection.key === "dependencies") {
+    return <Phase0DependenciesSection canEdit={canEdit} dashboard={dashboard} members={members} projectId={setup.project_id} />;
+  }
   return null;
 }
 
 function isFirstPassSection(sectionKey: string) {
-  return ["project_overview", "scope", "objectives_outcomes", "work_plan"].includes(sectionKey);
+  return [
+    "project_overview",
+    "scope",
+    "objectives_outcomes",
+    "work_plan",
+    "milestones",
+    "deliverables",
+    "resources",
+    "risks_issues",
+    "assumptions_constraints",
+    "dependencies",
+  ].includes(sectionKey);
 }
 
 function ProjectOverviewForm({
@@ -901,6 +930,258 @@ function Phase0ResourcesSection({ canEdit, projectId }: { canEdit: boolean; proj
               <p className="font-medium text-foreground">{resource.name}</p>
             </div>
             {resource.notes ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{resource.notes}</p> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Phase0RisksIssuesSection({ canEdit, members, projectId }: { canEdit: boolean; members: ProjectMember[]; projectId: string }) {
+  const risksQuery = useProjectSetupRisksIssuesQuery(projectId);
+  const createRisk = useCreateProjectSetupRiskIssueMutation(projectId);
+  const [form, setForm] = useState<ProjectSetupRiskIssuePayload>({
+    impact: "Medium",
+    item_type: "Risk",
+    likelihood: "Medium",
+    mitigation: null,
+    owner_id: null,
+    status: "Open",
+    title: "",
+  });
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createRisk.mutateAsync({
+      ...form,
+      mitigation: form.mitigation?.trim() || null,
+      title: form.title.trim(),
+    });
+    setForm({ impact: "Medium", item_type: "Risk", likelihood: "Medium", mitigation: null, owner_id: null, status: "Open", title: "" });
+  }
+
+  return (
+    <div className="space-y-4">
+      {canEdit ? (
+        <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Select value={form.item_type} onValueChange={(value) => setForm((current) => ({ ...current, item_type: value as ProjectSetupRiskIssuePayload["item_type"] }))}>
+              <SelectTrigger aria-label="Risk or issue type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {["Risk", "Issue"].map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <SetupInput label="Risk / Issue" value={form.title} onChange={(value) => setForm((current) => ({ ...current, title: value }))} />
+            <Select value={form.likelihood} onValueChange={(value) => setForm((current) => ({ ...current, likelihood: value as ProjectSetupRiskIssuePayload["likelihood"] }))}>
+              <SelectTrigger aria-label="Likelihood"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {["Low", "Medium", "High"].map((level) => <SelectItem key={level} value={level}>{level} likelihood</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={form.impact} onValueChange={(value) => setForm((current) => ({ ...current, impact: value as ProjectSetupRiskIssuePayload["impact"] }))}>
+              <SelectTrigger aria-label="Impact"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {["Low", "Medium", "High"].map((level) => <SelectItem key={level} value={level}>{level} impact</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <MemberSelect label="Owner" members={members} value={form.owner_id} onChange={(value) => setForm((current) => ({ ...current, owner_id: value }))} />
+            <Select value={form.status} onValueChange={(value) => setForm((current) => ({ ...current, status: value as ProjectSetupRiskIssuePayload["status"] }))}>
+              <SelectTrigger aria-label="Risk issue status"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {["Open", "In Progress", "Mitigated", "Closed"].map((statusValue) => <SelectItem key={statusValue} value={statusValue}>{statusValue}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <SetupTextarea label="Mitigation" value={form.mitigation ?? ""} onChange={(value) => setForm((current) => ({ ...current, mitigation: value }))} />
+          <Button type="submit" disabled={!form.title.trim() || createRisk.isPending}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add Risk / Issue
+          </Button>
+          {createRisk.error ? <p className="text-sm text-error">{userFacingErrorMessage(createRisk.error, { action: "risk or issue" })}</p> : null}
+        </form>
+      ) : null}
+      {risksQuery.isLoading ? <LoadingState label="Loading risks and issues" /> : null}
+      {risksQuery.isError ? <ErrorState title="Risks and issues could not be loaded" message={userFacingErrorMessage(risksQuery.error, { action: "risks and issues" })} /> : null}
+      {risksQuery.data?.length === 0 ? <EmptyState title="No risks or issues have been added." /> : null}
+      <div className="space-y-2">
+        {risksQuery.data?.map((item) => (
+          <div key={item.id} className="rounded-md border bg-background p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Badge variant="outline">{item.item_type}</Badge>
+                <p className="font-medium text-foreground">{item.title}</p>
+              </div>
+              <Badge variant="outline">{item.status}</Badge>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Likelihood: {item.likelihood} / Impact: {item.impact} / Owner: {item.owner?.name ?? "Unassigned"}
+            </p>
+            {item.mitigation ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{item.mitigation}</p> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Phase0AssumptionsConstraintsSection({ canEdit, projectId }: { canEdit: boolean; projectId: string }) {
+  const assumptionsQuery = useProjectSetupAssumptionsConstraintsQuery(projectId);
+  const createAssumption = useCreateProjectSetupAssumptionConstraintMutation(projectId);
+  const [form, setForm] = useState<ProjectSetupAssumptionConstraintPayload>({
+    description: "",
+    entry_type: "Assumption",
+    impact_notes: null,
+  });
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createAssumption.mutateAsync({
+      ...form,
+      description: form.description.trim(),
+      impact_notes: form.impact_notes?.trim() || null,
+    });
+    setForm({ description: "", entry_type: "Assumption", impact_notes: null });
+  }
+
+  return (
+    <div className="space-y-4">
+      {canEdit ? (
+        <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
+          <Select value={form.entry_type} onValueChange={(value) => setForm((current) => ({ ...current, entry_type: value as ProjectSetupAssumptionConstraintPayload["entry_type"] }))}>
+            <SelectTrigger aria-label="Assumption or constraint type"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {["Assumption", "Constraint"].map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <SetupTextarea label="Description" value={form.description} onChange={(value) => setForm((current) => ({ ...current, description: value }))} />
+          <SetupTextarea label="Impact Notes" value={form.impact_notes ?? ""} onChange={(value) => setForm((current) => ({ ...current, impact_notes: value }))} />
+          <Button type="submit" disabled={!form.description.trim() || createAssumption.isPending}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add Entry
+          </Button>
+          {createAssumption.error ? <p className="text-sm text-error">{userFacingErrorMessage(createAssumption.error, { action: "assumption or constraint" })}</p> : null}
+        </form>
+      ) : null}
+      {assumptionsQuery.isLoading ? <LoadingState label="Loading assumptions and constraints" /> : null}
+      {assumptionsQuery.isError ? <ErrorState title="Assumptions and constraints could not be loaded" message={userFacingErrorMessage(assumptionsQuery.error, { action: "assumptions and constraints" })} /> : null}
+      {assumptionsQuery.data?.length === 0 ? <EmptyState title="No assumptions or constraints have been added." /> : null}
+      <div className="space-y-2">
+        {assumptionsQuery.data?.map((entry) => (
+          <div key={entry.id} className="rounded-md border bg-background p-3">
+            <Badge variant="outline">{entry.entry_type}</Badge>
+            <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{entry.description}</p>
+            {entry.impact_notes ? <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">{entry.impact_notes}</p> : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Phase0DependenciesSection({
+  canEdit,
+  dashboard,
+  members,
+  projectId,
+}: {
+  canEdit: boolean;
+  dashboard: ProjectDashboard;
+  members: ProjectMember[];
+  projectId: string;
+}) {
+  const dependenciesQuery = useProjectSetupDependenciesQuery(projectId);
+  const createDependency = useCreateProjectSetupDependencyMutation(projectId);
+  const [form, setForm] = useState<ProjectSetupDependencyPayload>({
+    dependency_type: "Internal",
+    description: "",
+    related_phase_id: null,
+    related_task_id: null,
+    required_by_date: null,
+    responsible_party: null,
+    responsible_user_id: null,
+  });
+  const tasksQuery = useTasksQuery(projectId, form.related_phase_id ?? "", Boolean(form.related_phase_id));
+  const tasks = tasksQuery.data ?? [];
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await createDependency.mutateAsync({
+      ...form,
+      description: form.description.trim(),
+      related_phase_id: form.related_phase_id || null,
+      related_task_id: form.related_task_id || null,
+      required_by_date: form.required_by_date || null,
+      responsible_party: form.responsible_party?.trim() || null,
+    });
+    setForm({
+      dependency_type: "Internal",
+      description: "",
+      related_phase_id: null,
+      related_task_id: null,
+      required_by_date: null,
+      responsible_party: null,
+      responsible_user_id: null,
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      {canEdit ? (
+        <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Select value={form.dependency_type} onValueChange={(value) => setForm((current) => ({ ...current, dependency_type: value as ProjectSetupDependencyPayload["dependency_type"] }))}>
+              <SelectTrigger aria-label="Dependency type"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {["Internal", "External"].map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <SetupInput label="Required By Date" type="date" value={form.required_by_date ?? ""} onChange={(value) => setForm((current) => ({ ...current, required_by_date: value || null }))} />
+            <Select
+              value={form.related_phase_id ?? "none"}
+              onValueChange={(value) => setForm((current) => ({ ...current, related_phase_id: value === "none" ? null : value, related_task_id: null }))}
+            >
+              <SelectTrigger aria-label="Related phase"><SelectValue placeholder="Related phase" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No related phase</SelectItem>
+                {dashboard.phases.map((phase) => <SelectItem key={phase.id} value={phase.id}>{phase.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select
+              value={form.related_task_id ?? "none"}
+              onValueChange={(value) => setForm((current) => ({ ...current, related_task_id: value === "none" ? null : value }))}
+              disabled={!form.related_phase_id || tasksQuery.isLoading}
+            >
+              <SelectTrigger aria-label="Related task"><SelectValue placeholder="Related task" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No related task</SelectItem>
+                {tasks.map((task) => <SelectItem key={task.id} value={task.id}>{task.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <MemberSelect label="Responsible Person" members={members} value={form.responsible_user_id} onChange={(value) => setForm((current) => ({ ...current, responsible_user_id: value }))} />
+            <SetupInput label="Responsible Party" value={form.responsible_party ?? ""} onChange={(value) => setForm((current) => ({ ...current, responsible_party: value }))} />
+          </div>
+          <SetupTextarea label="Dependency" value={form.description} onChange={(value) => setForm((current) => ({ ...current, description: value }))} />
+          <Button type="submit" disabled={!form.description.trim() || createDependency.isPending}>
+            <Plus className="size-4" aria-hidden="true" />
+            Add Dependency
+          </Button>
+          {createDependency.error ? <p className="text-sm text-error">{userFacingErrorMessage(createDependency.error, { action: "dependency" })}</p> : null}
+        </form>
+      ) : null}
+      {dependenciesQuery.isLoading ? <LoadingState label="Loading dependencies" /> : null}
+      {dependenciesQuery.isError ? <ErrorState title="Dependencies could not be loaded" message={userFacingErrorMessage(dependenciesQuery.error, { action: "dependencies" })} /> : null}
+      {dependenciesQuery.data?.length === 0 ? <EmptyState title="No dependencies have been added." /> : null}
+      <div className="space-y-2">
+        {dependenciesQuery.data?.map((dependency) => (
+          <div key={dependency.id} className="rounded-md border bg-background p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Badge variant="outline">{dependency.dependency_type}</Badge>
+              <span className="text-sm text-muted-foreground">{formatSetupDate(dependency.required_by_date)}</span>
+            </div>
+            <p className="mt-2 whitespace-pre-wrap text-sm font-medium text-foreground">{dependency.description}</p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Related: {dependency.related_phase_name ?? "No phase"}{dependency.related_task_name ? ` / ${dependency.related_task_name}` : ""} / Responsible: {dependency.responsible_person?.name ?? dependency.responsible_party ?? "Unassigned"}
+            </p>
           </div>
         ))}
       </div>

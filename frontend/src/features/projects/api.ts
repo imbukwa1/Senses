@@ -16,10 +16,16 @@ import {
   projectMemberSchema,
   projectMembersSchema,
   projectSetupBudgetSchema,
+  projectSetupAssumptionConstraintSchema,
+  projectSetupAssumptionsConstraintsSchema,
+  projectSetupDependencySchema,
+  projectSetupDependenciesSchema,
   projectSetupDeliverableSchema,
   projectSetupDeliverablesSchema,
   projectSetupMilestoneSchema,
   projectSetupMilestonesSchema,
+  projectSetupRiskIssueSchema,
+  projectSetupRisksIssuesSchema,
   projectSetupResourceSchema,
   projectSetupResourcesSchema,
   projectSetupSchema,
@@ -50,14 +56,20 @@ import type {
   ProjectBudgetMutationPayload,
   PhaseResponse,
   ProjectDashboard,
+  ProjectSetupAssumptionConstraint,
+  ProjectSetupAssumptionConstraintPayload,
   ProjectSetupBudgetDetails,
   ProjectSetupDetailsPayload,
   ProjectSetupDetailsSection,
   ProjectSetupBudgetPayload,
+  ProjectSetupDependency,
+  ProjectSetupDependencyPayload,
   ProjectSetupDeliverable,
   ProjectSetupDeliverablePayload,
   ProjectSetupMilestone,
   ProjectSetupMilestonePayload,
+  ProjectSetupRiskIssue,
+  ProjectSetupRiskIssuePayload,
   ProjectSetupResource,
   ProjectSetupResourcePayload,
   ProjectMember,
@@ -252,6 +264,105 @@ export async function createProjectSetupResource(
 
   if (!result.success) {
     throw new ApiError("Project setup resource could not be saved.", 500);
+  }
+
+  return result.data;
+}
+
+export async function listProjectSetupRisksIssues(token: string, projectId: string): Promise<ProjectSetupRiskIssue[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/risks-issues`, {}, token);
+  const result = projectSetupRisksIssuesSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup risks and issues could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createProjectSetupRiskIssue(
+  token: string,
+  projectId: string,
+  payload: ProjectSetupRiskIssuePayload,
+): Promise<ProjectSetupRiskIssue> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/risks-issues`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectSetupRiskIssueSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup risk or issue could not be saved.", 500);
+  }
+
+  return result.data;
+}
+
+export async function listProjectSetupAssumptionsConstraints(token: string, projectId: string): Promise<ProjectSetupAssumptionConstraint[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/assumptions-constraints`, {}, token);
+  const result = projectSetupAssumptionsConstraintsSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup assumptions and constraints could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createProjectSetupAssumptionConstraint(
+  token: string,
+  projectId: string,
+  payload: ProjectSetupAssumptionConstraintPayload,
+): Promise<ProjectSetupAssumptionConstraint> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/assumptions-constraints`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectSetupAssumptionConstraintSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup assumption or constraint could not be saved.", 500);
+  }
+
+  return result.data;
+}
+
+export async function listProjectSetupDependencies(token: string, projectId: string): Promise<ProjectSetupDependency[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/setup/dependencies`, {}, token);
+  const result = projectSetupDependenciesSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup dependencies could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
+export async function createProjectSetupDependency(
+  token: string,
+  projectId: string,
+  payload: ProjectSetupDependencyPayload,
+): Promise<ProjectSetupDependency> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/dependencies`,
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
+  const result = projectSetupDependencySchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Project setup dependency could not be saved.", 500);
   }
 
   return result.data;

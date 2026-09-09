@@ -245,9 +245,57 @@ export const projectSetupResourceSchema = z.object({
   updated_at: z.string().min(1),
 });
 
+export const projectSetupRiskIssueSchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  item_type: z.enum(["Risk", "Issue"]),
+  title: z.string().min(1),
+  likelihood: z.enum(["Low", "Medium", "High"]),
+  impact: z.enum(["Low", "Medium", "High"]),
+  mitigation: z.string().nullable(),
+  owner_id: z.uuid().nullable(),
+  owner: userSummarySchema.nullable(),
+  status: z.enum(["Open", "In Progress", "Mitigated", "Closed"]),
+  created_by: z.uuid().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const projectSetupAssumptionConstraintSchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  entry_type: z.enum(["Assumption", "Constraint"]),
+  description: z.string().min(1),
+  impact_notes: z.string().nullable(),
+  created_by: z.uuid().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
+export const projectSetupDependencySchema = z.object({
+  id: z.uuid(),
+  project_id: z.uuid(),
+  description: z.string().min(1),
+  dependency_type: z.enum(["Internal", "External"]),
+  related_phase_id: z.uuid().nullable(),
+  related_phase_name: z.string().nullable(),
+  related_task_id: z.uuid().nullable(),
+  related_task_name: z.string().nullable(),
+  responsible_user_id: z.uuid().nullable(),
+  responsible_person: userSummarySchema.nullable(),
+  responsible_party: z.string().nullable(),
+  required_by_date: z.string().nullable(),
+  created_by: z.uuid().nullable(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
+
 export const projectSetupMilestonesSchema = z.array(projectSetupMilestoneSchema);
 export const projectSetupDeliverablesSchema = z.array(projectSetupDeliverableSchema);
 export const projectSetupResourcesSchema = z.array(projectSetupResourceSchema);
+export const projectSetupRisksIssuesSchema = z.array(projectSetupRiskIssueSchema);
+export const projectSetupAssumptionsConstraintsSchema = z.array(projectSetupAssumptionConstraintSchema);
+export const projectSetupDependenciesSchema = z.array(projectSetupDependencySchema);
 
 export const projectDashboardSchema = z.object({
   project: dashboardProjectSchema,
