@@ -617,6 +617,7 @@ export type TaskComment = {
   comment: string;
   created_at: string;
   updated_at: string;
+  mentioned_user_ids: string[];
 };
 
 export type CommentNotification = {

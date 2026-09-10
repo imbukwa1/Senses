@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   setContent: vi.fn(),
   authToken: null as string | null,
   collaborationSession: null as Record<string, unknown> | null,
+  collaborationLoading: false,
+  collaborationError: null as Error | null,
   spreadsheetCollaborationSession: null as Record<string, unknown> | null,
   spreadsheetCollaborationLoading: false,
   spreadsheetCollaborationError: null as Error | null,
@@ -21,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   univerAddEvent: vi.fn(),
   univerStatusEvents: {} as Record<string, (payload: { unitId: string; status: string }) => void>,
   univerStatusDispose: vi.fn(),
+  editorAvailable: true,
   workspaceResource: {
     id: "88888888-8888-4888-8888-888888888888",
     project_id: "11111111-1111-4111-8111-111111111111",
@@ -35,6 +38,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 const fakeEditor = {
+  isDestroyed: false,
   chain: () => ({
     focus: () => ({
       toggleBold: () => ({ run: vi.fn() }),
@@ -65,7 +69,7 @@ vi.mock("@tiptap/react", () => ({
   ),
   useEditor: (options: typeof latestEditorOptions) => {
     latestEditorOptions = options;
-    return fakeEditor;
+    return mocks.editorAvailable ? fakeEditor : null;
   },
 }));
 
@@ -126,8 +130,8 @@ vi.mock("./hooks", () => ({
   }),
   useDocumentCollaborationSessionQuery: () => ({
     data: mocks.collaborationSession,
-    error: null,
-    isLoading: false,
+    error: mocks.collaborationError,
+    isLoading: mocks.collaborationLoading,
   }),
   useSpreadsheetCollaborationSessionQuery: () => ({
     data: mocks.spreadsheetCollaborationSession,
@@ -143,8 +147,12 @@ describe("workspace native editors", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mocks.documentJson = { type: "doc", content: [{ type: "paragraph" }] };
+    fakeEditor.isDestroyed = false;
     mocks.authToken = null;
+    mocks.editorAvailable = true;
     mocks.collaborationSession = null;
+    mocks.collaborationLoading = false;
+    mocks.collaborationError = null;
     mocks.spreadsheetCollaborationSession = null;
     mocks.spreadsheetCollaborationLoading = false;
     mocks.spreadsheetCollaborationError = null;
@@ -254,6 +262,44 @@ describe("workspace native editors", () => {
     expect(mocks.providerDestroy).not.toHaveBeenCalled();
     cleanup();
     expect(mocks.providerDestroy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not access commands when Tiptap has no live editor", () => {
+    mocks.editorAvailable = false;
+
+    expect(() => render(<WorkspaceDocumentEditor projectId={projectId} resourceId={resourceId} onBack={vi.fn()} />)).not.toThrow();
+  });
+
+  it("keeps the document fallback usable when collaboration provisioning returns 503", () => {
+    mocks.collaborationError = new Error("503 Service Unavailable");
+
+    expect(() => render(<WorkspaceDocumentEditor projectId={projectId} resourceId={resourceId} onBack={vi.fn()} />)).not.toThrow();
+    expect(screen.getByLabelText("Document editor")).toBeInTheDocument();
+  });
+
+  it("does not call commands after the editor is disposed", async () => {
+    mocks.authToken = "senses-bearer-token";
+    mocks.collaborationSession = {
+      resource_type: "document",
+      project_id: projectId,
+      resource_id: resourceId,
+      room: `project:${projectId}:documents:${resourceId}`,
+      endpoint: "ws://127.0.0.1:1234/documents",
+      ready: true,
+      service: { configured: true, reachable: true, required: [], url: null, detail: null },
+    };
+
+    render(<WorkspaceDocumentEditor projectId={projectId} resourceId={resourceId} onBack={vi.fn()} />);
+    await act(async () => {
+      mocks.providerEvents.synced?.({ state: true });
+    });
+    mocks.setContent.mockClear();
+    fakeEditor.isDestroyed = true;
+    await act(async () => {
+      mocks.providerEvents.synced?.({ state: true });
+    });
+
+    expect(mocks.setContent).not.toHaveBeenCalled();
   });
 
   it("surfaces malformed spreadsheet fallback content without saving", () => {

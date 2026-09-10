@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   useRemoveChecklistItemMutation: vi.fn(),
   useSetChecklistItemCompletionMutation: vi.fn(),
   useTaskCommentsQuery: vi.fn(),
+  useProjectMembersQuery: vi.fn(),
   useTaskFilesQuery: vi.fn(),
   useTaskSupportersQuery: vi.fn(),
   useUpdateChecklistItemMutation: vi.fn(),
@@ -35,6 +36,7 @@ vi.mock("./hooks", () => ({
   useRemoveChecklistItemMutation: mocks.useRemoveChecklistItemMutation,
   useSetChecklistItemCompletionMutation: mocks.useSetChecklistItemCompletionMutation,
   useTaskCommentsQuery: mocks.useTaskCommentsQuery,
+  useProjectMembersQuery: mocks.useProjectMembersQuery,
   useTaskFilesQuery: mocks.useTaskFilesQuery,
   useTaskSupportersQuery: mocks.useTaskSupportersQuery,
   useUpdateChecklistItemMutation: mocks.useUpdateChecklistItemMutation,
@@ -105,6 +107,7 @@ describe("TaskDetailDrawer", () => {
       isLoading: false,
     });
     mocks.useTaskCommentsQuery.mockReturnValue({ data: [], error: null, isLoading: false });
+    mocks.useProjectMembersQuery.mockReturnValue({ data: [], error: null, isLoading: false });
     mocks.useTaskFilesQuery.mockReturnValue({
       data: [
         {

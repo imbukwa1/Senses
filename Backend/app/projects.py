@@ -421,6 +421,7 @@ class TaskCommentCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     comment: str = Field(min_length=1)
+    mentioned_user_ids: list[UUID] = Field(default_factory=list)
 
 
 class TaskCommentResponse(BaseModel):
@@ -432,6 +433,7 @@ class TaskCommentResponse(BaseModel):
     comment: str
     created_at: datetime
     updated_at: datetime
+    mentioned_user_ids: list[UUID] = Field(default_factory=list)
 
 
 class CommentNotificationResponse(BaseModel):
@@ -3419,6 +3421,17 @@ def create_task_comment(
 ) -> TaskCommentResponse:
     ensure_project_access(session, current_user.id, project_id)
     fetch_project_task_or_404(session, project_id, phase_id, task_id)
+    mentioned_user_ids = list(dict.fromkeys(payload.mentioned_user_ids))
+    if mentioned_user_ids:
+        valid_mentions = session.fetch_all(
+            """
+            SELECT user_id FROM project_members
+            WHERE project_id = %s AND user_id = ANY(%s)
+            """,
+            (project_id, mentioned_user_ids),
+        )
+        if {row["user_id"] for row in valid_mentions} != set(mentioned_user_ids):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Mentioned users must be members of this project.")
     comment = session.fetch_one(
         """
         INSERT INTO comments (task_id, user_id, comment)
@@ -3427,7 +3440,12 @@ def create_task_comment(
         """,
         (task_id, current_user.id, payload.comment),
     )
-    return task_comment_to_response(fetch_task_comment_or_404(session, task_id, comment["id"]))
+    for mentioned_user_id in mentioned_user_ids:
+        session.execute(
+            "INSERT INTO comment_mentions (comment_id, user_id) VALUES (%s, %s)",
+            (comment["id"], mentioned_user_id),
+        )
+    return task_comment_to_response(fetch_task_comment_or_404(session, task_id, comment["id"], current_user.id))
 
 
 @router.get(
@@ -3443,7 +3461,7 @@ def list_task_comments(
 ) -> list[TaskCommentResponse]:
     ensure_project_access(session, current_user.id, project_id)
     fetch_project_task_or_404(session, project_id, phase_id, task_id)
-    return [task_comment_to_response(row) for row in fetch_task_comments(session, task_id)]
+    return [task_comment_to_response(row) for row in fetch_task_comments(session, task_id, current_user.id)]
 
 
 @router.get("/comment-notifications/unread", response_model=list[CommentNotificationResponse])
@@ -3469,11 +3487,16 @@ def list_unread_comment_notifications(
         WHERE projects.archived_at IS NULL
           AND phases.archived_at IS NULL
           AND comments.user_id <> %s
+          AND (
+            comments.user_id = %s
+            OR NOT EXISTS (SELECT 1 FROM comment_mentions WHERE comment_id = comments.id)
+            OR EXISTS (SELECT 1 FROM comment_mentions WHERE comment_id = comments.id AND user_id = %s)
+          )
           AND comments.created_at > COALESCE(comment_read_state.last_seen_comment_at, TIMESTAMPTZ 'epoch')
         ORDER BY comments.created_at DESC, comments.id DESC
         LIMIT 100
         """,
-        (current_user.id, current_user.id, current_user.id),
+        (current_user.id, current_user.id, current_user.id, current_user.id, current_user.id),
     )
     return [CommentNotificationResponse(**row) for row in rows]
 
@@ -4524,9 +4547,17 @@ def fetch_checklist_summary(session: DatabaseSession, task_id: UUID) -> Row:
     return row
 
 
-def fetch_task_comments(session: DatabaseSession, task_id: UUID) -> list[Row]:
+def fetch_task_comments(session: DatabaseSession, task_id: UUID, viewer_id: UUID | None = None) -> list[Row]:
+    visibility = "" if viewer_id is None else """
+          AND (
+            comments.user_id = %s
+            OR NOT EXISTS (SELECT 1 FROM comment_mentions WHERE comment_id = comments.id)
+            OR EXISTS (SELECT 1 FROM comment_mentions WHERE comment_id = comments.id AND user_id = %s)
+          )
+    """
+    params: tuple[Any, ...] = (task_id,) if viewer_id is None else (task_id, viewer_id, viewer_id)
     return session.fetch_all(
-        """
+        f"""
         SELECT
           comments.id,
           comments.task_id,
@@ -4535,19 +4566,29 @@ def fetch_task_comments(session: DatabaseSession, task_id: UUID) -> list[Row]:
           users.email AS author_email,
           comments.comment,
           comments.created_at,
-          comments.updated_at
+          comments.updated_at,
+          COALESCE(ARRAY(SELECT user_id FROM comment_mentions WHERE comment_id = comments.id), ARRAY[]::uuid[]) AS mentioned_user_ids
         FROM comments
         JOIN users ON users.id = comments.user_id
         WHERE comments.task_id = %s
+        {visibility}
         ORDER BY comments.created_at, comments.id
         """,
-        (task_id,),
+        params,
     )
 
 
-def fetch_task_comment(session: DatabaseSession, task_id: UUID, comment_id: UUID) -> Row | None:
+def fetch_task_comment(session: DatabaseSession, task_id: UUID, comment_id: UUID, viewer_id: UUID | None = None) -> Row | None:
+    visibility = "" if viewer_id is None else """
+          AND (
+            comments.user_id = %s
+            OR NOT EXISTS (SELECT 1 FROM comment_mentions WHERE comment_id = comments.id)
+            OR EXISTS (SELECT 1 FROM comment_mentions WHERE comment_id = comments.id AND user_id = %s)
+          )
+    """
+    params: tuple[Any, ...] = (task_id, comment_id) if viewer_id is None else (task_id, comment_id, viewer_id, viewer_id)
     return session.fetch_one(
-        """
+        f"""
         SELECT
           comments.id,
           comments.task_id,
@@ -4556,18 +4597,20 @@ def fetch_task_comment(session: DatabaseSession, task_id: UUID, comment_id: UUID
           users.email AS author_email,
           comments.comment,
           comments.created_at,
-          comments.updated_at
+          comments.updated_at,
+          COALESCE(ARRAY(SELECT user_id FROM comment_mentions WHERE comment_id = comments.id), ARRAY[]::uuid[]) AS mentioned_user_ids
         FROM comments
         JOIN users ON users.id = comments.user_id
         WHERE comments.task_id = %s
           AND comments.id = %s
+        {visibility}
         """,
-        (task_id, comment_id),
+        params,
     )
 
 
-def fetch_task_comment_or_404(session: DatabaseSession, task_id: UUID, comment_id: UUID) -> Row:
-    comment = fetch_task_comment(session, task_id, comment_id)
+def fetch_task_comment_or_404(session: DatabaseSession, task_id: UUID, comment_id: UUID, viewer_id: UUID | None = None) -> Row:
+    comment = fetch_task_comment(session, task_id, comment_id, viewer_id)
     if comment is None:
         raise_task_not_found()
     return comment

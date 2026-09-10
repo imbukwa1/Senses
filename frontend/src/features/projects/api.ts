@@ -1319,13 +1319,13 @@ export async function createTaskComment(
   projectId: string,
   phaseId: string,
   taskId: string,
-  comment: string,
+  payload: { comment: string; mentioned_user_ids?: string[] },
 ): Promise<TaskComment> {
   const data = await apiRequest<unknown>(
     `/projects/${projectId}/phases/${phaseId}/tasks/${taskId}/comments`,
     {
       method: "POST",
-      body: JSON.stringify({ comment }),
+      body: JSON.stringify(payload),
     },
     token,
   );

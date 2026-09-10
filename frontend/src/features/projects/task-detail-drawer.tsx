@@ -31,6 +31,7 @@ import {
   useDownloadTaskFileMutation,
   useTaskFilesQuery,
   useTaskSupportersQuery,
+  useProjectMembersQuery,
   useUploadTaskFileMutation,
   useUpdateTaskStatusMutation,
   useUpdateChecklistItemMutation,
@@ -346,11 +347,15 @@ function CommentsSection({
   targetCommentId: string | null;
 }) {
   const createComment = useCreateTaskCommentMutation(projectId, phaseId, taskId);
+  const membersQuery = useProjectMembersQuery(projectId, true);
+  const [mentionedUsers, setMentionedUsers] = useState<{ id: string; name: string }[]>([]);
   const {
     formState: { errors, isSubmitting },
     handleSubmit,
     register,
     reset,
+    setValue,
+    watch,
   } = useForm<CommentFormValues>({
     resolver: zodResolver(commentSchema),
     defaultValues: {
@@ -359,11 +364,24 @@ function CommentsSection({
   });
   const isAdding = createComment.isPending || isSubmitting;
   const addError = createComment.error ? commentErrorMessage(createComment.error) : null;
+  const commentText = watch("comment");
+  const mentionMatch = commentText.match(/(?:^|\s)@([\w -]*)$/);
+  const mentionSearch = mentionMatch?.[1].toLowerCase() ?? null;
+  const mentionOptions = mentionSearch === null ? [] : (membersQuery.data ?? []).filter((member) => `${member.name} ${member.email}`.toLowerCase().includes(mentionSearch));
+
+  function selectMention(userId: string, name: string) {
+    if (!mentionMatch) return;
+    const replacement = `${mentionMatch[0].slice(0, mentionMatch[0].length - mentionMatch[1].length)}${name} `;
+    setValue("comment", `${commentText.slice(0, commentText.length - mentionMatch[0].length)}${replacement}`, { shouldValidate: true, shouldDirty: true });
+    setMentionedUsers((current) => current.some((member) => member.id === userId) ? current : [...current, { id: userId, name }]);
+  }
 
   async function onSubmit(values: CommentFormValues) {
     try {
-      await createComment.mutateAsync(values.comment.trim());
+      const activeMentionedUserIds = mentionedUsers.filter((member) => values.comment.includes(`@${member.name}`)).map((member) => member.id);
+      await createComment.mutateAsync({ comment: values.comment.trim(), mentioned_user_ids: activeMentionedUserIds });
       reset();
+      setMentionedUsers([]);
     } catch {
       return;
     }
@@ -387,6 +405,8 @@ function CommentsSection({
           disabled={isAdding}
           {...register("comment")}
         />
+        {mentionSearch !== null && mentionOptions.length > 0 ? <div className="rounded-md border bg-background p-1 shadow-sm" role="listbox" aria-label="Project members"><p className="px-2 py-1 text-xs text-muted-foreground">Mention a project member</p>{mentionOptions.slice(0, 8).map((member) => <button className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-muted" key={member.user_id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => selectMention(member.user_id, member.name)}>{member.name} <span className="text-muted-foreground">({member.role})</span></button>)}</div> : null}
+        {mentionedUsers.length > 0 ? <p className="text-xs text-muted-foreground">Visible to you and {mentionedUsers.map((member) => member.name).join(", ")}</p> : null}
         {errors.comment?.message ? <p className="text-sm font-medium text-error">{errors.comment.message}</p> : null}
         <div className="flex justify-end">
           <Button type="submit" disabled={isAdding} className="bg-brand-red text-white hover:bg-brand-red/90">

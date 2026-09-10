@@ -1385,7 +1385,7 @@ export function useCreateTaskCommentMutation(projectId: string, phaseId: string,
   const { logout, token } = useAuth();
 
   return useMutation({
-    mutationFn: (comment: string) => createTaskComment(requireToken(token), projectId, phaseId, taskId, comment),
+    mutationFn: (payload: { comment: string; mentioned_user_ids?: string[] }) => createTaskComment(requireToken(token), projectId, phaseId, taskId, payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: taskCommentsQueryKey(projectId, phaseId, taskId) });
     },

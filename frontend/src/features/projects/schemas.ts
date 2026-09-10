@@ -492,6 +492,7 @@ export const taskCommentSchema = z.object({
   comment: z.string().min(1),
   created_at: z.string().min(1),
   updated_at: z.string().min(1),
+  mentioned_user_ids: z.array(z.uuid()).default([]),
 });
 
 export const taskCommentsSchema = z.array(taskCommentSchema);

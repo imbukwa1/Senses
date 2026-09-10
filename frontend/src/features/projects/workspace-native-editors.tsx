@@ -125,7 +125,7 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
   );
 
   useEffect(() => {
-    if (!query.data || !editor) {
+    if (!query.data || !editor || editor.isDestroyed) {
       return;
     }
     setTitle(query.data.name);
@@ -149,7 +149,7 @@ export function WorkspaceDocumentEditor({ onBack, projectId, resourceId }: Works
     const handleSynced = () => {
       // Only seed an empty shared document. Existing Yjs state always wins
       // over the JSONB checkpoint to prevent a stale client overwrite.
-      if (ydoc.getXmlFragment("default").length === 0) {
+      if (!editor.isDestroyed && ydoc.getXmlFragment("default").length === 0) {
         editor.commands.setContent(content, { emitUpdate: false });
       }
       setConnectionState((previous) => previous === "online" ? previous : "online");
