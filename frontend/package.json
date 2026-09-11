@@ -33,8 +33,8 @@
     "@tiptap/pm": "^3.31.3",
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
-    "@univerjs/preset-sheets-collaboration": "0.25.1",
     "@univerjs/preset-sheets-advanced": "0.25.1",
+    "@univerjs/preset-sheets-collaboration": "0.25.1",
     "@univerjs/preset-sheets-core": "0.25.1",
     "@univerjs/presets": "0.25.1",
     "class-variance-authority": "^0.7.1",
@@ -45,6 +45,7 @@
     "react-hook-form": "^7.68.0",
     "react-router-dom": "^7.10.1",
     "tailwind-merge": "^3.4.0",
+    "xlsx": "0.18.5",
     "yjs": "^13.6.27",
     "zod": "^4.2.1"
   },
