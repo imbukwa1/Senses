@@ -3,6 +3,12 @@ import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import StarterKit from "@tiptap/starter-kit";
 import { HocuspocusProvider, WebSocketStatus } from "@hocuspocus/provider";
+import { defaultTheme, LocaleType, mergeLocales } from "@univerjs/presets";
+import sheetsAdvancedEnUs from "@univerjs/preset-sheets-advanced/locales/en-US";
+import "@univerjs/preset-sheets-advanced/lib/index.css";
+import sheetsCollaborationEnUs from "@univerjs/preset-sheets-collaboration/locales/en-US";
+import "@univerjs/preset-sheets-collaboration/lib/index.css";
+import sheetsCoreEnUs from "@univerjs/preset-sheets-core/locales/en-US";
 import { ArrowLeft, Bold, Heading1, Heading2, Italic, List, ListOrdered, Save } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as Y from "yjs";
@@ -373,6 +379,11 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
         const worker = typeof Worker === "undefined" ? undefined : new Worker(new URL(workerURL, import.meta.url), { type: "module" });
         const { univer, univerAPI } = createUniver({
           collaboration: collaborationEnabled as true,
+          locale: LocaleType.EN_US,
+          locales: {
+            [LocaleType.EN_US]: mergeLocales(sheetsCoreEnUs, sheetsAdvancedEnUs, sheetsCollaborationEnUs),
+          },
+          theme: defaultTheme,
           presets: [
             UniverSheetsCorePreset({
               container: containerId,
@@ -384,7 +395,7 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
             }),
             ...(collaborationEnabled && univerEndpoint
               ? [
-                  UniverSheetsAdvancedPreset({ universerEndpoint: univerEndpoint }),
+                  UniverSheetsAdvancedPreset({ universerEndpoint: univerEndpoint, useWorker: true }),
                   UniverSheetsCollaborationPreset({ universerEndpoint: univerEndpoint, univerContainerId: containerId }),
                 ]
               : []),

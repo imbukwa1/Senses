@@ -102,6 +102,9 @@ vi.mock("@/features/auth/hooks", () => ({
 
 vi.mock("@univerjs/presets", () => ({
   createUniver: mocks.univerCreate,
+  defaultTheme: {},
+  LocaleType: { EN_US: "en-US" },
+  mergeLocales: vi.fn((...locales: Record<string, unknown>[]) => Object.assign({}, ...locales)),
   UniverInstanceType: {
     UNIVER_SHEET: 2,
   },
