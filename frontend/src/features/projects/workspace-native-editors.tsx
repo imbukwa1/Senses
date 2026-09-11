@@ -369,7 +369,7 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
         const containerId = `univer-spreadsheet-${resourceId}`;
         containerRef.current.id = containerId;
         const { univer, univerAPI } = createUniver({
-          collaboration: true,
+          collaboration: collaborationEnabled as true,
           presets: [
             UniverSheetsCorePreset({
               container: containerId,

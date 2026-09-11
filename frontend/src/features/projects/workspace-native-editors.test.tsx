@@ -415,6 +415,7 @@ describe("workspace native editors", () => {
 
     expect(mocks.univerCreate).toHaveBeenCalledTimes(1);
     expect(mocks.univerLoad).not.toHaveBeenCalled();
+    expect(mocks.univerCreate).toHaveBeenCalledWith(expect.objectContaining({ collaboration: false }));
     expect(mocks.univerCreate.mock.results[0]?.value.univer.createUnit).toHaveBeenCalledTimes(1);
   });
 
