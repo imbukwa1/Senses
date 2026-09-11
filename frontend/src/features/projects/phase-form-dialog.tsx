@@ -117,7 +117,6 @@ export function PhaseFormDialog({ children, mode, nextDisplayOrder, phase, proje
             <FormField
               label="Owner"
               error={errors.owner_id?.message}
-              description="User lookup is not available from the backend yet; owner choices are limited to users already known to this screen."
             >
               {() => (
                 <Controller

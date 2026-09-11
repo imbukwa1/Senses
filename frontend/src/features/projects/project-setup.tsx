@@ -325,10 +325,8 @@ export function ProjectSetupPanel({ canEdit, dashboard, projectId }: { projectId
             setup: displaySetup,
             statusPending: updateSection.isPending,
           })}
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-1">
             <SetupMetric label="Status" value={activeSection.status} />
-            <SetupMetric label="Live Items" value={String(activeSection.live_items_count)} />
-            <SetupMetric label="Optional" value={activeSection.optional ? "Yes" : "No"} />
           </div>
         </CardContent>
       </Card>
