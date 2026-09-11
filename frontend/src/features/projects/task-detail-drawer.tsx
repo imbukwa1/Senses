@@ -406,7 +406,6 @@ function CommentsSection({
           {...register("comment")}
         />
         {mentionSearch !== null && mentionOptions.length > 0 ? <div className="rounded-md border bg-background p-1 shadow-sm" role="listbox" aria-label="Project members"><p className="px-2 py-1 text-xs text-muted-foreground">Mention a project member</p>{mentionOptions.slice(0, 8).map((member) => <button className="block w-full rounded px-2 py-1 text-left text-sm hover:bg-muted" key={member.user_id} type="button" onMouseDown={(event) => event.preventDefault()} onClick={() => selectMention(member.user_id, member.name)}>{member.name} <span className="text-muted-foreground">({member.role})</span></button>)}</div> : null}
-        {mentionedUsers.length > 0 ? <p className="text-xs text-muted-foreground">Visible to you and {mentionedUsers.map((member) => member.name).join(", ")}</p> : null}
         {errors.comment?.message ? <p className="text-sm font-medium text-error">{errors.comment.message}</p> : null}
         <div className="flex justify-end">
           <Button type="submit" disabled={isAdding} className="bg-brand-red text-white hover:bg-brand-red/90">
