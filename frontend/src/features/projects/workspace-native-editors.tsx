@@ -20,6 +20,8 @@ import { useAuth } from "@/features/auth/hooks";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 import { cn } from "@/lib/utils";
 
+import workerURL from "../../univer-worker.ts?worker&url";
+
 import {
   useRenameWorkspaceNativeResourceMutation,
   useDocumentCollaborationSessionQuery,
@@ -368,6 +370,7 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
         const univerEndpoint = collaborationQuery.data?.endpoint;
         const containerId = `univer-spreadsheet-${resourceId}`;
         containerRef.current.id = containerId;
+        const worker = typeof Worker === "undefined" ? undefined : new Worker(new URL(workerURL, import.meta.url), { type: "module" });
         const { univer, univerAPI } = createUniver({
           collaboration: collaborationEnabled as true,
           presets: [
@@ -377,6 +380,7 @@ export function WorkspaceSpreadsheetEditor({ onBack, projectId, resourceId }: Wo
               formulaBar: true,
               header: false,
               toolbar: true,
+              workerURL: worker,
             }),
             ...(collaborationEnabled && univerEndpoint
               ? [

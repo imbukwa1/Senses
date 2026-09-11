@@ -44,6 +44,9 @@ function manualChunks(id: string) {
 
 export default defineConfig({
   plugins: [react()],
+  worker: {
+    format: "es",
+  },
   build: {
     chunkSizeWarningLimit: 6000,
     rollupOptions: {
