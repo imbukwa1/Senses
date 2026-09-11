@@ -412,11 +412,7 @@ function renderFirstPassSection({
     return (
       <WorkPlanForm
         canEdit={canEdit}
-        isSaving={isSaving}
-        onMarkComplete={() => onMarkComplete(activeSection)}
-        onSave={(payload) => onSaveDetails("work-plan", payload)}
         phases={dashboard.phases}
-        statusPending={statusPending}
         setup={setup}
       />
     );
@@ -602,28 +598,13 @@ function ObjectivesForm({ canEdit, isSaving, onMarkComplete, onSave, setup, stat
   );
 }
 
-function WorkPlanForm({ canEdit, isSaving, onMarkComplete, onSave, phases, setup, statusPending }: FirstPassFormProps & { phases: DashboardPhase[] }) {
+function WorkPlanForm({ canEdit, phases, setup }: Pick<FirstPassFormProps, "canEdit" | "setup"> & { phases: DashboardPhase[] }) {
   const details = setup.details.work_plan;
-  const [form, setForm] = useState({
-    end_date: details.planned_completion,
-    key_activities: details.key_activities ?? "",
-    start_date: details.planned_start,
-    work_plan_details: details.work_plan_details ?? "",
-  });
   const createEntry = useCreateProjectSetupWorkPlanEntryMutation(setup.project_id);
   const updateEntry = useUpdateProjectSetupWorkPlanEntryMutation(setup.project_id);
   const deleteEntry = useDeleteProjectSetupWorkPlanEntryMutation(setup.project_id);
   const [entryForm, setEntryForm] = useState<ProjectSetupWorkPlanEntryPayload>(() => emptyWorkPlanEntry(phases[0]?.id ?? ""));
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setForm({
-      end_date: details.planned_completion,
-      key_activities: details.key_activities ?? "",
-      start_date: details.planned_start,
-      work_plan_details: details.work_plan_details ?? "",
-    });
-  }, [details]);
 
   const entries = details.entries;
   const entryPending = createEntry.isPending || updateEntry.isPending || deleteEntry.isPending;
@@ -645,15 +626,6 @@ function WorkPlanForm({ canEdit, isSaving, onMarkComplete, onSave, phases, setup
 
   return (
     <div className="space-y-6">
-      <form className="space-y-4" onSubmit={(event) => void handleSubmit(event, onSave, form)}>
-      <div className="grid gap-4 md:grid-cols-2">
-        <SetupInput label="Planned Start" type="date" value={form.start_date} disabled={!canEdit} onChange={(value) => setForm((current) => ({ ...current, start_date: value }))} />
-        <SetupInput label="Planned Completion" type="date" value={form.end_date} disabled={!canEdit} onChange={(value) => setForm((current) => ({ ...current, end_date: value }))} />
-      </div>
-      <SetupTextarea label="Work Plan Details" value={form.work_plan_details} disabled={!canEdit} onChange={(value) => setForm((current) => ({ ...current, work_plan_details: value }))} />
-      <SetupTextarea label="Key Activities" value={form.key_activities} disabled={!canEdit} onChange={(value) => setForm((current) => ({ ...current, key_activities: value }))} />
-      <SetupActions canEdit={canEdit} isSaving={isSaving} onMarkComplete={onMarkComplete} statusPending={statusPending} />
-      </form>
       <div className="space-y-3 border-t pt-5">
         <div>
           <h3 className="font-semibold">Scheduled Work Plan Entries</h3>
