@@ -48,6 +48,7 @@ import {
   projectSetupWorkPlanEntrySchema,
   projectSummariesSchema,
   projectSummarySchema,
+  projectOverviewSchema,
   taskSchema,
   taskCommentSchema,
   taskCommentsSchema,
@@ -113,6 +114,7 @@ import type {
   ProjectSetupSectionStatusPayload,
   ProjectSetupStakeholder,
   ProjectSetupStakeholderPayload,
+  ProjectOverview,
   ProjectSummary,
   Task,
   Checklist,
@@ -220,6 +222,15 @@ export async function listMyWork(token: string): Promise<MyWorkItem[]> {
 export async function getProject(token: string, projectId: string): Promise<ProjectSummary> {
   const data = await apiRequest<unknown>(`/projects/${projectId}`, {}, token);
   return parseProject(data);
+}
+
+export async function getProjectOverview(token: string, projectId: string): Promise<ProjectOverview> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/overview`, {}, token);
+  const result = projectOverviewSchema.safeParse(data);
+  if (!result.success) {
+    throw new ApiError("Project overview data could not be loaded.", 500);
+  }
+  return result.data;
 }
 
 export async function getProjectDashboard(token: string, projectId: string): Promise<ProjectDashboard> {

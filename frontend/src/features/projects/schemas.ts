@@ -49,6 +49,31 @@ export const projectSummarySchema = z.object({
 
 export const projectSummariesSchema = z.array(projectSummarySchema);
 
+export const projectOverviewSchema = projectSummarySchema.extend({
+  project_location_area: z.string().nullable(),
+  scope_in: z.string().nullable(),
+  scope_out: z.string().nullable(),
+  scope_boundaries: z.string().nullable(),
+  scope_notes: z.string().nullable(),
+  expected_outcomes: z.string().nullable(),
+  success_criteria: z.string().nullable(),
+  key_indicators: z.string().nullable(),
+  phases: z.array(z.object({
+    id: z.uuid(),
+    name: z.string().min(1),
+    start_date: z.string().nullable(),
+    end_date: z.string().nullable(),
+    status: z.string().min(1),
+  })),
+  milestones: z.array(z.object({
+    id: z.uuid(),
+    name: z.string().min(1),
+    target_date: z.string().min(1),
+    status: z.string().min(1),
+    responsible_person: userSummarySchema.nullable(),
+  })),
+});
+
 export const projectMemberSchema = z.object({
   project_id: z.uuid(),
   user_id: z.uuid(),

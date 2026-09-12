@@ -100,7 +100,7 @@ describe("ProjectPortfolio", () => {
     await user.click(screen.getByRole("tab", { name: "All Projects" }));
     expect(screen.getByText("Project description")).toBeInTheDocument();
     expect(screen.getByText("Lead: Priya PM")).toBeInTheDocument();
-    expect(screen.getAllByRole("link").find((link) => link.getAttribute("href") === `/projects/${project.id}`)).toBeInTheDocument();
+    expect(screen.getAllByRole("link").find((link) => link.getAttribute("href") === `/projects/${project.id}?source=all-projects`)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /edit|create|delete/i })).not.toBeInTheDocument();
   });
 });

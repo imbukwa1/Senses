@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectDashboardPage } from "./project-dashboard";
 import type { ProjectMember } from "./types";
+import { ApiError } from "@/features/auth/api";
 
 const mocks = vi.hoisted(() => ({
   currentRole: "Team Member" as ProjectMember["role"],
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   useProjectDashboardQuery: vi.fn(),
   useProjectFilesQuery: vi.fn(),
   useProjectMembersQuery: vi.fn(),
+  useProjectOverviewQuery: vi.fn(),
   useProjectQuery: vi.fn(),
   useRemovePhaseMemberMutation: vi.fn(),
   useTasksQuery: vi.fn(),
@@ -75,6 +77,7 @@ vi.mock("./hooks", () => ({
   useProjectDashboardQuery: mocks.useProjectDashboardQuery,
   useProjectFilesQuery: mocks.useProjectFilesQuery,
   useProjectMembersQuery: mocks.useProjectMembersQuery,
+  useProjectOverviewQuery: mocks.useProjectOverviewQuery,
   useProjectQuery: mocks.useProjectQuery,
   useRemovePhaseMemberMutation: mocks.useRemovePhaseMemberMutation,
   useTasksQuery: mocks.useTasksQuery,
@@ -180,6 +183,20 @@ const projectDetail = {
   archived_at: null,
 };
 
+const projectOverview = {
+  ...projectDetail,
+  project_location_area: null,
+  scope_in: "Community research",
+  scope_out: null,
+  scope_boundaries: null,
+  scope_notes: null,
+  expected_outcomes: "A clear overview for authorized organizational users.",
+  success_criteria: null,
+  key_indicators: null,
+  phases: [{ id: "overview-phase", name: "Discovery", start_date: "2026-01-01", end_date: "2026-03-31", status: "In Progress" }],
+  milestones: [],
+};
+
 describe("ProjectDashboardPage", () => {
   afterEach(() => {
     cleanup();
@@ -195,6 +212,7 @@ describe("ProjectDashboardPage", () => {
       isError: false,
     }));
     mocks.useProjectQuery.mockImplementation((requestedProjectId: string) => ({ data: projectDetailFor(requestedProjectId), isLoading: false }));
+    mocks.useProjectOverviewQuery.mockReturnValue({ data: null, isLoading: false, isError: false });
     mocks.useProjectMembersQuery.mockImplementation((requestedProjectId: string) => ({
       data: [
         {
@@ -277,6 +295,33 @@ describe("ProjectDashboardPage", () => {
     expect(screen.queryByText("Current Phase")).not.toBeInTheDocument();
     expect(screen.queryByText(projectId)).not.toBeInTheDocument();
     expect(screen.queryByText(/storage key/i)).not.toBeInTheDocument();
+  });
+
+  it("shows a read-only overview for a non-member reached from All Projects", () => {
+    mocks.useProjectDashboardQuery.mockReturnValue({
+      data: null,
+      isLoading: false,
+      isError: true,
+      error: new ApiError("Project access denied", 404),
+    });
+    mocks.useProjectOverviewQuery.mockReturnValue({ data: projectOverview, isLoading: false, isError: false });
+
+    render(
+      <MemoryRouter initialEntries={[`/projects/${teamProjectId}?source=all-projects`]}>
+        <Routes>
+          <Route path="/projects/:projectId" element={<ProjectDashboardPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("View only")).toBeInTheDocument();
+    expect(screen.getByText("Inclusive Speech Tech")).toBeInTheDocument();
+    expect(screen.getByText("In scope: Community research")).toBeInTheDocument();
+    expect(screen.getByText("Discovery")).toBeInTheDocument();
+    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("Project Setup")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /edit|save|manage|add/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
   it("opens Workspace inside the project without changing the project route", () => {

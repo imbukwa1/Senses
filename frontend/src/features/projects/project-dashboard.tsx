@@ -33,6 +33,7 @@ import {
   useProjectDashboardQuery,
   useProjectFilesQuery,
   useProjectMembersQuery,
+  useProjectOverviewQuery,
   useProjectQuery,
   useRemovePhaseMemberMutation,
   useTasksQuery,
@@ -46,6 +47,7 @@ import { ProjectFormDialog } from "./project-form-dialog";
 import { ProjectMembersDialog } from "./project-members-dialog";
 import { ProjectSetupCard, ProjectSetupPanel } from "./project-setup";
 import { ProjectWorkspace } from "./project-workspace";
+import { ProjectOverviewPage } from "./project-overview";
 import type { AttentionItem, DashboardDeliverable, DashboardPhase, PhaseMember, ProjectBudget, ProjectDashboard, ProjectFile, ProjectMember, UpcomingDeadline } from "./types";
 
 export function ProjectDashboardPage() {
@@ -55,14 +57,43 @@ export function ProjectDashboardPage() {
     return <ErrorState title="Project not found" message="The project route is missing an ID." />;
   }
 
-  return <ProjectDashboardContent projectId={projectId} />;
+  return <ProjectDashboardGate projectId={projectId} />;
 }
 
-function ProjectDashboardContent({ projectId }: { projectId: string }) {
+function ProjectDashboardGate({ projectId }: { projectId: string }) {
+  const [searchParams] = useSearchParams();
+  const dashboardQuery = useProjectDashboardQuery(projectId);
+  const fromAllProjects = searchParams.get("source") === "all-projects";
+  const overviewQuery = useProjectOverviewQuery(projectId, fromAllProjects && dashboardQuery.isError);
+
+  if (dashboardQuery.isLoading) {
+    return <LoadingState label="Loading project dashboard" />;
+  }
+
+  if (dashboardQuery.isError) {
+    if (fromAllProjects && (dashboardQuery.error instanceof ApiError && [403, 404].includes(dashboardQuery.error.status))) {
+      if (overviewQuery.isLoading) {
+        return <LoadingState label="Loading project overview" />;
+      }
+      if (overviewQuery.isError || !overviewQuery.data) {
+        return <ErrorState title={dashboardErrorTitle(overviewQuery.error)} message={dashboardErrorMessage(overviewQuery.error)} />;
+      }
+      return <ProjectOverviewPage project={overviewQuery.data} />;
+    }
+    return <ErrorState title={dashboardErrorTitle(dashboardQuery.error)} message={dashboardErrorMessage(dashboardQuery.error)} />;
+  }
+
+  if (!dashboardQuery.data) {
+    return <ErrorState title="Dashboard unavailable" message="Project dashboard data could not be loaded." />;
+  }
+
+  return <ProjectDashboardContent projectId={projectId} dashboard={dashboardQuery.data} />;
+}
+
+function ProjectDashboardContent({ projectId, dashboard }: { projectId: string; dashboard: ProjectDashboard }) {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
-  const dashboardQuery = useProjectDashboardQuery(projectId);
   const projectQuery = useProjectQuery(projectId);
   const projectMembersQuery = useProjectMembersQuery(projectId, true);
   const attentionQuery = useAttentionQuery();
@@ -71,20 +102,6 @@ function ProjectDashboardContent({ projectId }: { projectId: string }) {
   const [membersOpen, setMembersOpen] = useState(false);
   const initialTab = searchParams.get("tab") === "setup" ? "setup" : "overview";
   const [activeProjectTab, setActiveProjectTab] = useState<"overview" | "setup" | "workspace">(initialTab);
-
-  if (dashboardQuery.isLoading) {
-    return <LoadingState label="Loading project dashboard" />;
-  }
-
-  if (dashboardQuery.isError) {
-    return <ErrorState title={dashboardErrorTitle(dashboardQuery.error)} message={dashboardErrorMessage(dashboardQuery.error)} />;
-  }
-
-  const dashboard = dashboardQuery.data;
-
-  if (!dashboard) {
-    return <ErrorState title="Dashboard unavailable" message="Project dashboard data could not be loaded." />;
-  }
 
   const editProject = projectQuery.data;
   const projectMembers = projectMembersQuery.data ?? [];

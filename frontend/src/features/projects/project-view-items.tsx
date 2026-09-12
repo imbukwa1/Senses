@@ -20,11 +20,11 @@ function ProjectOverview({ project, compact = false }: { project: ProjectSummary
 }
 
 export function ProjectOverviewGridCard({ project }: { project: ProjectSummary }) {
-  return <Link to={`/projects/${project.id}`} className="rounded-md border bg-background p-4 transition-colors hover:border-primary/40 hover:bg-accent/40"><ProjectOverview project={project} /></Link>;
+  return <Link to={`/projects/${project.id}?source=all-projects`} className="rounded-md border bg-background p-4 transition-colors hover:border-primary/40 hover:bg-accent/40"><ProjectOverview project={project} /></Link>;
 }
 
 export function ProjectOverviewListRow({ project }: { project: ProjectSummary }) {
-  return <div className="flex flex-col gap-3 rounded-md border bg-background p-4 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><ProjectOverview project={project} compact /></div><Button asChild variant="ghost" size="sm"><Link to={`/projects/${project.id}`} aria-label={`Open ${project.name}`}>Open <ArrowUpRight className="size-4" aria-hidden="true" /></Link></Button></div>;
+  return <div className="flex flex-col gap-3 rounded-md border bg-background p-4 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><ProjectOverview project={project} compact /></div><Button asChild variant="ghost" size="sm"><Link to={`/projects/${project.id}?source=all-projects`} aria-label={`Open ${project.name}`}>Open <ArrowUpRight className="size-4" aria-hidden="true" /></Link></Button></div>;
 }
 
 export function ProjectGridCard({ project }: { project: ProjectSummary }) {

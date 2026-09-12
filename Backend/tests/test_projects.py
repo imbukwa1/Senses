@@ -103,6 +103,46 @@ def test_all_projects_returns_organization_overview_without_granting_project_acc
         database.close()
 
 
+def test_non_member_can_view_safe_project_overview_but_not_project_internals() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        viewer = _create_auth_user(database, "Overview Viewer", _unique_email("projects.overview-viewer"))
+        project_lead = _create_auth_user(database, "Overview Lead", _unique_email("projects.overview-project-lead"))
+        project = _create_project(database, project_lead["id"], "Read Only Overview Project")
+        phase = _create_phase(database, project["id"], project_lead["id"], "Overview Phase")
+
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+        with TestClient(app) as client:
+            token = _login(client, viewer["email"])
+            headers = _auth_header(token)
+            overview = client.get(f"/projects/{project['id']}/overview", headers=headers)
+            dashboard = client.get(f"/projects/{project['id']}/dashboard", headers=headers)
+            detail = client.get(f"/projects/{project['id']}", headers=headers)
+            setup = client.get(f"/projects/{project['id']}/setup", headers=headers)
+            files = client.get(f"/projects/{project['id']}/files", headers=headers)
+            budget = client.get(f"/projects/{project['id']}/budget", headers=headers)
+
+        assert overview.status_code == 200
+        body = overview.json()
+        assert body["name"] == "Read Only Overview Project"
+        assert body["description"] == "Read Only Overview Project description"
+        assert body["project_lead"]["name"] == "Overview Lead"
+        assert body["phases"] == [
+            {
+                "id": str(phase["id"]),
+                "name": "Overview Phase",
+                "start_date": None,
+                "end_date": None,
+                "status": "Not Started",
+            }
+        ]
+        assert body["health_reasons"] == []
+        assert all(response.status_code in (403, 404) for response in (dashboard, detail, setup, files, budget))
+    finally:
+        database.close()
+
+
 def test_any_authenticated_project_role_can_create_project_without_changing_other_roles() -> None:
     database = _database_from_env()
     database.connect()

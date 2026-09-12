@@ -219,6 +219,35 @@ class ProjectResponse(BaseModel):
     archived_at: datetime | None
 
 
+class ProjectOverviewPhaseResponse(BaseModel):
+    id: UUID
+    name: str
+    start_date: date | None
+    end_date: date | None
+    status: str
+
+
+class ProjectOverviewMilestoneResponse(BaseModel):
+    id: UUID
+    name: str
+    target_date: date
+    status: str
+    responsible_person: UserSummaryResponse | None
+
+
+class ProjectOverviewResponse(ProjectResponse):
+    project_location_area: str | None
+    scope_in: str | None
+    scope_out: str | None
+    scope_boundaries: str | None
+    scope_notes: str | None
+    expected_outcomes: str | None
+    success_criteria: str | None
+    key_indicators: str | None
+    phases: list[ProjectOverviewPhaseResponse]
+    milestones: list[ProjectOverviewMilestoneResponse]
+
+
 class ProjectMemberCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1206,6 +1235,15 @@ def list_all_projects(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> list[ProjectResponse]:
     return [project_to_response(row) for row in fetch_organization_projects(session)]
+
+
+@router.get("/{project_id}/overview", response_model=ProjectOverviewResponse)
+def get_project_overview(
+    project_id: UUID,
+    _current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectOverviewResponse:
+    return fetch_project_overview(session, project_id)
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)
@@ -4088,6 +4126,73 @@ def fetch_project_health_by_id(session: DatabaseSession, project_id: UUID) -> Ro
     if row is None:
         raise_project_not_found()
     return row
+
+
+def fetch_project_overview(session: DatabaseSession, project_id: UUID) -> ProjectOverviewResponse:
+    project = fetch_project_setup_project(session, project_id)
+    if project is None:
+        raise_project_not_found()
+
+    health = fetch_project_health_by_id(session, project_id)
+    phases = session.fetch_all(
+        """
+        SELECT id, name, start_date, end_date, status
+        FROM phases
+        WHERE project_id = %s
+          AND archived_at IS NULL
+        ORDER BY display_order, created_at, id
+        """,
+        (project_id,),
+    )
+    milestones = session.fetch_all(
+        """
+        SELECT
+          milestones.id,
+          milestones.name,
+          milestones.target_date,
+          milestones.status,
+          milestones.responsible_user_id,
+          responsible_users.name AS responsible_user_name,
+          responsible_users.email AS responsible_user_email
+        FROM project_milestones AS milestones
+        LEFT JOIN users AS responsible_users
+          ON responsible_users.id = milestones.responsible_user_id
+        WHERE milestones.project_id = %s
+        ORDER BY milestones.target_date, milestones.created_at, milestones.id
+        """,
+        (project_id,),
+    )
+    base = project_to_response(health)
+    return ProjectOverviewResponse(
+        **base.model_dump(),
+        project_location_area=project.get("project_location_area"),
+        scope_in=project.get("scope_in"),
+        scope_out=project.get("scope_out"),
+        scope_boundaries=project.get("scope_boundaries"),
+        scope_notes=project.get("scope_notes"),
+        expected_outcomes=project.get("expected_outcomes"),
+        success_criteria=project.get("success_criteria"),
+        key_indicators=project.get("key_indicators"),
+        phases=[ProjectOverviewPhaseResponse(**phase) for phase in phases],
+        milestones=[
+            ProjectOverviewMilestoneResponse(
+                id=milestone["id"],
+                name=milestone["name"],
+                target_date=milestone["target_date"],
+                status=milestone["status"],
+                responsible_person=(
+                    UserSummaryResponse(
+                        id=milestone["responsible_user_id"],
+                        name=milestone["responsible_user_name"],
+                        email=milestone["responsible_user_email"],
+                    )
+                    if milestone["responsible_user_id"] is not None
+                    else None
+                ),
+            )
+            for milestone in milestones
+        ],
+    )
 
 
 def fetch_dashboard_project(session: DatabaseSession, project_id: UUID) -> Row | None:

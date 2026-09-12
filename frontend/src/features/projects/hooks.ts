@@ -38,6 +38,7 @@ import {
   downloadTaskFile,
   getChecklist,
   getProject,
+  getProjectOverview,
   getProjectBudget,
   getProjectDashboard,
   getProjectSetup,
@@ -133,6 +134,7 @@ import type {
   WorkspaceResourceKind,
   WorkspaceFolderMutationPayload,
   ProjectSetupDocumentCategory,
+  ProjectOverview,
 } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
@@ -140,6 +142,7 @@ export const allProjectsQueryKey = ["projects", "all"] as const;
 export const attentionQueryKey = ["attention", "list"] as const;
 export const myWorkQueryKey = ["my-work", "list"] as const;
 export const projectQueryKey = (projectId: string) => ["projects", projectId] as const;
+export const projectOverviewQueryKey = (projectId: string) => ["projects", projectId, "overview"] as const;
 export const projectBudgetQueryKey = (projectId: string) => ["projects", projectId, "budget"] as const;
 export const projectFilesQueryKey = (projectId: string) => ["projects", projectId, "files"] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
@@ -274,6 +277,24 @@ export function useProjectQuery(projectId: string, enabled = true) {
   const query = useQuery({
     queryKey: projectQueryKey(projectId),
     queryFn: () => getProject(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useProjectOverviewQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery<ProjectOverview>({
+    queryKey: projectOverviewQueryKey(projectId),
+    queryFn: () => getProjectOverview(requireToken(token), projectId),
     enabled: enabled && status === "authenticated" && Boolean(token),
     retry: false,
   });

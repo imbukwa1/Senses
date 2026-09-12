@@ -25,6 +25,31 @@ export type ProjectSummary = {
   archived_at: string | null;
 };
 
+export type ProjectOverview = ProjectSummary & {
+  project_location_area: string | null;
+  scope_in: string | null;
+  scope_out: string | null;
+  scope_boundaries: string | null;
+  scope_notes: string | null;
+  expected_outcomes: string | null;
+  success_criteria: string | null;
+  key_indicators: string | null;
+  phases: Array<{
+    id: string;
+    name: string;
+    start_date: string | null;
+    end_date: string | null;
+    status: string;
+  }>;
+  milestones: Array<{
+    id: string;
+    name: string;
+    target_date: string;
+    status: string;
+    responsible_person: ProjectLead | null;
+  }>;
+};
+
 export type ProjectMutationPayload = {
   name: string;
   description: string;
