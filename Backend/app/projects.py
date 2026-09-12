@@ -16,6 +16,7 @@ from app.access import (
     ensure_project_pm,
     fetch_accessible_project,
     fetch_accessible_projects,
+    fetch_organization_projects,
     fetch_project_member_role,
 )
 from app.auth import AuthenticatedUser, get_current_user
@@ -1197,6 +1198,14 @@ def list_projects(
     session: DatabaseSession = Depends(get_authenticated_db_session),
 ) -> list[ProjectResponse]:
     return [project_to_response(row, session, current_user.id) for row in fetch_accessible_projects(session, current_user.id)]
+
+
+@router.get("/all", response_model=list[ProjectResponse])
+def list_all_projects(
+    _current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectResponse]:
+    return [project_to_response(row) for row in fetch_organization_projects(session)]
 
 
 @router.get("/{project_id}", response_model=ProjectResponse)

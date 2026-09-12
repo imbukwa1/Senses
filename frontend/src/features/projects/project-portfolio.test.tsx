@@ -7,11 +7,13 @@ import { ProjectPortfolio } from "./project-portfolio";
 
 const mocks = vi.hoisted(() => ({
   useProjectDashboardQuery: vi.fn(),
+  useAllProjectsQuery: vi.fn(),
   useProjectsQuery: vi.fn(),
 }));
 
 vi.mock("./hooks", () => ({
   useProjectDashboardQuery: mocks.useProjectDashboardQuery,
+  useAllProjectsQuery: mocks.useAllProjectsQuery,
   useProjectsQuery: mocks.useProjectsQuery,
 }));
 
@@ -44,6 +46,7 @@ afterEach(() => cleanup());
 describe("ProjectPortfolio", () => {
   beforeEach(() => {
     mocks.useProjectsQuery.mockReturnValue({ data: [project], isLoading: false, isError: false });
+    mocks.useAllProjectsQuery.mockReturnValue({ data: [project], isLoading: false, isError: false });
     mocks.useProjectDashboardQuery.mockReturnValue({
       data: {
         project: { overall_progress: 64 },

@@ -8,6 +8,7 @@ import pytest
 from app.access import (
     fetch_accessible_project,
     fetch_accessible_projects,
+    fetch_organization_projects,
     require_project_access,
 )
 from app.auth import hash_password
@@ -107,6 +108,28 @@ def test_access_helpers_hide_inaccessible_projects_and_return_accessible_project
         assert visible_project["id"] == accessible_project["id"]
         assert hidden_project is None
         assert hidden_archived_project is None
+    finally:
+        database.close()
+
+
+def test_organization_project_overview_includes_non_members_without_changing_access_scope() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        user = _create_auth_user(database, "Organization User", _unique_email("access.organization"))
+        lead = _create_auth_user(database, "Organization Lead", _unique_email("access.organizationlead"))
+        member_project = _create_project(database, lead["id"], "Organization Member Project")
+        other_project = _create_project(database, lead["id"], "Organization Other Project")
+        _add_project_member(database, member_project["id"], user["id"])
+
+        with database.session() as session:
+            overview_ids = {row["id"] for row in fetch_organization_projects(session)}
+            accessible_ids = {row["id"] for row in fetch_accessible_projects(session, user["id"])}
+
+        assert member_project["id"] in overview_ids
+        assert other_project["id"] in overview_ids
+        assert member_project["id"] in accessible_ids
+        assert other_project["id"] not in accessible_ids
     finally:
         database.close()
 

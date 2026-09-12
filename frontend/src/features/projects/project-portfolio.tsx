@@ -6,7 +6,7 @@ import { PageTable } from "@/components/common/page-table";
 import { ApiError } from "@/features/auth/api";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
-import { useProjectsQuery } from "./hooks";
+import { useAllProjectsQuery, useProjectsQuery } from "./hooks";
 import { ProjectGridCard, ProjectListRow, ProjectOverviewGridCard, ProjectOverviewListRow } from "./project-view-items";
 import { ProjectViewToggle, useProjectView } from "./project-view-toggle";
 
@@ -14,12 +14,14 @@ type ProjectTab = "mine" | "all";
 
 export function ProjectPortfolio() {
   const projectsQuery = useProjectsQuery();
-  const projects = projectsQuery.data ?? [];
   const [view, setView] = useProjectView();
   const [tab, setTab] = useState<ProjectTab>("mine");
+  const allProjectsQuery = useAllProjectsQuery(tab === "all");
+  const activeQuery = tab === "all" ? allProjectsQuery : projectsQuery;
+  const projects = activeQuery.data ?? [];
 
-  if (projectsQuery.isError) {
-    return <ErrorState title={errorTitle(projectsQuery.error)} message={errorMessage(projectsQuery.error)} />;
+  if (activeQuery.isError) {
+    return <ErrorState title={errorTitle(activeQuery.error)} message={errorMessage(activeQuery.error)} />;
   }
 
   return (
@@ -32,8 +34,8 @@ export function ProjectPortfolio() {
         <ProjectViewToggle value={view} onChange={setView} />
       </div>
       <PageTable
-        isLoading={projectsQuery.isLoading}
-        isEmpty={!projectsQuery.isLoading && projects.length === 0}
+        isLoading={activeQuery.isLoading}
+        isEmpty={!activeQuery.isLoading && projects.length === 0}
         emptyTitle="No projects available."
         emptyDescription="Accessible projects will appear here when the backend returns them."
       >

@@ -56,6 +56,23 @@ def fetch_accessible_projects(
     )
 
 
+def fetch_organization_projects(session: DatabaseSession) -> list:
+    """Return non-archived organization projects without granting project access."""
+    return session.fetch_all(
+        """
+        SELECT
+          project_health.*,
+          users.name AS project_lead_name,
+          users.email AS project_lead_email
+        FROM project_health
+        JOIN users
+          ON users.id = project_health.project_lead_id
+        WHERE project_health.archived_at IS NULL
+        ORDER BY project_health.created_at DESC, project_health.id
+        """,
+    )
+
+
 def fetch_accessible_project(
     session: DatabaseSession,
     user_id: UUID,

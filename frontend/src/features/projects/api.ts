@@ -184,6 +184,17 @@ export async function listProjects(token: string): Promise<ProjectSummary[]> {
   return result.data;
 }
 
+export async function listAllProjects(token: string): Promise<ProjectSummary[]> {
+  const data = await apiRequest<unknown>("/projects/all", {}, token);
+  const result = projectSummariesSchema.safeParse(data);
+
+  if (!result.success) {
+    throw new ApiError("Organization project data could not be loaded.", 500);
+  }
+
+  return result.data;
+}
+
 export async function listAttention(token: string): Promise<AttentionItem[]> {
   const data = await apiRequest<unknown>("/attention", {}, token);
   const result = attentionItemsSchema.safeParse(data);

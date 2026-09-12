@@ -74,6 +74,35 @@ def test_project_create_generates_code_and_sets_audit_actor() -> None:
         database.close()
 
 
+def test_all_projects_returns_organization_overview_without_granting_project_access() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        member = _create_auth_user(database, "Overview Member", _unique_email("projects.overview-member"))
+        other_lead = _create_auth_user(database, "Other Project Lead", _unique_email("projects.overview-lead"))
+        member_project = _create_project(database, member["id"], "Member Overview Project")
+        other_project = _create_project(database, other_lead["id"], "Other Overview Project")
+        _add_project_member(database, member_project["id"], member["id"], "PM")
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            token = _login(client, member["email"])
+            headers = _auth_header(token)
+            my_projects = client.get("/projects", headers=headers)
+            all_projects = client.get("/projects/all", headers=headers)
+            restricted_detail = client.get(f"/projects/{other_project['id']}", headers=headers)
+
+        assert my_projects.status_code == 200
+        assert {project["id"] for project in my_projects.json()} == {str(member_project["id"])}
+        assert all_projects.status_code == 200
+        overview_by_id = {project["id"]: project for project in all_projects.json()}
+        assert set(overview_by_id) >= {str(member_project["id"]), str(other_project["id"])}
+        assert overview_by_id[str(other_project["id"])] ["health_reasons"] == []
+        assert restricted_detail.status_code == 404
+    finally:
+        database.close()
+
+
 def test_any_authenticated_project_role_can_create_project_without_changing_other_roles() -> None:
     database = _database_from_env()
     database.connect()

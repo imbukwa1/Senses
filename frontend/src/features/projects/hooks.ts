@@ -67,6 +67,7 @@ import {
   listProjectFiles,
   listProjectMembers,
   listProjects,
+  listAllProjects,
   listTaskComments,
   listUnreadCommentNotifications,
   markTaskCommentsRead,
@@ -135,6 +136,7 @@ import type {
 } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
+export const allProjectsQueryKey = ["projects", "all"] as const;
 export const attentionQueryKey = ["attention", "list"] as const;
 export const myWorkQueryKey = ["my-work", "list"] as const;
 export const projectQueryKey = (projectId: string) => ["projects", projectId] as const;
@@ -184,6 +186,24 @@ export function useProjectsQuery() {
     queryKey: projectsQueryKey,
     queryFn: () => listProjects(token ?? ""),
     enabled: status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) {
+      logout();
+    }
+  }, [logout, query.error]);
+
+  return query;
+}
+
+export function useAllProjectsQuery(enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: allProjectsQueryKey,
+    queryFn: () => listAllProjects(token ?? ""),
+    enabled: enabled && status === "authenticated" && Boolean(token),
     retry: false,
   });
 
