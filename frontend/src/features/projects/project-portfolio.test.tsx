@@ -1,6 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectPortfolio } from "./project-portfolio";
 
@@ -38,6 +39,8 @@ const project = {
   archived_at: null,
 };
 
+afterEach(() => cleanup());
+
 describe("ProjectPortfolio", () => {
   beforeEach(() => {
     mocks.useProjectsQuery.mockReturnValue({ data: [project], isLoading: false, isError: false });
@@ -71,5 +74,19 @@ describe("ProjectPortfolio", () => {
     expect(screen.queryByText("End Date")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /edit/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /archive/i })).not.toBeInTheDocument();
+  });
+
+  it("switches between grid and compact list using the same project", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><ProjectPortfolio /></MemoryRouter>);
+
+    await user.click(screen.getByRole("button", { name: "List view" }));
+    expect(screen.getByRole("button", { name: "List view" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("64% progress")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open Inclusive Speech Tech" })).toHaveAttribute("href", `/projects/${project.id}`);
+
+    await user.click(screen.getByRole("button", { name: "Grid view" }));
+    expect(screen.getByRole("button", { name: "Grid view" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("64%")).toBeInTheDocument();
   });
 });

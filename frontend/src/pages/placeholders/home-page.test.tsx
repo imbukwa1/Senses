@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -132,6 +133,15 @@ describe("HomePage", () => {
 
     expect(hrefs).toContain("/projects/project-1");
     expect(hrefs).toContain("/projects/project-1?phase=phase-1&task=task-1");
+  });
+
+  it("supports the project list view", async () => {
+    const user = userEvent.setup();
+    renderHome();
+
+    await user.click(screen.getByRole("button", { name: "List view" }));
+    expect(screen.getByRole("button", { name: "List view" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("42% progress")).toBeInTheDocument();
   });
 });
 

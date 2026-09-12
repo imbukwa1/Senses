@@ -3,14 +3,14 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { ErrorState } from "@/components/common/error-state";
-import { HealthBadge } from "@/components/common/health-badge";
 import { StatusBadge } from "@/components/common/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/features/auth/hooks";
-import { useAttentionQuery, useMyWorkQuery, useProjectDashboardQuery, useProjectsQuery } from "@/features/projects/hooks";
-import type { AttentionItem, MyWorkItem, ProjectSummary } from "@/features/projects/types";
+import { useAttentionQuery, useMyWorkQuery, useProjectsQuery } from "@/features/projects/hooks";
+import { ProjectGridCard, ProjectListRow } from "@/features/projects/project-view-items";
+import { ProjectViewToggle, useProjectView } from "@/features/projects/project-view-toggle";
+import type { AttentionItem, MyWorkItem } from "@/features/projects/types";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
 const PROJECT_PREVIEW_LIMIT = 4;
@@ -22,6 +22,7 @@ export function HomePage() {
   const projectsQuery = useProjectsQuery();
   const myWorkQuery = useMyWorkQuery();
   const attentionQuery = useAttentionQuery();
+  const [view, setView] = useProjectView();
 
   const projects = projectsQuery.data ?? [];
   const myWork = myWorkQuery.data ?? [];
@@ -72,21 +73,24 @@ export function HomePage() {
               </h3>
               <p className="text-sm text-muted-foreground">Relevant project health and progress</p>
             </div>
-            <Button asChild type="button" variant="ghost" size="sm">
-              <Link to="/projects">
-                View all
-                <ArrowRight className="size-4" aria-hidden="true" />
-              </Link>
-            </Button>
+            <div className="flex items-center gap-2">
+              <ProjectViewToggle value={view} onChange={setView} />
+              <Button asChild type="button" variant="ghost" size="sm">
+                <Link to="/projects">
+                  View all
+                  <ArrowRight className="size-4" aria-hidden="true" />
+                </Link>
+              </Button>
+            </div>
           </div>
 
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div className={`mt-4 grid gap-3 ${view === "grid" ? "lg:grid-cols-2" : "grid-cols-1"}`}>
             {projectsQuery.isLoading ? (
               <EmptyPanel title="Loading projects" />
             ) : projects.length === 0 ? (
               <EmptyPanel title="No projects found" description="Projects appear here when you have access to them." />
             ) : (
-              projects.slice(0, PROJECT_PREVIEW_LIMIT).map((project) => <ProjectHomeCard key={project.id} project={project} />)
+              projects.slice(0, PROJECT_PREVIEW_LIMIT).map((project) => view === "grid" ? <ProjectGridCard key={project.id} project={project} /> : <ProjectListRow key={project.id} project={project} />)
             )}
           </div>
         </section>
@@ -178,40 +182,6 @@ function SummaryCard({
         </Link>
       </Button>
     </section>
-  );
-}
-
-function ProjectHomeCard({ project }: { project: ProjectSummary }) {
-  const dashboardQuery = useProjectDashboardQuery(project.id);
-  const progress = dashboardQuery.data?.project.overall_progress;
-
-  return (
-    <Link
-      to={`/projects/${project.id}`}
-      className="rounded-md border bg-background p-4 transition-colors hover:border-primary/40 hover:bg-accent/40"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-foreground">{project.name}</p>
-          <p className="mt-1 text-xs text-muted-foreground">{project.code}</p>
-        </div>
-        <HealthBadge label={project.health_label} />
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <StatusBadge value={project.status} />
-        <span className="text-xs text-muted-foreground">Lead: {project.project_lead.name}</span>
-      </div>
-      {project.health_reasons[0] && project.health_label !== "On track" && project.health_label !== "Completed" ? (
-        <p className="mt-3 text-xs text-muted-foreground">{project.health_reasons[0]}</p>
-      ) : null}
-      <div className="mt-4 space-y-2">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">Progress</span>
-          <span className="font-medium text-foreground">{typeof progress === "number" ? `${Math.round(progress)}%` : "Loading"}</span>
-        </div>
-        <Progress value={typeof progress === "number" ? progress : 0} aria-label={`${project.name} progress`} />
-      </div>
-    </Link>
   );
 }
 
