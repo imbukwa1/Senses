@@ -83,10 +83,21 @@ describe("ProjectPortfolio", () => {
     await user.click(screen.getByRole("button", { name: "List view" }));
     expect(screen.getByRole("button", { name: "List view" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("64% progress")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open Inclusive Speech Tech" })).toHaveAttribute("href", `/projects/${project.id}`);
+    expect(screen.getAllByRole("link").find((link) => link.getAttribute("href") === `/projects/${project.id}`)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Grid view" }));
     expect(screen.getByRole("button", { name: "Grid view" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("64%")).toBeInTheDocument();
+  });
+
+  it("shows authorized projects in the read-only All Projects overview", async () => {
+    const user = userEvent.setup();
+    render(<MemoryRouter><ProjectPortfolio /></MemoryRouter>);
+
+    await user.click(screen.getByRole("tab", { name: "All Projects" }));
+    expect(screen.getByText("Project description")).toBeInTheDocument();
+    expect(screen.getByText("Lead: Priya PM")).toBeInTheDocument();
+    expect(screen.getAllByRole("link").find((link) => link.getAttribute("href") === `/projects/${project.id}`)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /edit|create|delete/i })).not.toBeInTheDocument();
   });
 });

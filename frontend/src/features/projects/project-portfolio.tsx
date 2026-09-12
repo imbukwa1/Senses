@@ -1,16 +1,22 @@
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/common/error-state";
 import { PageTable } from "@/components/common/page-table";
 import { ApiError } from "@/features/auth/api";
 import { userFacingErrorMessage } from "@/lib/api-errors";
 
 import { useProjectsQuery } from "./hooks";
-import { ProjectGridCard, ProjectListRow } from "./project-view-items";
+import { ProjectGridCard, ProjectListRow, ProjectOverviewGridCard, ProjectOverviewListRow } from "./project-view-items";
 import { ProjectViewToggle, useProjectView } from "./project-view-toggle";
+
+type ProjectTab = "mine" | "all";
 
 export function ProjectPortfolio() {
   const projectsQuery = useProjectsQuery();
   const projects = projectsQuery.data ?? [];
   const [view, setView] = useProjectView();
+  const [tab, setTab] = useState<ProjectTab>("mine");
 
   if (projectsQuery.isError) {
     return <ErrorState title={errorTitle(projectsQuery.error)} message={errorMessage(projectsQuery.error)} />;
@@ -18,7 +24,11 @@ export function ProjectPortfolio() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-1 rounded-md border bg-background p-1" role="tablist" aria-label="Project scope">
+          <Button type="button" size="sm" variant={tab === "mine" ? "default" : "ghost"} role="tab" aria-selected={tab === "mine"} onClick={() => setTab("mine")}>My Projects</Button>
+          <Button type="button" size="sm" variant={tab === "all" ? "default" : "ghost"} role="tab" aria-selected={tab === "all"} onClick={() => setTab("all")}>All Projects</Button>
+        </div>
         <ProjectViewToggle value={view} onChange={setView} />
       </div>
       <PageTable
@@ -27,7 +37,7 @@ export function ProjectPortfolio() {
         emptyTitle="No projects available."
         emptyDescription="Accessible projects will appear here when the backend returns them."
       >
-        {view === "grid" ? <div className="grid gap-3 sm:grid-cols-2">{projects.map((project) => <ProjectGridCard key={project.id} project={project} />)}</div> : <div className="space-y-3">{projects.map((project) => <ProjectListRow key={project.id} project={project} />)}</div>}
+        {tab === "all" ? (view === "grid" ? <div className="grid gap-3 sm:grid-cols-2">{projects.map((project) => <ProjectOverviewGridCard key={project.id} project={project} />)}</div> : <div className="space-y-3">{projects.map((project) => <ProjectOverviewListRow key={project.id} project={project} />)}</div>) : view === "grid" ? <div className="grid gap-3 sm:grid-cols-2">{projects.map((project) => <ProjectGridCard key={project.id} project={project} />)}</div> : <div className="space-y-3">{projects.map((project) => <ProjectListRow key={project.id} project={project} />)}</div>}
       </PageTable>
     </div>
   );

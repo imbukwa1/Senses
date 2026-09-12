@@ -9,6 +9,24 @@ import { Progress } from "@/components/ui/progress";
 import { useProjectDashboardQuery } from "./hooks";
 import type { ProjectSummary } from "./types";
 
+function ProjectOverview({ project, compact = false }: { project: ProjectSummary; compact?: boolean }) {
+  return <>
+    <p className="truncate text-sm font-semibold text-foreground">{project.name}</p>
+    <p className="mt-1 text-xs text-muted-foreground">{project.code}</p>
+    <p className={`${compact ? "mt-2 line-clamp-2" : "mt-3 line-clamp-3"} text-sm text-muted-foreground`}>{project.description || "No project summary available."}</p>
+    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground"><span>Lead: {project.project_lead.name}</span><span>{project.start_date} to {project.end_date}</span></div>
+    <div className="mt-3 flex flex-wrap items-center gap-2"><StatusBadge value={project.status} /><HealthBadge label={project.health_label} /></div>
+  </>;
+}
+
+export function ProjectOverviewGridCard({ project }: { project: ProjectSummary }) {
+  return <Link to={`/projects/${project.id}`} className="rounded-md border bg-background p-4 transition-colors hover:border-primary/40 hover:bg-accent/40"><ProjectOverview project={project} /></Link>;
+}
+
+export function ProjectOverviewListRow({ project }: { project: ProjectSummary }) {
+  return <div className="flex flex-col gap-3 rounded-md border bg-background p-4 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><ProjectOverview project={project} compact /></div><Button asChild variant="ghost" size="sm"><Link to={`/projects/${project.id}`} aria-label={`Open ${project.name}`}>Open <ArrowUpRight className="size-4" aria-hidden="true" /></Link></Button></div>;
+}
+
 export function ProjectGridCard({ project }: { project: ProjectSummary }) {
   const dashboardQuery = useProjectDashboardQuery(project.id);
   const progress = dashboardQuery.data?.project.overall_progress;
