@@ -27,9 +27,9 @@ export function ProjectPortfolio() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-1 rounded-md border bg-background p-1" role="tablist" aria-label="Project scope">
-          <Button type="button" size="sm" variant={tab === "mine" ? "default" : "ghost"} role="tab" aria-selected={tab === "mine"} onClick={() => setTab("mine")}>My Projects</Button>
-          <Button type="button" size="sm" variant={tab === "all" ? "default" : "ghost"} role="tab" aria-selected={tab === "all"} onClick={() => setTab("all")}>All Projects</Button>
+        <div className="flex h-[38px] items-center gap-[3px] rounded-sm border bg-background p-[3px]" role="tablist" aria-label="Project scope">
+          <Button className="h-[30px] rounded-sm px-[10px] py-0 text-xs" type="button" size="sm" variant={tab === "mine" ? "default" : "ghost"} role="tab" aria-selected={tab === "mine"} onClick={() => setTab("mine")}>My Projects</Button>
+          <Button className="h-[30px] rounded-sm px-[10px] py-0 text-xs" type="button" size="sm" variant={tab === "all" ? "default" : "ghost"} role="tab" aria-selected={tab === "all"} onClick={() => setTab("all")}>All Projects</Button>
         </div>
         <ProjectViewToggle value={view} onChange={setView} />
       </div>

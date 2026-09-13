@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 
-import logoUrl from "@/assets/logo.svg";
+import logoUrl from "@/assets/logo-v2.png";
 import { navigationItems } from "@/components/layout/nav-items";
 import { cn } from "@/lib/utils";
 

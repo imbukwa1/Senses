@@ -1,7 +1,7 @@
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { LoadingState } from "@/components/common/loading-state";
-import logoUrl from "@/assets/logo.svg";
+import logoUrl from "@/assets/logo-v2.png";
 import { LoginForm } from "@/features/auth/login-form";
 import { useAuth } from "@/features/auth/auth-provider";
 

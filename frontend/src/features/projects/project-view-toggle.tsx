@@ -31,13 +31,13 @@ export function useProjectView(): [ProjectView, (view: ProjectView) => void] {
 
 export function ProjectViewToggle({ value, onChange }: { value: ProjectView; onChange: (view: ProjectView) => void }) {
   return (
-    <div className="flex h-[34px] w-[118px] items-center justify-between rounded-sm border bg-background p-0" aria-label="Project layout">
-      <Button className="h-[28px] w-[58px] shrink-0 gap-1 rounded-sm px-1 py-0 text-xs" type="button" size="sm" variant={value === "grid" ? "default" : "ghost"} aria-pressed={value === "grid"} aria-label="Grid view" onClick={() => onChange("grid")}>
-        <Grid2X2 className="size-3" aria-hidden="true" />
+    <div className="flex h-[28px] w-[98px] items-center justify-between rounded-sm border bg-background p-0" aria-label="Project layout">
+      <Button className="h-[23px] w-[48px] shrink-0 gap-0.5 rounded-sm px-0.5 py-0 text-[10px]" type="button" size="sm" variant={value === "grid" ? "default" : "ghost"} aria-pressed={value === "grid"} aria-label="Grid view" onClick={() => onChange("grid")}>
+        <Grid2X2 className="size-2.5" aria-hidden="true" />
         <span className="hidden sm:inline">Grid</span>
       </Button>
-      <Button className="h-[28px] w-[54px] shrink-0 gap-1 rounded-sm px-1 py-0 text-xs" type="button" size="sm" variant={value === "list" ? "default" : "ghost"} aria-pressed={value === "list"} aria-label="List view" onClick={() => onChange("list")}>
-        <List className="size-3" aria-hidden="true" />
+      <Button className="h-[23px] w-[45px] shrink-0 gap-0.5 rounded-sm px-0.5 py-0 text-[10px]" type="button" size="sm" variant={value === "list" ? "default" : "ghost"} aria-pressed={value === "list"} aria-label="List view" onClick={() => onChange("list")}>
+        <List className="size-2.5" aria-hidden="true" />
         <span className="hidden sm:inline">List</span>
       </Button>
     </div>
