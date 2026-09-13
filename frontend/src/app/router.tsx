@@ -100,7 +100,6 @@ export const router = createBrowserRouter([
         ),
         handle: {
           title: "Project",
-          subtitle: "Prepared route for the future project dashboard.",
           breadcrumbs: [{ label: "Projects", href: "/projects" }, { label: "Project" }],
         },
       },

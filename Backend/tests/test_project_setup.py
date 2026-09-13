@@ -248,9 +248,25 @@ def test_project_setup_milestones_deliverables_and_resources_use_live_records() 
                 headers=_auth_header(pm_token),
                 json={
                     "name": "Launch readiness",
-                    "target_date": "2026-06-30",
-                    "responsible_user_id": str(team["id"]),
+                    "description": "Prepare the launch activity.",
+                    "timeframe": "June 2026",
+                    "actual_date": None,
+                    "responsible": "Operations lead",
+                    "deliverable": "Launch checklist",
                     "status": "In Progress",
+                },
+            )
+            updated_milestone = client.patch(
+                f"/projects/{project['id']}/setup/milestones/{milestone.json()['id']}",
+                headers=_auth_header(pm_token),
+                json={
+                    "name": "Launch readiness updated",
+                    "description": "Updated launch activity.",
+                    "timeframe": "June 2026",
+                    "actual_date": "2026-06-30",
+                    "responsible": "Operations lead",
+                    "deliverable": "Approved launch checklist",
+                    "status": "Complete",
                 },
             )
             deliverable = client.post(
@@ -271,6 +287,10 @@ def test_project_setup_milestones_deliverables_and_resources_use_live_records() 
                 json={"resource_type": "Technology", "name": "Survey platform", "notes": "Existing tool"},
             )
             setup = client.get(f"/projects/{project['id']}/setup", headers=_auth_header(pm_token))
+            deleted_milestone = client.delete(
+                f"/projects/{project['id']}/setup/milestones/{milestone.json()['id']}",
+                headers=_auth_header(pm_token),
+            )
             team_resource_create = client.post(
                 f"/projects/{project['id']}/setup/resources",
                 headers=_auth_header(team_token),
@@ -284,7 +304,12 @@ def test_project_setup_milestones_deliverables_and_resources_use_live_records() 
             )
 
         assert milestone.status_code == 201
-        assert milestone.json()["responsible_user_id"] == str(team["id"])
+        assert milestone.json()["responsible"] == "Operations lead"
+        assert milestone.json()["actual_date"] is None
+        assert updated_milestone.status_code == 200
+        assert updated_milestone.json()["name"] == "Launch readiness updated"
+        assert updated_milestone.json()["actual_date"] == "2026-06-30"
+        assert deleted_milestone.status_code == 204
         assert deliverable.status_code == 201
         assert deliverable.json()["task_id"] == str(task["id"])
         assert deliverable.json()["owner_id"] == str(team["id"])
@@ -295,7 +320,7 @@ def test_project_setup_milestones_deliverables_and_resources_use_live_records() 
         assert _section(setup.json(), "resources")["status"] == "Complete"
         assert team_resource_create.status_code == 403
         assert team_milestones.status_code == 200
-        assert len(team_milestones.json()) == 1
+        assert len(team_milestones.json()) == 0
         assert len(live_deliverables.json()) == 1
         assert task_checklist.status_code == 200
         assert [item["description"] for item in task_checklist.json()["items"]] == ["Launch checklist"]

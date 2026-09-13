@@ -302,7 +302,12 @@ export type ProjectSetupMilestone = {
   id: string;
   project_id: string;
   name: string;
-  target_date: string;
+  description: string | null;
+  timeframe: string | null;
+  actual_date: string | null;
+  responsible: string | null;
+  deliverable: string | null;
+  target_date: string | null;
   responsible_user_id: string | null;
   responsible_person: ProjectLead | null;
   status: "Not Started" | "In Progress" | "Complete";
@@ -313,8 +318,13 @@ export type ProjectSetupMilestone = {
 
 export type ProjectSetupMilestonePayload = {
   name: string;
-  target_date: string;
-  responsible_user_id: string | null;
+  description: string | null;
+  timeframe: string | null;
+  actual_date: string | null;
+  responsible: string | null;
+  deliverable: string | null;
+  target_date?: string | null;
+  responsible_user_id?: string | null;
   status: "Not Started" | "In Progress" | "Complete";
 };
 

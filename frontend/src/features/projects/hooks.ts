@@ -16,6 +16,8 @@ import {
   createProjectSetupDependency,
   createProjectSetupDeliverable,
   createProjectSetupMilestone,
+  updateProjectSetupMilestone,
+  deleteProjectSetupMilestone,
   createProjectSetupMonitoringReporting,
   createProjectSetupRiskIssue,
   createProjectSetupResource,
@@ -919,6 +921,37 @@ export function useCreateProjectSetupMilestoneMutation(projectId: string) {
 
   return useMutation({
     mutationFn: (payload: ProjectSetupMilestonePayload) => createProjectSetupMilestone(requireToken(token), projectId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectSetupMilestonesQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateProjectSetupMilestoneMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: ({ milestoneId, payload }: { milestoneId: string; payload: ProjectSetupMilestonePayload }) =>
+      updateProjectSetupMilestone(requireToken(token), projectId, milestoneId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectSetupMilestonesQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectDashboardQueryKey(projectId) });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useDeleteProjectSetupMilestoneMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+
+  return useMutation({
+    mutationFn: (milestoneId: string) => deleteProjectSetupMilestone(requireToken(token), projectId, milestoneId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: projectSetupMilestonesQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });

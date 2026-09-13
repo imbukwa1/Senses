@@ -1,4 +1,4 @@
-import { Check, CheckCircle2, Circle, ClipboardList, Edit, Eye, FileClock, Plus, Save, Upload, UserPlus, Users, X, XCircle } from "lucide-react";
+import { Check, CheckCircle2, Circle, ClipboardList, Edit, Eye, FileClock, Plus, Save, Trash2, Upload, UserPlus, Users, X, XCircle } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 
@@ -24,6 +24,8 @@ import {
   useCreateProjectSetupDependencyMutation,
   useCreateProjectSetupDeliverableMutation,
   useCreateProjectSetupMilestoneMutation,
+  useDeleteProjectSetupMilestoneMutation,
+  useUpdateProjectSetupMilestoneMutation,
   useCreateProjectSetupMonitoringReportingMutation,
   useCreateProjectSetupRiskIssueMutation,
   useCreateProjectSetupResourceMutation,
@@ -78,6 +80,7 @@ import type {
   ProjectSetupDependencyPayload,
   ProjectSetupDeliverablePayload,
   ProjectSetupMilestonePayload,
+  ProjectSetupMilestone,
   ProjectSetupMonitoringReportingPayload,
   ProjectSetupRiskIssuePayload,
   ProjectSetupResourcePayload,
@@ -421,7 +424,7 @@ function renderFirstPassSection({
     return <Phase0PhasesSection canEdit={canEdit} dashboard={dashboard} members={members} projectId={setup.project_id} />;
   }
   if (activeSection.key === "milestones") {
-    return <Phase0MilestonesSection canEdit={canEdit} members={members} projectId={setup.project_id} />;
+    return <Phase0MilestonesSection canEdit={canEdit} projectId={setup.project_id} />;
   }
   if (activeSection.key === "deliverables") {
     return <Phase0DeliverablesSection canEdit={canEdit} dashboard={dashboard} members={members} projectId={setup.project_id} />;
@@ -860,48 +863,71 @@ function PhaseMemberManager({
   );
 }
 
-function Phase0MilestonesSection({ canEdit, members, projectId }: { canEdit: boolean; members: ProjectMember[]; projectId: string }) {
+function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; projectId: string }) {
   const milestonesQuery = useProjectSetupMilestonesQuery(projectId);
   const createMilestone = useCreateProjectSetupMilestoneMutation(projectId);
+  const updateMilestone = useUpdateProjectSetupMilestoneMutation(projectId);
+  const deleteMilestone = useDeleteProjectSetupMilestoneMutation(projectId);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProjectSetupMilestonePayload>({
     name: "",
-    responsible_user_id: null,
+    description: null,
+    timeframe: null,
+    actual_date: null,
+    responsible: null,
+    deliverable: null,
     status: "Not Started",
-    target_date: "",
   });
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await createMilestone.mutateAsync({ ...form, name: form.name.trim(), responsible_user_id: form.responsible_user_id || null });
-    setForm({ name: "", responsible_user_id: null, status: "Not Started", target_date: "" });
+    const payload = { ...form, name: form.name.trim() };
+    if (editingId) {
+      await updateMilestone.mutateAsync({ milestoneId: editingId, payload });
+    } else {
+      await createMilestone.mutateAsync(payload);
+    }
+    setEditingId(null);
+    setForm(emptyMilestoneForm());
+  }
+
+  function startEditing(milestone: ProjectSetupMilestone) {
+    setEditingId(milestone.id);
+    setForm({
+      name: milestone.name,
+      description: milestone.description,
+      timeframe: milestone.timeframe,
+      actual_date: milestone.actual_date,
+      responsible: milestone.responsible,
+      deliverable: milestone.deliverable,
+      status: milestone.status,
+      target_date: milestone.target_date,
+    });
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setForm(emptyMilestoneForm());
   }
 
   return (
     <div className="space-y-4">
       {canEdit ? (
-        <form className="rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_10rem_minmax(0,14rem)_10rem_auto]">
-            <Input value={form.name} placeholder="Milestone" onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-            <Input type="date" value={form.target_date} onChange={(event) => setForm((current) => ({ ...current, target_date: event.target.value }))} />
-            <Select value={form.responsible_user_id ?? "none"} onValueChange={(value) => setForm((current) => ({ ...current, responsible_user_id: value === "none" ? null : value }))}>
-              <SelectTrigger aria-label="Responsible person"><SelectValue placeholder="Responsible person" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No responsible person</SelectItem>
-                {members.map((member) => <SelectItem key={member.user_id} value={member.user_id}>{member.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={form.status} onValueChange={(value) => setForm((current) => ({ ...current, status: value as ProjectSetupMilestonePayload["status"] }))}>
-              <SelectTrigger aria-label="Milestone status"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {["Not Started", "In Progress", "Complete"].map((statusValue) => <SelectItem key={statusValue} value={statusValue}>{statusValue}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Button type="submit" disabled={!form.name.trim() || !form.target_date || createMilestone.isPending}>
-              <Plus className="size-4" aria-hidden="true" />
-              Add
-            </Button>
+        <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Milestone / Activity"><Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} /></Field>
+            <Field label="Timeframe"><Input value={form.timeframe ?? ""} onChange={(event) => setForm((current) => ({ ...current, timeframe: event.target.value || null }))} /></Field>
+            <Field label="Description"><Textarea value={form.description ?? ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value || null }))} /></Field>
+            <Field label="Actual Date of Implementation"><Input type="date" value={form.actual_date ?? ""} onChange={(event) => setForm((current) => ({ ...current, actual_date: event.target.value || null }))} /></Field>
+            <Field label="Responsible"><Input value={form.responsible ?? ""} onChange={(event) => setForm((current) => ({ ...current, responsible: event.target.value || null }))} /></Field>
+            <Field label="Deliverable"><Input value={form.deliverable ?? ""} onChange={(event) => setForm((current) => ({ ...current, deliverable: event.target.value || null }))} /></Field>
+            <Field label="Status"><Select value={form.status} onValueChange={(value) => setForm((current) => ({ ...current, status: value as ProjectSetupMilestonePayload["status"] }))}><SelectTrigger aria-label="Milestone status"><SelectValue /></SelectTrigger><SelectContent>{["Not Started", "In Progress", "Complete"].map((statusValue) => <SelectItem key={statusValue} value={statusValue}>{statusValue}</SelectItem>)}</SelectContent></Select></Field>
           </div>
-          {createMilestone.error ? <p className="mt-3 text-sm text-error">{userFacingErrorMessage(createMilestone.error, { action: "milestone" })}</p> : null}
+          <div className="flex gap-2">
+            <Button type="submit" disabled={!form.name.trim() || createMilestone.isPending || updateMilestone.isPending}><>{editingId ? <Save className="size-4" aria-hidden="true" /> : <Plus className="size-4" aria-hidden="true" />}</> {editingId ? "Save" : "Add"}</Button>
+            {editingId ? <Button type="button" variant="outline" onClick={cancelEditing}>Cancel</Button> : null}
+          </div>
+          {createMilestone.error || updateMilestone.error ? <p className="text-sm text-error">{userFacingErrorMessage(createMilestone.error || updateMilestone.error, { action: "milestone" })}</p> : null}
         </form>
       ) : null}
       {milestonesQuery.isLoading ? <LoadingState label="Loading milestones" /> : null}
@@ -909,16 +935,30 @@ function Phase0MilestonesSection({ canEdit, members, projectId }: { canEdit: boo
       {milestonesQuery.data?.length === 0 ? <EmptyState title="No milestones have been added." /> : null}
       <div className="space-y-2">
         {milestonesQuery.data?.map((milestone) => (
-          <div key={milestone.id} className="grid gap-2 rounded-md border bg-background p-3 text-sm md:grid-cols-[minmax(0,1fr)_10rem_minmax(0,14rem)_8rem]">
-            <span className="font-medium text-foreground">{milestone.name}</span>
-            <span className="text-muted-foreground">{formatSetupDate(milestone.target_date)}</span>
-            <span className="text-muted-foreground">{milestone.responsible_person?.name ?? "No responsible person"}</span>
-            <Badge variant="outline">{milestone.status}</Badge>
+          <div key={milestone.id} className="space-y-2 rounded-md border bg-background p-3 text-sm">
+            <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
+              <div><span className="font-medium text-foreground">Milestone / Activity</span><p>{milestone.name}</p></div>
+              <div><span className="font-medium text-foreground">Description</span><p className="whitespace-pre-wrap text-muted-foreground">{milestone.description || "-"}</p></div>
+              <div><span className="font-medium text-foreground">Timeframe</span><p className="text-muted-foreground">{milestone.timeframe || (milestone.target_date ? formatSetupDate(milestone.target_date) : "-")}</p></div>
+              <div><span className="font-medium text-foreground">Actual Date of Implementation</span><p className="text-muted-foreground">{milestone.actual_date ? formatSetupDate(milestone.actual_date) : "-"}</p></div>
+              <div><span className="font-medium text-foreground">Responsible</span><p className="text-muted-foreground">{milestone.responsible || milestone.responsible_person?.name || "-"}</p></div>
+              <div><span className="font-medium text-foreground">Deliverable</span><p className="text-muted-foreground">{milestone.deliverable || "-"}</p></div>
+              <div><span className="font-medium text-foreground">Status</span><p><Badge variant="outline">{milestone.status}</Badge></p></div>
+            </div>
+            {canEdit ? <div className="flex gap-2"><Button type="button" variant="outline" size="sm" onClick={() => startEditing(milestone)}><Edit className="size-4" aria-hidden="true" />Edit</Button><Button type="button" variant="outline" size="sm" disabled={deleteMilestone.isPending} onClick={() => { if (window.confirm("Remove this milestone?")) void deleteMilestone.mutateAsync(milestone.id); }}><Trash2 className="size-4" aria-hidden="true" />Remove</Button></div> : null}
           </div>
         ))}
       </div>
     </div>
   );
+}
+
+function emptyMilestoneForm(): ProjectSetupMilestonePayload {
+  return { name: "", description: null, timeframe: null, actual_date: null, responsible: null, deliverable: null, status: "Not Started" };
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return <label className="space-y-1 text-sm font-medium">{label}{children}</label>;
 }
 
 function Phase0DeliverablesSection({

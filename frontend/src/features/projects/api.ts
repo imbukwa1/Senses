@@ -299,6 +299,26 @@ export async function createProjectSetupMilestone(
   return result.data;
 }
 
+export async function updateProjectSetupMilestone(
+  token: string,
+  projectId: string,
+  milestoneId: string,
+  payload: ProjectSetupMilestonePayload,
+): Promise<ProjectSetupMilestone> {
+  const data = await apiRequest<unknown>(
+    `/projects/${projectId}/setup/milestones/${milestoneId}`,
+    { method: "PATCH", body: JSON.stringify(payload) },
+    token,
+  );
+  const result = projectSetupMilestoneSchema.safeParse(data);
+  if (!result.success) throw new ApiError("Project setup milestone could not be updated.", 500);
+  return result.data;
+}
+
+export async function deleteProjectSetupMilestone(token: string, projectId: string, milestoneId: string): Promise<void> {
+  await apiRequest<unknown>(`/projects/${projectId}/setup/milestones/${milestoneId}`, { method: "DELETE" }, token);
+}
+
 export async function listProjectSetupDeliverables(token: string, projectId: string): Promise<ProjectSetupDeliverable[]> {
   const data = await apiRequest<unknown>(`/projects/${projectId}/setup/deliverables`, {}, token);
   const result = projectSetupDeliverablesSchema.safeParse(data);

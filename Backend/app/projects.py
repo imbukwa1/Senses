@@ -671,7 +671,13 @@ class ProjectSetupMilestoneCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=200)
-    target_date: date
+    description: str | None = None
+    timeframe: str | None = None
+    actual_date: date | None = None
+    responsible: str | None = None
+    deliverable: str | None = None
+    # Legacy fields remain accepted for existing clients and records.
+    target_date: date | None = None
     responsible_user_id: UUID | None = None
     status: ProjectSetupMilestoneStatus = "Not Started"
 
@@ -858,7 +864,12 @@ class ProjectSetupMilestoneResponse(BaseModel):
     id: UUID
     project_id: UUID
     name: str
-    target_date: date
+    description: str | None
+    timeframe: str | None
+    actual_date: date | None
+    responsible: str | None
+    deliverable: str | None
+    target_date: date | None
     responsible_user_id: UUID | None
     responsible_person: ProjectSetupLeadResponse | None
     status: str
@@ -2111,20 +2122,97 @@ def create_project_setup_milestone(
 ) -> ProjectSetupMilestoneResponse:
     ensure_project_access(session, current_user.id, project_id)
     ensure_project_pm(session, current_user.id, project_id)
-    if payload.responsible_user_id is not None:
+    if payload.responsible_user_id is not None and payload.responsible is None:
         fetch_project_member(session, project_id, payload.responsible_user_id)
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Milestone name is required")
     row = session.fetch_one(
         """
-        INSERT INTO project_milestones (project_id, name, target_date, responsible_user_id, status, created_by)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO project_milestones (
+          project_id, name, description, timeframe, actual_date, responsible,
+          deliverable, target_date, responsible_user_id, status, created_by
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
-        (project_id, name, payload.target_date, payload.responsible_user_id, payload.status, current_user.id),
+        (
+            project_id,
+            name,
+            payload.description,
+            payload.timeframe,
+            payload.actual_date,
+            payload.responsible,
+            payload.deliverable,
+            payload.target_date,
+            payload.responsible_user_id if payload.responsible is None else None,
+            payload.status,
+            current_user.id,
+        ),
     )
     return project_setup_milestone_to_response(fetch_project_setup_milestone_or_404(session, project_id, row["id"]))
+
+
+@router.patch("/{project_id}/setup/milestones/{milestone_id}", response_model=ProjectSetupMilestoneResponse)
+def update_project_setup_milestone(
+    project_id: UUID,
+    milestone_id: UUID,
+    payload: ProjectSetupMilestoneCreateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectSetupMilestoneResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    fetch_project_setup_milestone_or_404(session, project_id, milestone_id)
+    if payload.responsible_user_id is not None and payload.responsible is None:
+        fetch_project_member(session, project_id, payload.responsible_user_id)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Milestone name is required")
+    session.execute(
+        """
+        UPDATE project_milestones
+        SET name = %s,
+            description = %s,
+            timeframe = %s,
+            actual_date = %s,
+            responsible = %s,
+            deliverable = %s,
+            target_date = %s,
+            responsible_user_id = %s,
+            status = %s,
+            updated_at = NOW()
+        WHERE project_id = %s AND id = %s
+        """,
+        (
+            name,
+            payload.description,
+            payload.timeframe,
+            payload.actual_date,
+            payload.responsible,
+            payload.deliverable,
+            payload.target_date,
+            payload.responsible_user_id if payload.responsible is None else None,
+            payload.status,
+            project_id,
+            milestone_id,
+        ),
+    )
+    return project_setup_milestone_to_response(fetch_project_setup_milestone_or_404(session, project_id, milestone_id))
+
+
+@router.delete("/{project_id}/setup/milestones/{milestone_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_project_setup_milestone(
+    project_id: UUID,
+    milestone_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> Response:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_pm(session, current_user.id, project_id)
+    fetch_project_setup_milestone_or_404(session, project_id, milestone_id)
+    session.execute("DELETE FROM project_milestones WHERE project_id = %s AND id = %s", (project_id, milestone_id))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{project_id}/setup/deliverables", response_model=list[ProjectSetupDeliverableResponse])
@@ -5603,6 +5691,11 @@ def fetch_project_setup_milestones(session: DatabaseSession, project_id: UUID) -
           project_milestones.id,
           project_milestones.project_id,
           project_milestones.name,
+          project_milestones.description,
+          project_milestones.timeframe,
+          project_milestones.actual_date,
+          project_milestones.responsible,
+          project_milestones.deliverable,
           project_milestones.target_date,
           project_milestones.responsible_user_id,
           responsible_users.name AS responsible_user_name,
@@ -5628,6 +5721,11 @@ def fetch_project_setup_milestone_or_404(session: DatabaseSession, project_id: U
           project_milestones.id,
           project_milestones.project_id,
           project_milestones.name,
+          project_milestones.description,
+          project_milestones.timeframe,
+          project_milestones.actual_date,
+          project_milestones.responsible,
+          project_milestones.deliverable,
           project_milestones.target_date,
           project_milestones.responsible_user_id,
           responsible_users.name AS responsible_user_name,
@@ -6226,6 +6324,11 @@ def project_setup_milestone_to_response(row: Row) -> ProjectSetupMilestoneRespon
         id=row["id"],
         project_id=row["project_id"],
         name=row["name"],
+        description=row["description"],
+        timeframe=row["timeframe"] or (row["target_date"].isoformat() if row["target_date"] else None),
+        actual_date=row["actual_date"],
+        responsible=row["responsible"],
+        deliverable=row["deliverable"],
         target_date=row["target_date"],
         responsible_user_id=row["responsible_user_id"],
         responsible_person=responsible_person,
