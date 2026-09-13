@@ -31,12 +31,12 @@ export function useProjectView(): [ProjectView, (view: ProjectView) => void] {
 
 export function ProjectViewToggle({ value, onChange }: { value: ProjectView; onChange: (view: ProjectView) => void }) {
   return (
-    <div className="flex items-center gap-1 rounded-md border bg-background p-1" aria-label="Project layout">
-      <Button type="button" size="sm" variant={value === "grid" ? "default" : "ghost"} aria-pressed={value === "grid"} aria-label="Grid view" onClick={() => onChange("grid")}>
+    <div className="flex h-[50px] w-[190px] items-center justify-between rounded-md border bg-background p-0" aria-label="Project layout">
+      <Button className="h-[48px] w-[90px] shrink-0" type="button" size="sm" variant={value === "grid" ? "default" : "ghost"} aria-pressed={value === "grid"} aria-label="Grid view" onClick={() => onChange("grid")}>
         <Grid2X2 className="size-4" aria-hidden="true" />
         <span className="hidden sm:inline">Grid</span>
       </Button>
-      <Button type="button" size="sm" variant={value === "list" ? "default" : "ghost"} aria-pressed={value === "list"} aria-label="List view" onClick={() => onChange("list")}>
+      <Button className="h-[48px] w-[80px] shrink-0" type="button" size="sm" variant={value === "list" ? "default" : "ghost"} aria-pressed={value === "list"} aria-label="List view" onClick={() => onChange("list")}>
         <List className="size-4" aria-hidden="true" />
         <span className="hidden sm:inline">List</span>
       </Button>
