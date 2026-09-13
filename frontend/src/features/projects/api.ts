@@ -11,6 +11,8 @@ import {
   checklistSchema,
   myWorkItemsSchema,
   projectBudgetSchema,
+  projectMilestoneFinanceSchema,
+  projectMilestoneFinanceListSchema,
   projectDashboardSchema,
   projectFilesSchema,
   projectMemberSchema,
@@ -74,6 +76,8 @@ import type {
   MyWorkItem,
   ProjectFile,
   ProjectBudget,
+  ProjectMilestoneFinance,
+  ProjectMilestoneFinancePayload,
   ProjectBudgetMutationPayload,
   PhaseResponse,
   ProjectDashboard,
@@ -643,6 +647,25 @@ export async function getProjectBudget(token: string, projectId: string): Promis
     throw new ApiError("Project budget data could not be loaded.", 500);
   }
 
+  return result.data;
+}
+
+export async function listProjectMilestoneFinance(token: string, projectId: string): Promise<ProjectMilestoneFinance[]> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/finance/milestones`, {}, token);
+  const result = projectMilestoneFinanceListSchema.safeParse(data);
+  if (!result.success) throw new ApiError("Project milestone finance data could not be loaded.", 500);
+  return result.data;
+}
+
+export async function updateProjectMilestoneFinance(
+  token: string,
+  projectId: string,
+  milestoneId: string,
+  payload: ProjectMilestoneFinancePayload,
+): Promise<ProjectMilestoneFinance> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/finance/milestones/${milestoneId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+  const result = projectMilestoneFinanceSchema.safeParse(data);
+  if (!result.success) throw new ApiError("Project milestone finance data could not be saved.", 500);
   return result.data;
 }
 

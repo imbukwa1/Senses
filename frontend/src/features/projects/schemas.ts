@@ -490,6 +490,19 @@ export const projectBudgetSchema = z.object({
   utilisation: backendNumberSchema,
 });
 
+export const projectMilestoneFinanceSchema = z.object({
+  milestone_id: z.uuid(),
+  project_id: z.uuid(),
+  name: z.string().min(1),
+  description: z.string().nullable(),
+  month: z.string().nullable(),
+  allocated: backendNumberSchema,
+  actual_spend: backendNumberSchema,
+  variance: backendNumberSchema,
+});
+
+export const projectMilestoneFinanceListSchema = z.array(projectMilestoneFinanceSchema);
+
 export const checklistSummarySchema = z.object({
   completed_items: z.number(),
   total_items: z.number(),

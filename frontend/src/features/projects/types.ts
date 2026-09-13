@@ -611,6 +611,23 @@ export type ProjectBudget = {
   utilisation: number;
 };
 
+export type ProjectMilestoneFinance = {
+  milestone_id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  month: string | null;
+  allocated: number;
+  actual_spend: number;
+  variance: number;
+};
+
+export type ProjectMilestoneFinancePayload = {
+  month: string | null;
+  allocated: number;
+  actual_spend: number;
+};
+
 export type ProjectBudgetMutationPayload = {
   allocated?: number;
 };

@@ -189,6 +189,14 @@ class ProjectBudgetUpdateRequest(BaseModel):
     allocated: Decimal | None = None
 
 
+class ProjectMilestoneFinanceUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    month: str | None = Field(default=None, max_length=50)
+    allocated: Decimal = Field(ge=0)
+    actual_spend: Decimal = Field(ge=0)
+
+
 class UserSummaryResponse(BaseModel):
     id: UUID
     name: str
@@ -1098,6 +1106,17 @@ class ProjectBudgetResponse(BaseModel):
     utilisation: Decimal
 
 
+class ProjectMilestoneFinanceResponse(BaseModel):
+    milestone_id: UUID
+    project_id: UUID
+    name: str
+    description: str | None
+    month: str | None
+    allocated: Decimal
+    actual_spend: Decimal
+    variance: Decimal
+
+
 class ProjectLeadResponse(BaseModel):
     id: UUID
     name: str
@@ -1323,6 +1342,45 @@ def update_project_budget(
         raise_project_not_found()
 
     return project_budget_to_response(fetch_project_budget_or_404(session, project_id))
+
+
+@router.get("/{project_id}/finance/milestones", response_model=list[ProjectMilestoneFinanceResponse])
+def list_project_milestone_finance(
+    project_id: UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> list[ProjectMilestoneFinanceResponse]:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_budget_view_role(session, current_user.id, project_id)
+    return [project_milestone_finance_to_response(row) for row in fetch_project_milestone_finance(session, project_id)]
+
+
+@router.patch("/{project_id}/finance/milestones/{milestone_id}", response_model=ProjectMilestoneFinanceResponse)
+def update_project_milestone_finance(
+    project_id: UUID,
+    milestone_id: UUID,
+    payload: ProjectMilestoneFinanceUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectMilestoneFinanceResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_budget_edit_role(session, current_user.id, project_id)
+    fetch_project_setup_milestone_or_404(session, project_id, milestone_id)
+    session.execute(
+        """
+        INSERT INTO project_milestone_finance (milestone_id, project_id, month, allocated, actual_spend)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (milestone_id) DO UPDATE SET
+          month = EXCLUDED.month,
+          allocated = EXCLUDED.allocated,
+          actual_spend = EXCLUDED.actual_spend,
+          updated_at = NOW()
+        """,
+        (milestone_id, project_id, normalize_optional_text(payload.month), payload.allocated, payload.actual_spend),
+    )
+    return project_milestone_finance_to_response(
+        fetch_project_milestone_finance_row(session, project_id, milestone_id)
+    )
 
 
 @router.get("/{project_id}/files", response_model=list[ProjectFileResponse])
@@ -5682,6 +5740,49 @@ def validate_work_plan_entry_payload(
 
 def project_setup_work_plan_entry_to_response(row: Row) -> ProjectSetupWorkPlanEntryResponse:
     return ProjectSetupWorkPlanEntryResponse(**row)
+
+
+def fetch_project_milestone_finance(session: DatabaseSession, project_id: UUID) -> list[Row]:
+    return session.fetch_all(
+        """
+        SELECT
+          milestones.id AS milestone_id,
+          milestones.project_id,
+          milestones.name,
+          milestones.description,
+          finance.month,
+          COALESCE(finance.allocated, 0) AS allocated,
+          COALESCE(finance.actual_spend, 0) AS actual_spend
+        FROM project_milestones AS milestones
+        LEFT JOIN project_milestone_finance AS finance
+          ON finance.milestone_id = milestones.id
+         AND finance.project_id = milestones.project_id
+        WHERE milestones.project_id = %s
+        ORDER BY milestones.target_date NULLS LAST, milestones.created_at, milestones.id
+        """,
+        (project_id,),
+    )
+
+
+def fetch_project_milestone_finance_row(session: DatabaseSession, project_id: UUID, milestone_id: UUID) -> Row:
+    rows = fetch_project_milestone_finance(session, project_id)
+    for row in rows:
+        if row["milestone_id"] == milestone_id:
+            return row
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project milestone finance record not found")
+
+
+def project_milestone_finance_to_response(row: Row) -> ProjectMilestoneFinanceResponse:
+    return ProjectMilestoneFinanceResponse(
+        milestone_id=row["milestone_id"],
+        project_id=row["project_id"],
+        name=row["name"],
+        description=row["description"],
+        month=row["month"],
+        allocated=row["allocated"],
+        actual_spend=row["actual_spend"],
+        variance=row["allocated"] - row["actual_spend"],
+    )
 
 
 def fetch_project_setup_milestones(session: DatabaseSession, project_id: UUID) -> list[Row]:

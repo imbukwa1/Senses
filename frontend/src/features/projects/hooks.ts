@@ -93,6 +93,8 @@ import {
   updateProject,
   updateProjectBudget,
   updateProjectSetupBudget,
+  listProjectMilestoneFinance,
+  updateProjectMilestoneFinance,
   updateProjectSetupDetails,
   createProjectSetupWorkPlanEntry,
   updateProjectSetupWorkPlanEntry,
@@ -137,6 +139,7 @@ import type {
   WorkspaceFolderMutationPayload,
   ProjectSetupDocumentCategory,
   ProjectOverview,
+  ProjectMilestoneFinancePayload,
 } from "./types";
 
 export const projectsQueryKey = ["projects", "list"] as const;
@@ -146,6 +149,7 @@ export const myWorkQueryKey = ["my-work", "list"] as const;
 export const projectQueryKey = (projectId: string) => ["projects", projectId] as const;
 export const projectOverviewQueryKey = (projectId: string) => ["projects", projectId, "overview"] as const;
 export const projectBudgetQueryKey = (projectId: string) => ["projects", projectId, "budget"] as const;
+export const projectMilestoneFinanceQueryKey = (projectId: string) => ["projects", projectId, "finance", "milestones"] as const;
 export const projectFilesQueryKey = (projectId: string) => ["projects", projectId, "files"] as const;
 export const projectDashboardQueryKey = (projectId: string) => ["projects", projectId, "dashboard"] as const;
 export const projectSetupQueryKey = (projectId: string) => ["projects", projectId, "setup"] as const;
@@ -557,6 +561,20 @@ export function useProjectBudgetQuery(projectId: string, enabled = true) {
   return query;
 }
 
+export function useProjectMilestoneFinanceQuery(projectId: string, enabled = true) {
+  const { logout, status, token } = useAuth();
+  const query = useQuery({
+    queryKey: projectMilestoneFinanceQueryKey(projectId),
+    queryFn: () => listProjectMilestoneFinance(requireToken(token), projectId),
+    enabled: enabled && status === "authenticated" && Boolean(token),
+    retry: false,
+  });
+  useEffect(() => {
+    if (query.error instanceof ApiError && query.error.status === 401) logout();
+  }, [logout, query.error]);
+  return query;
+}
+
 export function useProjectFilesQuery(projectId: string, enabled = true) {
   const { logout, status, token } = useAuth();
   const query = useQuery({
@@ -831,6 +849,19 @@ export function useUpdateProjectBudgetMutation(projectId: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: projectBudgetQueryKey(projectId) });
       void queryClient.invalidateQueries({ queryKey: attentionQueryKey });
+    },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateProjectMilestoneFinanceMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+  return useMutation({
+    mutationFn: ({ milestoneId, payload }: { milestoneId: string; payload: ProjectMilestoneFinancePayload }) =>
+      updateProjectMilestoneFinance(requireToken(token), projectId, milestoneId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectMilestoneFinanceQueryKey(projectId) });
     },
     onError: authFailureHandler(logout),
   });

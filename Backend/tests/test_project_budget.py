@@ -116,6 +116,71 @@ def test_finance_can_edit_phase_budget_and_project_totals_are_derived() -> None:
         database.close()
 
 
+def test_finance_tracks_existing_project_setup_milestones_without_duplicate_rows() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Milestone Finance PM", _unique_email("budget.milestone-pm"))
+        finance = _create_auth_user(database, "Milestone Finance User", _unique_email("budget.milestone-finance"))
+        team = _create_auth_user(database, "Milestone Finance Team", _unique_email("budget.milestone-team"))
+        project = _create_project(database, pm["id"], "Milestone Finance Project")
+        with database.session() as session:
+            milestone = session.fetch_one(
+                """
+                INSERT INTO project_milestones (project_id, name, description, status, created_by)
+                VALUES (%s, %s, %s, 'Not Started', %s)
+                RETURNING id
+                """,
+                (project["id"], "Launch activity", "Initial launch description", pm["id"]),
+            )
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, project["id"], finance["id"], "Finance")
+        _add_project_member(database, project["id"], team["id"], "Team Member")
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            finance_token = _login(client, finance["email"])
+            pm_token = _login(client, pm["email"])
+            team_token = _login(client, team["email"])
+            initial = client.get(f"/projects/{project['id']}/finance/milestones", headers=_auth_header(finance_token))
+            saved = client.patch(
+                f"/projects/{project['id']}/finance/milestones/{milestone['id']}",
+                headers=_auth_header(finance_token),
+                json={"month": "June 2026", "allocated": "100000", "actual_spend": "80000"},
+            )
+            team_denied = client.get(f"/projects/{project['id']}/finance/milestones", headers=_auth_header(team_token))
+            pm_denied = client.patch(
+                f"/projects/{project['id']}/finance/milestones/{milestone['id']}",
+                headers=_auth_header(pm_token),
+                json={"month": "July 2026", "allocated": "1", "actual_spend": "1"},
+            )
+            renamed = client.patch(
+                f"/projects/{project['id']}/setup/milestones/{milestone['id']}",
+                headers=_auth_header(pm_token),
+                json={"name": "Launch activity updated", "description": "Updated description", "status": "In Progress"},
+            )
+            reflected = client.get(f"/projects/{project['id']}/finance/milestones", headers=_auth_header(finance_token))
+            removed = client.delete(
+                f"/projects/{project['id']}/setup/milestones/{milestone['id']}",
+                headers=_auth_header(pm_token),
+            )
+            after_remove = client.get(f"/projects/{project['id']}/finance/milestones", headers=_auth_header(finance_token))
+
+        assert initial.status_code == 200
+        assert len(initial.json()) == 1
+        assert saved.status_code == 200
+        assert saved.json()["variance"] == "20000.00"
+        assert team_denied.status_code == 403
+        assert pm_denied.status_code == 403
+        assert renamed.status_code == 200
+        assert reflected.json()[0]["name"] == "Launch activity updated"
+        assert reflected.json()[0]["description"] == "Updated description"
+        assert removed.status_code == 204
+        assert after_remove.json() == []
+    finally:
+        database.close()
+
+
 def test_pm_phase0_budget_setup_updates_live_planned_budget_without_spending_rights() -> None:
     database = _database_from_env()
     database.connect()
