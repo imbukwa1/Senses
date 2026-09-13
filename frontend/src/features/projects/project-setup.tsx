@@ -328,9 +328,6 @@ export function ProjectSetupPanel({ canEdit, dashboard, projectId }: { projectId
             setup: displaySetup,
             statusPending: updateSection.isPending,
           })}
-          <div className="grid gap-4 md:grid-cols-1">
-            <SetupMetric label="Status" value={activeSection.status} />
-          </div>
         </CardContent>
       </Card>
     </div>
