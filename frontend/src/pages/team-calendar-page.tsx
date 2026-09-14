@@ -71,19 +71,22 @@ function MonthView({ anchor, events, onSelect }: { anchor: Date; events: Calenda
 function WeekView({ anchor, events, onSelect }: { anchor: Date; events: CalendarEvent[]; onSelect: (event: CalendarEvent) => void }) {
   const start = new Date(anchor); start.setDate(anchor.getDate() - anchor.getDay());
   const days = Array.from({ length: 7 }, (_, index) => { const day = new Date(start); day.setDate(start.getDate() + index); return day; });
-  return <CalendarFrame columns={7} headings={days.map((day) => day.toLocaleDateString(undefined, { weekday: "short", day: "numeric" }))}>{days.map((day) => <DayCell key={dateKey(day)} day={day} events={eventsForDay(events, day)} onSelect={onSelect} />)}</CalendarFrame>;
+  return <CalendarFrame columns={7} scroll headings={days.map((day) => day.toLocaleDateString(undefined, { weekday: "short", day: "numeric" }))}>{days.map((day) => <DayCell key={dateKey(day)} day={day} events={eventsForDay(events, day)} onSelect={onSelect} overlap />)}</CalendarFrame>;
 }
 
 function DayView({ anchor, events, onSelect }: { anchor: Date; events: CalendarEvent[]; onSelect: (event: CalendarEvent) => void }) {
-  return <CalendarFrame columns={1} headings={[anchor.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })]}><DayCell day={anchor} events={eventsForDay(events, anchor)} onSelect={onSelect} /></CalendarFrame>;
+  return <CalendarFrame columns={1} scroll headings={[anchor.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })]}><DayCell day={anchor} events={eventsForDay(events, anchor)} onSelect={onSelect} overlap /></CalendarFrame>;
 }
 
-function CalendarFrame({ columns, headings, children }: { columns: number; headings: string[]; children: ReactNode }) {
-  return <Card><CardHeader><CardTitle className="sr-only">Team Calendar</CardTitle></CardHeader><CardContent className="p-0"><div className="grid border-b" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{headings.map((heading) => <div key={heading} className="border-r p-2 text-center text-xs font-medium text-muted-foreground last:border-r-0">{heading}</div>)}</div><div className="grid" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{children}</div></CardContent></Card>;
+function CalendarFrame({ columns, headings, children, scroll = false }: { columns: number; headings: string[]; children: ReactNode; scroll?: boolean }) {
+  return <Card><CardHeader><CardTitle className="sr-only">Team Calendar</CardTitle></CardHeader><CardContent className="p-0"><div className="grid border-b" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{headings.map((heading) => <div key={heading} className="border-r p-2 text-center text-xs font-medium text-muted-foreground last:border-r-0">{heading}</div>)}</div><div className={`grid ${scroll ? "max-h-[calc(100vh-14rem)] overflow-y-auto" : ""}`} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{children}</div></CardContent></Card>;
 }
 
-function DayCell({ day, muted = false, events, onSelect }: { day: Date; muted?: boolean; events: CalendarEvent[]; onSelect: (event: CalendarEvent) => void }) {
-  return <div className={`min-h-32 border-b border-r p-2 last:border-r-0 ${muted ? "bg-muted/20" : "bg-background"}`}><p className={`mb-2 text-xs font-medium ${muted ? "text-muted-foreground/60" : "text-muted-foreground"}`}>{day.getDate()}</p><div className="space-y-1">{events.map((event) => <button key={event.id} type="button" className={`block w-full truncate rounded px-2 py-1 text-left text-xs font-medium text-white ${colorClass(event.color)}`} onClick={() => onSelect(event)}>{event.all_day ? event.title : `${formatTime(event.start_at)} ${event.title}`}</button>)}</div></div>;
+function DayCell({ day, muted = false, events, onSelect, overlap = false }: { day: Date; muted?: boolean; events: CalendarEvent[]; onSelect: (event: CalendarEvent) => void; overlap?: boolean }) {
+  const today = dateKey(day) === dateKey(new Date());
+  const layout = overlap ? overlapLayout(events) : new Map(events.map((event) => [event.id, { column: 1, columns: 1 }]));
+  const columnCount = Math.max(1, ...Array.from(layout.values()).map((item) => item.columns));
+  return <div className={`min-h-32 border-b border-r p-2 last:border-r-0 ${muted ? "bg-muted/20" : "bg-background"} ${today ? "bg-primary/5 ring-1 ring-inset ring-primary/30" : ""}`}><p className={`mb-2 flex items-center gap-1 text-xs font-medium ${muted ? "text-muted-foreground/60" : "text-muted-foreground"}`}>{day.getDate()}{today ? <span className="rounded bg-primary px-1 py-0.5 text-[10px] text-primary-foreground">Today</span> : null}</p><div className={overlap ? "grid items-start gap-1" : "space-y-1"} style={overlap ? { gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` } : undefined}>{events.map((event) => { const placement = layout.get(event.id) ?? { column: 1, columns: 1 }; return <button key={event.id} type="button" className={`block min-w-0 w-full truncate rounded px-2 py-1 text-left text-xs font-medium text-white ${colorClass(event)}`} style={overlap ? { gridColumn: placement.column } : undefined} onClick={() => onSelect(event)}>{event.all_day ? event.title : `${formatTime(event.start_at)} ${event.title}`}</button>; })}</div></div>;
 }
 
 function EventDialog({ event, onClose }: { event: CalendarEvent | null | undefined; onClose: () => void }) {
@@ -136,7 +139,7 @@ function EventDialog({ event, onClose }: { event: CalendarEvent | null | undefin
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{event ? "Edit event" : "New event"}</DialogTitle>
-          <DialogDescription>Shared with the SENSES team.</DialogDescription>
+          <DialogDescription>Source: Manual event · Shared with the SENSES team.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2"><Label htmlFor="calendar-title">Title</Label><Input id="calendar-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
@@ -172,6 +175,34 @@ function dateKey(date: Date) { return `${date.getFullYear()}-${date.getMonth()}-
 function eventsForDay(events: CalendarEvent[], day: Date) { return events.filter((event) => { const start = startOfDay(new Date(event.start_at)); const end = startOfDay(new Date(event.end_at)); if (event.source_type === "work_plan") end.setDate(end.getDate() - 1); return day >= start && day <= end; }); }
 function formatTime(value: string) { return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
 function formatDateRange(start: string, end: string) { return `${new Date(start).toLocaleString()} - ${new Date(end).toLocaleString()}`; }
-function colorClass(color: CalendarEventColor) { return COLORS.find((item) => item.value === color)?.className ?? "bg-blue-500"; }
+function colorClass(event: CalendarEvent) { const color = event.source_type === "work_plan" ? projectColor(event.project_id) : event.color; return COLORS.find((item) => item.value === color)?.className ?? "bg-blue-500"; }
+function projectColor(projectId: string | null): CalendarEventColor { if (!projectId) return "blue"; let hash = 0; for (const character of projectId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0; return COLORS[hash % COLORS.length].value; }
+function overlapLayout(events: CalendarEvent[]) {
+  const layout = new Map<string, { column: number; columns: number }>();
+  const groups: CalendarEvent[][] = [];
+  const sorted = [...events].sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime());
+  for (const event of sorted) {
+    const start = new Date(event.start_at).getTime();
+    const end = new Date(event.end_at).getTime();
+    const group = groups.find((items) => items.some((item) => start < new Date(item.end_at).getTime() && new Date(item.start_at).getTime() < end));
+    if (group) group.push(event); else groups.push([event]);
+  }
+  for (const group of groups) {
+    const columns: CalendarEvent[][] = [];
+    for (const event of group) {
+      const start = new Date(event.start_at).getTime();
+      const end = new Date(event.end_at).getTime();
+      let column = columns.findIndex((items) => !items.some((item) => start < new Date(item.end_at).getTime() && new Date(item.start_at).getTime() < end));
+      if (column === -1) { column = columns.length; columns.push([]); }
+      columns[column].push(event);
+      layout.set(event.id, { column: column + 1, columns: columns.length });
+    }
+    for (const event of group) {
+      const placement = layout.get(event.id);
+      if (placement) placement.columns = columns.length;
+    }
+  }
+  return layout;
+}
 function movePeriod(date: Date, view: CalendarView, amount: number) { const next = new Date(date); if (view === "month") next.setMonth(next.getMonth() + amount); else if (view === "week") next.setDate(next.getDate() + amount * 7); else next.setDate(next.getDate() + amount); return next; }
 function weekLabel(date: Date) { const start = new Date(date); start.setDate(date.getDate() - date.getDay()); const end = new Date(start); end.setDate(start.getDate() + 6); return `${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} - ${end.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`; }
