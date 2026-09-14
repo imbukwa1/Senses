@@ -305,6 +305,7 @@ export type ProjectSetupMilestone = {
   description: string | null;
   timeframe: string | null;
   actual_date: string | null;
+  actual_dates: string[];
   responsible: string | null;
   deliverable: string | null;
   target_date: string | null;
@@ -321,6 +322,7 @@ export type ProjectSetupMilestonePayload = {
   description: string | null;
   timeframe: string | null;
   actual_date: string | null;
+  actual_dates: string[];
   responsible: string | null;
   deliverable: string | null;
   target_date?: string | null;

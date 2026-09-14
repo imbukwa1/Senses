@@ -262,6 +262,7 @@ export const projectSetupMilestoneSchema = z.object({
   description: z.string().nullable(),
   timeframe: z.string().nullable(),
   actual_date: z.string().nullable(),
+  actual_dates: z.array(z.string()).default([]),
   responsible: z.string().nullable(),
   deliverable: z.string().nullable(),
   target_date: z.string().nullable(),

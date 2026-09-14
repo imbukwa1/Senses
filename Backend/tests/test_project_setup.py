@@ -251,6 +251,7 @@ def test_project_setup_milestones_deliverables_and_resources_use_live_records() 
                     "description": "Prepare the launch activity.",
                     "timeframe": "June 2026",
                     "actual_date": None,
+                    "actual_dates": ["2026-06-20", "2026-06-21"],
                     "responsible": "Operations lead",
                     "deliverable": "Launch checklist",
                     "status": "In Progress",
@@ -263,6 +264,22 @@ def test_project_setup_milestones_deliverables_and_resources_use_live_records() 
                     "name": "Launch readiness updated",
                     "description": "Updated launch activity.",
                     "timeframe": "June 2026",
+                    "actual_date": "2026-06-30",
+                    "actual_dates": ["2026-06-30", "2026-07-01"],
+                    "responsible": "Operations lead",
+                    "deliverable": "Approved launch checklist",
+                    "status": "Complete",
+                },
+            )
+            reloaded_milestone = client.get(f"/projects/{project['id']}/setup/milestones", headers=_auth_header(pm_token))
+            removed_date = client.patch(
+                f"/projects/{project['id']}/setup/milestones/{milestone.json()['id']}",
+                headers=_auth_header(pm_token),
+                json={
+                    "name": "Launch readiness updated",
+                    "description": "Updated launch activity.",
+                    "timeframe": "June 2026",
+                    "actual_dates": ["2026-06-30"],
                     "actual_date": "2026-06-30",
                     "responsible": "Operations lead",
                     "deliverable": "Approved launch checklist",
@@ -305,10 +322,16 @@ def test_project_setup_milestones_deliverables_and_resources_use_live_records() 
 
         assert milestone.status_code == 201
         assert milestone.json()["responsible"] == "Operations lead"
-        assert milestone.json()["actual_date"] is None
+        assert milestone.json()["actual_date"] == "2026-06-20"
+        assert milestone.json()["actual_dates"] == ["2026-06-20", "2026-06-21"]
         assert updated_milestone.status_code == 200
         assert updated_milestone.json()["name"] == "Launch readiness updated"
         assert updated_milestone.json()["actual_date"] == "2026-06-30"
+        assert updated_milestone.json()["actual_dates"] == ["2026-06-30", "2026-07-01"]
+        assert reloaded_milestone.status_code == 200
+        assert reloaded_milestone.json()[0]["actual_dates"] == ["2026-06-30", "2026-07-01"]
+        assert removed_date.status_code == 200
+        assert removed_date.json()["actual_dates"] == ["2026-06-30"]
         assert deleted_milestone.status_code == 204
         assert deliverable.status_code == 201
         assert deliverable.json()["task_id"] == str(task["id"])

@@ -871,6 +871,7 @@ function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; pro
     description: null,
     timeframe: null,
     actual_date: null,
+    actual_dates: [""],
     responsible: null,
     deliverable: null,
     status: "Not Started",
@@ -878,7 +879,8 @@ function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; pro
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const payload = { ...form, name: form.name.trim() };
+    const actualDates = form.actual_dates.filter((value) => value.trim() !== "");
+    const payload = { ...form, name: form.name.trim(), actual_date: actualDates[0] || null, actual_dates: actualDates };
     if (editingId) {
       await updateMilestone.mutateAsync({ milestoneId: editingId, payload });
     } else {
@@ -894,7 +896,8 @@ function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; pro
       name: milestone.name,
       description: milestone.description,
       timeframe: milestone.timeframe,
-      actual_date: milestone.actual_date,
+      actual_date: milestone.actual_dates[0] ?? milestone.actual_date,
+      actual_dates: milestone.actual_dates.length ? milestone.actual_dates : [milestone.actual_date ?? ""],
       responsible: milestone.responsible,
       deliverable: milestone.deliverable,
       status: milestone.status,
@@ -915,7 +918,16 @@ function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; pro
             <Field label="Milestone / Activity"><Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} /></Field>
             <Field label="Timeframe"><Input value={form.timeframe ?? ""} onChange={(event) => setForm((current) => ({ ...current, timeframe: event.target.value || null }))} /></Field>
             <Field label="Description"><Textarea value={form.description ?? ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value || null }))} /></Field>
-            <Field label="Actual Date of Implementation"><Input type="date" value={form.actual_date ?? ""} onChange={(event) => setForm((current) => ({ ...current, actual_date: event.target.value || null }))} /></Field>
+            <div className="space-y-2">
+              <span className="text-sm font-medium">Actual Date of Implementation</span>
+              {form.actual_dates.map((dateValue, index) => (
+                <div key={`actual-date-${index}`} className="flex items-center gap-2">
+                  <Input aria-label={`Actual date ${index + 1}`} type="date" value={dateValue} onChange={(event) => setForm((current) => ({ ...current, actual_date: index === 0 ? event.target.value || null : current.actual_date, actual_dates: current.actual_dates.map((value, dateIndex) => dateIndex === index ? event.target.value : value) }))} />
+                  {form.actual_dates.length > 1 ? <Button type="button" variant="ghost" size="sm" aria-label={`Remove actual date ${index + 1}`} onClick={() => setForm((current) => { const actualDates = current.actual_dates.filter((_, dateIndex) => dateIndex !== index); return { ...current, actual_date: actualDates[0] || null, actual_dates: actualDates.length ? actualDates : [""] }; })}><Trash2 className="size-4" aria-hidden="true" /></Button> : null}
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => setForm((current) => ({ ...current, actual_dates: [...current.actual_dates, ""] }))}><Plus className="size-4" aria-hidden="true" /> Add another date</Button>
+            </div>
             <Field label="Responsible"><Input value={form.responsible ?? ""} onChange={(event) => setForm((current) => ({ ...current, responsible: event.target.value || null }))} /></Field>
             <Field label="Deliverable"><Input value={form.deliverable ?? ""} onChange={(event) => setForm((current) => ({ ...current, deliverable: event.target.value || null }))} /></Field>
             <Field label="Status"><Select value={form.status} onValueChange={(value) => setForm((current) => ({ ...current, status: value as ProjectSetupMilestonePayload["status"] }))}><SelectTrigger aria-label="Milestone status"><SelectValue /></SelectTrigger><SelectContent>{["Not Started", "In Progress", "Complete"].map((statusValue) => <SelectItem key={statusValue} value={statusValue}>{statusValue}</SelectItem>)}</SelectContent></Select></Field>
@@ -937,7 +949,7 @@ function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; pro
               <div><span className="font-medium text-foreground">Milestone / Activity</span><p>{milestone.name}</p></div>
               <div><span className="font-medium text-foreground">Description</span><p className="whitespace-pre-wrap text-muted-foreground">{milestone.description || "-"}</p></div>
               <div><span className="font-medium text-foreground">Timeframe</span><p className="text-muted-foreground">{milestone.timeframe || (milestone.target_date ? formatSetupDate(milestone.target_date) : "-")}</p></div>
-              <div><span className="font-medium text-foreground">Actual Date of Implementation</span><p className="text-muted-foreground">{milestone.actual_date ? formatSetupDate(milestone.actual_date) : "-"}</p></div>
+              <div><span className="font-medium text-foreground">Actual Date of Implementation</span><div className="text-muted-foreground">{(milestone.actual_dates.length ? milestone.actual_dates : milestone.actual_date ? [milestone.actual_date] : []).length ? (milestone.actual_dates.length ? milestone.actual_dates : [milestone.actual_date!]).map((dateValue) => <p key={dateValue}>{formatSetupDate(dateValue)}</p>) : "-"}</div></div>
               <div><span className="font-medium text-foreground">Responsible</span><p className="text-muted-foreground">{milestone.responsible || milestone.responsible_person?.name || "-"}</p></div>
               <div><span className="font-medium text-foreground">Deliverable</span><p className="text-muted-foreground">{milestone.deliverable || "-"}</p></div>
               <div><span className="font-medium text-foreground">Status</span><p><Badge variant="outline">{milestone.status}</Badge></p></div>
@@ -951,7 +963,7 @@ function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; pro
 }
 
 function emptyMilestoneForm(): ProjectSetupMilestonePayload {
-  return { name: "", description: null, timeframe: null, actual_date: null, responsible: null, deliverable: null, status: "Not Started" };
+  return { name: "", description: null, timeframe: null, actual_date: null, actual_dates: [""], responsible: null, deliverable: null, status: "Not Started" };
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {

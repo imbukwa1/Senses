@@ -682,6 +682,7 @@ class ProjectSetupMilestoneCreateRequest(BaseModel):
     description: str | None = None
     timeframe: str | None = None
     actual_date: date | None = None
+    actual_dates: list[date] = Field(default_factory=list)
     responsible: str | None = None
     deliverable: str | None = None
     # Legacy fields remain accepted for existing clients and records.
@@ -875,6 +876,7 @@ class ProjectSetupMilestoneResponse(BaseModel):
     description: str | None
     timeframe: str | None
     actual_date: date | None
+    actual_dates: list[date]
     responsible: str | None
     deliverable: str | None
     target_date: date | None
@@ -2185,6 +2187,10 @@ def create_project_setup_milestone(
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Milestone name is required")
+    actual_dates = list(dict.fromkeys(payload.actual_dates))
+    if payload.actual_date is not None and payload.actual_date not in actual_dates:
+        actual_dates.insert(0, payload.actual_date)
+    legacy_actual_date = actual_dates[0] if actual_dates else None
     row = session.fetch_one(
         """
         INSERT INTO project_milestones (
@@ -2199,7 +2205,7 @@ def create_project_setup_milestone(
             name,
             payload.description,
             payload.timeframe,
-            payload.actual_date,
+            legacy_actual_date,
             payload.responsible,
             payload.deliverable,
             payload.target_date,
@@ -2207,6 +2213,14 @@ def create_project_setup_milestone(
             payload.status,
             current_user.id,
         ),
+    )
+    session.execute(
+        """
+        INSERT INTO project_milestone_actual_dates (milestone_id, actual_date)
+        SELECT %s, unnest(%s::date[])
+        ON CONFLICT (milestone_id, actual_date) DO NOTHING
+        """,
+        (row["id"], actual_dates[1:]),
     )
     return project_setup_milestone_to_response(fetch_project_setup_milestone_or_404(session, project_id, row["id"]))
 
@@ -2227,6 +2241,10 @@ def update_project_setup_milestone(
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Milestone name is required")
+    actual_dates = list(dict.fromkeys(payload.actual_dates))
+    if payload.actual_date is not None and payload.actual_date not in actual_dates:
+        actual_dates.insert(0, payload.actual_date)
+    legacy_actual_date = actual_dates[0] if actual_dates else None
     session.execute(
         """
         UPDATE project_milestones
@@ -2246,7 +2264,7 @@ def update_project_setup_milestone(
             name,
             payload.description,
             payload.timeframe,
-            payload.actual_date,
+            legacy_actual_date,
             payload.responsible,
             payload.deliverable,
             payload.target_date,
@@ -2255,6 +2273,15 @@ def update_project_setup_milestone(
             project_id,
             milestone_id,
         ),
+    )
+    session.execute("DELETE FROM project_milestone_actual_dates WHERE milestone_id = %s", (milestone_id,))
+    session.execute(
+        """
+        INSERT INTO project_milestone_actual_dates (milestone_id, actual_date)
+        SELECT %s, unnest(%s::date[])
+        ON CONFLICT (milestone_id, actual_date) DO NOTHING
+        """,
+        (milestone_id, actual_dates[1:]),
     )
     return project_setup_milestone_to_response(fetch_project_setup_milestone_or_404(session, project_id, milestone_id))
 
@@ -5795,6 +5822,11 @@ def fetch_project_setup_milestones(session: DatabaseSession, project_id: UUID) -
           project_milestones.description,
           project_milestones.timeframe,
           project_milestones.actual_date,
+          ARRAY_REMOVE(ARRAY[project_milestones.actual_date] || COALESCE((
+            SELECT ARRAY_AGG(actual_date ORDER BY actual_date)
+            FROM project_milestone_actual_dates
+            WHERE milestone_id = project_milestones.id
+          ), ARRAY[]::date[]), NULL) AS actual_dates,
           project_milestones.responsible,
           project_milestones.deliverable,
           project_milestones.target_date,
@@ -5825,6 +5857,11 @@ def fetch_project_setup_milestone_or_404(session: DatabaseSession, project_id: U
           project_milestones.description,
           project_milestones.timeframe,
           project_milestones.actual_date,
+          ARRAY_REMOVE(ARRAY[project_milestones.actual_date] || COALESCE((
+            SELECT ARRAY_AGG(actual_date ORDER BY actual_date)
+            FROM project_milestone_actual_dates
+            WHERE milestone_id = project_milestones.id
+          ), ARRAY[]::date[]), NULL) AS actual_dates,
           project_milestones.responsible,
           project_milestones.deliverable,
           project_milestones.target_date,
@@ -6428,6 +6465,7 @@ def project_setup_milestone_to_response(row: Row) -> ProjectSetupMilestoneRespon
         description=row["description"],
         timeframe=row["timeframe"] or (row["target_date"].isoformat() if row["target_date"] else None),
         actual_date=row["actual_date"],
+        actual_dates=row["actual_dates"] or [],
         responsible=row["responsible"],
         deliverable=row["deliverable"],
         target_date=row["target_date"],
