@@ -304,6 +304,8 @@ export type ProjectSetupBudgetPayload = {
 export type ProjectSetupMilestone = {
   id: string;
   project_id: string;
+  phase_id: string | null;
+  phase_name: string | null;
   name: string;
   description: string | null;
   timeframe: string | null;
@@ -322,6 +324,7 @@ export type ProjectSetupMilestone = {
 
 export type ProjectSetupMilestonePayload = {
   name: string;
+  phase_id: string | null;
   description: string | null;
   timeframe: string | null;
   actual_date: string | null;

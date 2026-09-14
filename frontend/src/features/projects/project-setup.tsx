@@ -421,7 +421,7 @@ function renderFirstPassSection({
     return <Phase0PhasesSection canEdit={canEdit} dashboard={dashboard} members={members} projectId={setup.project_id} />;
   }
   if (activeSection.key === "milestones") {
-    return <Phase0MilestonesSection canEdit={canEdit} projectId={setup.project_id} />;
+    return <Phase0MilestonesSection canEdit={canEdit} dashboard={dashboard} projectId={setup.project_id} />;
   }
   if (activeSection.key === "deliverables") {
     return <Phase0DeliverablesSection canEdit={canEdit} dashboard={dashboard} members={members} projectId={setup.project_id} />;
@@ -870,7 +870,7 @@ function PhaseMemberManager({
   );
 }
 
-function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; projectId: string }) {
+function Phase0MilestonesSection({ canEdit, dashboard, projectId }: { canEdit: boolean; dashboard: ProjectDashboard; projectId: string }) {
   const milestonesQuery = useProjectSetupMilestonesQuery(projectId);
   const createMilestone = useCreateProjectSetupMilestoneMutation(projectId);
   const updateMilestone = useUpdateProjectSetupMilestoneMutation(projectId);
@@ -878,6 +878,7 @@ function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; pro
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProjectSetupMilestonePayload>({
     name: "",
+    phase_id: null,
     description: null,
     timeframe: null,
     actual_date: null,
@@ -904,6 +905,7 @@ function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; pro
     setEditingId(milestone.id);
     setForm({
       name: milestone.name,
+      phase_id: milestone.phase_id,
       description: milestone.description,
       timeframe: milestone.timeframe,
       actual_date: milestone.actual_dates[0] ?? milestone.actual_date,
@@ -926,6 +928,7 @@ function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; pro
         <form className="space-y-3 rounded-md border bg-background p-4" onSubmit={(event) => void onSubmit(event)}>
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Milestone / Activity"><Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} /></Field>
+            <Field label="Phase"><Select value={form.phase_id ?? "none"} onValueChange={(value) => setForm((current) => ({ ...current, phase_id: value === "none" ? null : value }))}><SelectTrigger aria-label="Milestone phase"><SelectValue placeholder="Select phase" /></SelectTrigger><SelectContent><SelectItem value="none">No phase</SelectItem>{dashboard.phases.map((phase) => <SelectItem key={phase.id} value={phase.id}>{phase.name}</SelectItem>)}</SelectContent></Select></Field>
             <Field label="Timeframe"><Input value={form.timeframe ?? ""} onChange={(event) => setForm((current) => ({ ...current, timeframe: event.target.value || null }))} /></Field>
             <Field label="Description"><Textarea value={form.description ?? ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value || null }))} /></Field>
             <div className="space-y-2">
@@ -957,6 +960,7 @@ function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; pro
           <div key={milestone.id} className="space-y-2 rounded-md border bg-background p-3 text-sm">
             <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
               <div><span className="font-medium text-foreground">Milestone / Activity</span><p>{milestone.name}</p></div>
+              <div><span className="font-medium text-foreground">Phase</span><p className="text-muted-foreground">{milestone.phase_name || "—"}</p></div>
               <div><span className="font-medium text-foreground">Description</span><p className="whitespace-pre-wrap text-muted-foreground">{milestone.description || "-"}</p></div>
               <div><span className="font-medium text-foreground">Timeframe</span><p className="text-muted-foreground">{milestone.timeframe || (milestone.target_date ? formatSetupDate(milestone.target_date) : "-")}</p></div>
               <div><span className="font-medium text-foreground">Actual Date of Implementation</span><div className="text-muted-foreground">{(milestone.actual_dates.length ? milestone.actual_dates : milestone.actual_date ? [milestone.actual_date] : []).length ? (milestone.actual_dates.length ? milestone.actual_dates : [milestone.actual_date!]).map((dateValue) => <p key={dateValue}>{formatSetupDate(dateValue)}</p>) : "-"}</div></div>
@@ -973,7 +977,7 @@ function Phase0MilestonesSection({ canEdit, projectId }: { canEdit: boolean; pro
 }
 
 function emptyMilestoneForm(): ProjectSetupMilestonePayload {
-  return { name: "", description: null, timeframe: null, actual_date: null, actual_dates: [""], responsible: null, deliverable: null, status: "Not Started" };
+  return { name: "", phase_id: null, description: null, timeframe: null, actual_date: null, actual_dates: [""], responsible: null, deliverable: null, status: "Not Started" };
 }
 
 function Field({ label, children }: { label: string; children: ReactNode }) {

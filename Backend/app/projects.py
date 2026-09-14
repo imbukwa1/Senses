@@ -681,6 +681,7 @@ class ProjectSetupMilestoneCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=200)
+    phase_id: UUID | None = None
     description: str | None = None
     timeframe: str | None = None
     actual_date: date | None = None
@@ -877,6 +878,8 @@ class ProjectSetupBudgetResponse(BaseModel):
 class ProjectSetupMilestoneResponse(BaseModel):
     id: UUID
     project_id: UUID
+    phase_id: UUID | None
+    phase_name: str | None
     name: str
     description: str | None
     timeframe: str | None
@@ -2218,6 +2221,8 @@ def create_project_setup_milestone(
 ) -> ProjectSetupMilestoneResponse:
     ensure_project_access(session, current_user.id, project_id)
     ensure_project_pm(session, current_user.id, project_id)
+    if payload.phase_id is not None:
+        ensure_phase_in_project(session, project_id, payload.phase_id)
     if payload.responsible_user_id is not None and payload.responsible is None:
         fetch_project_member(session, project_id, payload.responsible_user_id)
     name = payload.name.strip()
@@ -2230,14 +2235,15 @@ def create_project_setup_milestone(
     row = session.fetch_one(
         """
         INSERT INTO project_milestones (
-          project_id, name, description, timeframe, actual_date, responsible,
+          project_id, phase_id, name, description, timeframe, actual_date, responsible,
           deliverable, target_date, responsible_user_id, status, created_by
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
         (
             project_id,
+            payload.phase_id,
             name,
             payload.description,
             payload.timeframe,
@@ -2272,6 +2278,8 @@ def update_project_setup_milestone(
     ensure_project_access(session, current_user.id, project_id)
     ensure_project_pm(session, current_user.id, project_id)
     fetch_project_setup_milestone_or_404(session, project_id, milestone_id)
+    if payload.phase_id is not None:
+        ensure_phase_in_project(session, project_id, payload.phase_id)
     if payload.responsible_user_id is not None and payload.responsible is None:
         fetch_project_member(session, project_id, payload.responsible_user_id)
     name = payload.name.strip()
@@ -2284,7 +2292,8 @@ def update_project_setup_milestone(
     session.execute(
         """
         UPDATE project_milestones
-        SET name = %s,
+        SET phase_id = %s,
+            name = %s,
             description = %s,
             timeframe = %s,
             actual_date = %s,
@@ -2297,6 +2306,7 @@ def update_project_setup_milestone(
         WHERE project_id = %s AND id = %s
         """,
         (
+            payload.phase_id,
             name,
             payload.description,
             payload.timeframe,
@@ -5829,7 +5839,7 @@ def fetch_project_milestone_finance(session: DatabaseSession, project_id: UUID) 
           projects.currency,
           milestones.name,
           milestones.description,
-          NULL::text AS phase_name,
+          phases.name AS phase_name,
           finance.month,
           COALESCE(finance.allocated, 0) AS allocated,
           COALESCE(finance.actual_spend, 0) AS actual_spend,
@@ -5837,6 +5847,9 @@ def fetch_project_milestone_finance(session: DatabaseSession, project_id: UUID) 
           milestones.created_at AS sort_created_at
         FROM project_milestones AS milestones
         JOIN projects ON projects.id = milestones.project_id
+        LEFT JOIN phases
+          ON phases.id = milestones.phase_id
+         AND phases.project_id = milestones.project_id
         LEFT JOIN project_milestone_finance AS finance
           ON finance.milestone_id = milestones.id
          AND finance.project_id = milestones.project_id
@@ -5901,6 +5914,8 @@ def fetch_project_setup_milestones(session: DatabaseSession, project_id: UUID) -
         SELECT
           project_milestones.id,
           project_milestones.project_id,
+          project_milestones.phase_id,
+          phases.name AS phase_name,
           project_milestones.name,
           project_milestones.description,
           project_milestones.timeframe,
@@ -5921,6 +5936,9 @@ def fetch_project_setup_milestones(session: DatabaseSession, project_id: UUID) -
           project_milestones.created_at,
           project_milestones.updated_at
         FROM project_milestones
+        LEFT JOIN phases
+          ON phases.id = project_milestones.phase_id
+         AND phases.project_id = project_milestones.project_id
         LEFT JOIN users AS responsible_users
           ON responsible_users.id = project_milestones.responsible_user_id
         WHERE project_milestones.project_id = %s
@@ -5936,6 +5954,8 @@ def fetch_project_setup_milestone_or_404(session: DatabaseSession, project_id: U
         SELECT
           project_milestones.id,
           project_milestones.project_id,
+          project_milestones.phase_id,
+          phases.name AS phase_name,
           project_milestones.name,
           project_milestones.description,
           project_milestones.timeframe,
@@ -5956,6 +5976,9 @@ def fetch_project_setup_milestone_or_404(session: DatabaseSession, project_id: U
           project_milestones.created_at,
           project_milestones.updated_at
         FROM project_milestones
+        LEFT JOIN phases
+          ON phases.id = project_milestones.phase_id
+         AND phases.project_id = project_milestones.project_id
         LEFT JOIN users AS responsible_users
           ON responsible_users.id = project_milestones.responsible_user_id
         WHERE project_milestones.project_id = %s
@@ -6544,6 +6567,8 @@ def project_setup_milestone_to_response(row: Row) -> ProjectSetupMilestoneRespon
     return ProjectSetupMilestoneResponse(
         id=row["id"],
         project_id=row["project_id"],
+        phase_id=row["phase_id"],
+        phase_name=row["phase_name"],
         name=row["name"],
         description=row["description"],
         timeframe=row["timeframe"] or (row["target_date"].isoformat() if row["target_date"] else None),

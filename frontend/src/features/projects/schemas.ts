@@ -264,6 +264,8 @@ export const projectSetupBudgetSchema = z.object({
 export const projectSetupMilestoneSchema = z.object({
   id: z.uuid(),
   project_id: z.uuid(),
+  phase_id: z.uuid().nullable(),
+  phase_name: z.string().nullable(),
   name: z.string().min(1),
   description: z.string().nullable(),
   timeframe: z.string().nullable(),
