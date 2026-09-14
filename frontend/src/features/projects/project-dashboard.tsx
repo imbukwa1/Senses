@@ -399,11 +399,17 @@ function ProjectFinanceSection({ canEdit, phases, projectId }: { canEdit: boolea
   return (
     <div className="space-y-4">
       <BudgetSection canEdit={canEdit} projectId={projectId} />
+      <TotalProjectUtilisationSection phases={phases} projectId={projectId} />
       <PhaseBudgetsSection canEdit={canEdit} phases={phases} projectId={projectId} />
       <FinanceMilestonesSection canEdit={canEdit} projectId={projectId} />
       <FinanceDocumentsSection canEdit={canEdit} phases={phases} projectId={projectId} />
     </div>
   );
+}
+
+function TotalProjectUtilisationSection({ phases, projectId }: { phases: DashboardPhase[]; projectId: string }) {
+  const budgetQuery = useProjectBudgetQuery(projectId);
+  return <Card><CardContent><PhaseBudgetPie budget={budgetQuery.data ?? null} isLoading={budgetQuery.isLoading} phases={phases} /></CardContent></Card>;
 }
 
 function FinanceMilestonesSection({ canEdit, projectId }: { canEdit: boolean; projectId: string }) {
@@ -552,22 +558,19 @@ function BudgetMetric({ label, tone = "default", value }: { label: string; value
 function PhaseBudgetsSection({ canEdit, phases, projectId }: { canEdit: boolean; phases: DashboardPhase[]; projectId: string }) {
   const budgetQuery = useProjectBudgetQuery(projectId);
   const updatePhaseBudget = useUpdatePhaseBudgetMutation(projectId);
-  const [drafts, setDrafts] = useState<Record<string, { allocated: string; spent: string }>>({});
+  const [drafts, setDrafts] = useState<Record<string, { allocated: string }>>({});
   const phaseBudgetRows = phases.map((phase) => ({
     ...phase,
     draft: drafts[phase.id] ?? {
       allocated: String(phase.budget_allocated),
-      spent: String(phase.budget_spent),
     },
   }));
 
-  function setDraft(phaseId: string, field: "allocated" | "spent", value: string) {
+  function setDraft(phaseId: string, value: string) {
     setDrafts((currentDrafts) => ({
       ...currentDrafts,
       [phaseId]: {
-        allocated: currentDrafts[phaseId]?.allocated ?? String(phases.find((phase) => phase.id === phaseId)?.budget_allocated ?? 0),
-        spent: currentDrafts[phaseId]?.spent ?? String(phases.find((phase) => phase.id === phaseId)?.budget_spent ?? 0),
-        [field]: value,
+        allocated: value,
       },
     }));
   }
@@ -581,7 +584,6 @@ function PhaseBudgetsSection({ canEdit, phases, projectId }: { canEdit: boolean;
       phaseId,
       payload: {
         allocated: Number(draft.allocated),
-        spent: Number(draft.spent),
       },
     });
     setDrafts((currentDrafts) => {
@@ -612,24 +614,18 @@ function PhaseBudgetsSection({ canEdit, phases, projectId }: { canEdit: boolean;
             </thead>
             <tbody>
               {phaseBudgetRows.map((phase) => {
-                const invalid = !isNonNegativeNumber(phase.draft.allocated) || !isNonNegativeNumber(phase.draft.spent);
+                const invalid = !isNonNegativeNumber(phase.draft.allocated);
                 return (
                   <tr key={phase.id} className="border-b last:border-b-0">
                     <td className="py-3 pr-3 font-medium text-foreground">{phase.name}</td>
                     <td className="px-3 py-3">
                       {canEdit ? (
-                        <Input type="number" min="0" step="0.01" value={phase.draft.allocated} onChange={(event) => setDraft(phase.id, "allocated", event.target.value)} aria-label={`${phase.name} allocated`} />
+                        <Input type="number" min="0" step="0.01" value={phase.draft.allocated} onChange={(event) => setDraft(phase.id, event.target.value)} aria-label={`${phase.name} allocated`} />
                       ) : (
                         formatCurrency(phase.budget_allocated, budgetQuery.data?.currency)
                       )}
                     </td>
-                    <td className="px-3 py-3">
-                      {canEdit ? (
-                        <Input type="number" min="0" step="0.01" value={phase.draft.spent} onChange={(event) => setDraft(phase.id, "spent", event.target.value)} aria-label={`${phase.name} spent`} />
-                      ) : (
-                        formatCurrency(phase.budget_spent, budgetQuery.data?.currency)
-                      )}
-                    </td>
+                    <td className="px-3 py-3">{formatCurrency(phase.budget_spent, budgetQuery.data?.currency)}</td>
                     <td className={phase.budget_remaining < 0 ? "px-3 py-3 text-error" : "px-3 py-3"}>{formatCurrency(phase.budget_remaining, budgetQuery.data?.currency)}</td>
                     <td className="px-3 py-3">{formatPercent(phase.budget_utilisation)}</td>
                     {canEdit ? (
@@ -647,7 +643,6 @@ function PhaseBudgetsSection({ canEdit, phases, projectId }: { canEdit: boolean;
           </table>
           {updatePhaseBudget.error ? <p className="mt-3 text-sm text-error">{dashboardErrorMessage(updatePhaseBudget.error)}</p> : null}
         </div>
-        <PhaseBudgetPie budget={budgetQuery.data ?? null} isLoading={budgetQuery.isLoading} phases={phases} />
       </CardContent>
     </Card>
   );

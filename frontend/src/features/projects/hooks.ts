@@ -863,6 +863,8 @@ export function useUpdateProjectMilestoneFinanceMutation(projectId: string) {
       updateProjectMilestoneFinance(requireToken(token), projectId, milestoneId, payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: projectMilestoneFinanceQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectBudgetQueryKey(projectId) });
+      invalidateProjectDashboardQueries(queryClient, projectId);
     },
     onError: authFailureHandler(logout),
   });
@@ -873,7 +875,11 @@ export function useUpdateProjectWorkPlanFinanceMutation(projectId: string) {
   const { logout, token } = useAuth();
   return useMutation({
     mutationFn: ({ entryId, payload }: { entryId: string; payload: ProjectMilestoneFinancePayload }) => updateProjectWorkPlanFinance(requireToken(token), projectId, entryId, payload),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: projectMilestoneFinanceQueryKey(projectId) }); },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: projectMilestoneFinanceQueryKey(projectId) });
+      void queryClient.invalidateQueries({ queryKey: projectBudgetQueryKey(projectId) });
+      invalidateProjectDashboardQueries(queryClient, projectId);
+    },
     onError: authFailureHandler(logout),
   });
 }

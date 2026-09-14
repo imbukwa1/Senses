@@ -648,7 +648,6 @@ export type ProjectBudgetMutationPayload = {
 
 export type PhaseBudgetMutationPayload = {
   allocated?: number;
-  spent?: number;
 };
 
 export type ChecklistSummary = {

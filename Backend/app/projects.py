@@ -300,7 +300,6 @@ class PhaseBudgetUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     allocated: Decimal | None = None
-    spent: Decimal | None = None
 
 
 class PhaseReorderRequest(BaseModel):
@@ -1380,7 +1379,28 @@ def update_project_milestone_finance(
 ) -> ProjectMilestoneFinanceResponse:
     ensure_project_access(session, current_user.id, project_id)
     ensure_project_budget_edit_role(session, current_user.id, project_id)
-    fetch_project_setup_milestone_or_404(session, project_id, milestone_id)
+    milestone = fetch_project_setup_milestone_or_404(session, project_id, milestone_id)
+    if milestone["phase_id"] is not None:
+        phase_budget = session.fetch_one(
+            "SELECT budget_allocated FROM phases WHERE project_id = %s AND id = %s AND archived_at IS NULL",
+            (project_id, milestone["phase_id"]),
+        )
+        current_phase_allocation = session.fetch_one(
+            """
+            SELECT COALESCE(SUM(finance.allocated), 0) AS allocated
+            FROM project_milestone_finance AS finance
+            LEFT JOIN project_milestones AS milestones
+              ON milestones.id = finance.milestone_id AND milestones.project_id = finance.project_id
+            LEFT JOIN project_work_plan_entries AS entries
+              ON entries.id = finance.work_plan_entry_id AND entries.project_id = finance.project_id
+            WHERE finance.project_id = %s
+              AND (milestones.phase_id = %s OR entries.phase_id = %s)
+              AND (finance.milestone_id IS NULL OR finance.milestone_id <> %s)
+            """,
+            (project_id, milestone["phase_id"], milestone["phase_id"], milestone_id),
+        )
+        if phase_budget is not None and current_phase_allocation["allocated"] + payload.allocated > phase_budget["budget_allocated"]:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Milestone / Activity allocations cannot exceed the selected phase allocation")
     session.execute(
         """
         INSERT INTO project_milestone_finance (milestone_id, project_id, month, allocated, actual_spend)
@@ -1409,6 +1429,27 @@ def update_project_work_plan_finance(
     ensure_project_access(session, current_user.id, project_id)
     ensure_project_budget_edit_role(session, current_user.id, project_id)
     entry = fetch_project_setup_work_plan_entry(session, project_id, entry_id)
+    if entry["phase_id"] is not None:
+        phase_budget = session.fetch_one(
+            "SELECT budget_allocated FROM phases WHERE project_id = %s AND id = %s AND archived_at IS NULL",
+            (project_id, entry["phase_id"]),
+        )
+        current_phase_allocation = session.fetch_one(
+            """
+            SELECT COALESCE(SUM(finance.allocated), 0) AS allocated
+            FROM project_milestone_finance AS finance
+            LEFT JOIN project_milestones AS milestones
+              ON milestones.id = finance.milestone_id AND milestones.project_id = finance.project_id
+            LEFT JOIN project_work_plan_entries AS entries
+              ON entries.id = finance.work_plan_entry_id AND entries.project_id = finance.project_id
+            WHERE finance.project_id = %s
+              AND (milestones.phase_id = %s OR entries.phase_id = %s)
+              AND (finance.work_plan_entry_id IS NULL OR finance.work_plan_entry_id <> %s)
+            """,
+            (project_id, entry["phase_id"], entry["phase_id"], entry_id),
+        )
+        if phase_budget is not None and current_phase_allocation["allocated"] + payload.allocated > phase_budget["budget_allocated"]:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Milestone / Activity allocations cannot exceed the selected phase allocation")
     session.execute(
         """
         INSERT INTO project_milestone_finance (milestone_id, work_plan_entry_id, project_id, month, allocated, actual_spend)
@@ -2173,6 +2214,9 @@ def update_project_setup_budget(
         }
         if accessible_phase_ids != set(phase_ids):
             raise_phase_not_found()
+    total_phase_allocation = sum((allocation.allocated for allocation in payload.phase_allocations), Decimal("0"))
+    if total_phase_allocation > payload.total_project_budget:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Phase allocations cannot exceed the overall project allocation")
 
     session.execute(
         """
@@ -3113,9 +3157,24 @@ def update_phase_budget(
             detail=f"Budget values cannot be negative: {', '.join(negative_fields)}",
         )
 
+    if "allocated" in values:
+        project_budget = session.fetch_one(
+            "SELECT budget_allocated FROM projects WHERE id = %s AND archived_at IS NULL",
+            (project_id,),
+        )
+        other_phase_allocations = session.fetch_one(
+            """
+            SELECT COALESCE(SUM(budget_allocated), 0) AS allocated
+            FROM phases
+            WHERE project_id = %s AND id <> %s AND archived_at IS NULL
+            """,
+            (project_id, phase_id),
+        )
+        if project_budget is not None and other_phase_allocations["allocated"] + values["allocated"] > project_budget["budget_allocated"]:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Phase allocations cannot exceed the overall project allocation")
+
     field_map = {
         "allocated": "budget_allocated",
-        "spent": "budget_spent",
     }
     set_clause = ", ".join(f"{field_map[field]} = %s" for field in values)
     params = [*values.values(), project_id, phase_id]
@@ -4499,7 +4558,18 @@ def fetch_dashboard_phases(session: DatabaseSession, project_id: UUID, user_id: 
           phases.display_order,
           phases.objectives,
           phases.budget_allocated,
-          phases.budget_spent,
+          COALESCE((
+            SELECT SUM(finance.actual_spend)
+            FROM project_milestone_finance AS finance
+            LEFT JOIN project_milestones AS milestones
+              ON milestones.id = finance.milestone_id
+             AND milestones.project_id = finance.project_id
+            LEFT JOIN project_work_plan_entries AS entries
+              ON entries.id = finance.work_plan_entry_id
+             AND entries.project_id = finance.project_id
+            WHERE finance.project_id = phases.project_id
+              AND (milestones.phase_id = phases.id OR entries.phase_id = phases.id)
+          ), 0) AS budget_spent,
           calculate_average_progress(ARRAY_AGG(task_progress.progress)) AS progress,
           phases.created_at,
           phases.updated_at,
@@ -4610,9 +4680,34 @@ def fetch_project_phases(session: DatabaseSession, project_id: UUID, user_id: UU
     return session.fetch_all(
         f"""
         SELECT
-          phases.*,
+          phases.id,
+          phases.project_id,
+          phases.name,
+          phases.description,
+          phases.owner_id,
           users.name AS owner_name,
-          users.email AS owner_email
+          users.email AS owner_email,
+          phases.start_date,
+          phases.end_date,
+          phases.status,
+          phases.display_order,
+          phases.objectives,
+          phases.budget_allocated,
+          COALESCE((
+            SELECT SUM(finance.actual_spend)
+            FROM project_milestone_finance AS finance
+            LEFT JOIN project_milestones AS milestones
+              ON milestones.id = finance.milestone_id
+             AND milestones.project_id = finance.project_id
+            LEFT JOIN project_work_plan_entries AS entries
+              ON entries.id = finance.work_plan_entry_id
+             AND entries.project_id = finance.project_id
+            WHERE finance.project_id = phases.project_id
+              AND (milestones.phase_id = phases.id OR entries.phase_id = phases.id)
+          ), 0) AS budget_spent,
+          phases.created_at,
+          phases.updated_at,
+          phases.archived_at
         FROM phases
         LEFT JOIN users ON users.id = phases.owner_id
         WHERE phases.project_id = %s
@@ -4628,9 +4723,34 @@ def fetch_project_phase(session: DatabaseSession, project_id: UUID, phase_id: UU
     return session.fetch_one(
         """
         SELECT
-          phases.*,
+          phases.id,
+          phases.project_id,
+          phases.name,
+          phases.description,
+          phases.owner_id,
           users.name AS owner_name,
-          users.email AS owner_email
+          users.email AS owner_email,
+          phases.start_date,
+          phases.end_date,
+          phases.status,
+          phases.display_order,
+          phases.objectives,
+          phases.budget_allocated,
+          COALESCE((
+            SELECT SUM(finance.actual_spend)
+            FROM project_milestone_finance AS finance
+            LEFT JOIN project_milestones AS milestones
+              ON milestones.id = finance.milestone_id
+             AND milestones.project_id = finance.project_id
+            LEFT JOIN project_work_plan_entries AS entries
+              ON entries.id = finance.work_plan_entry_id
+             AND entries.project_id = finance.project_id
+            WHERE finance.project_id = phases.project_id
+              AND (milestones.phase_id = phases.id OR entries.phase_id = phases.id)
+          ), 0) AS budget_spent,
+          phases.created_at,
+          phases.updated_at,
+          phases.archived_at
         FROM phases
         LEFT JOIN users ON users.id = phases.owner_id
         WHERE phases.id = %s
@@ -5596,10 +5716,9 @@ def fetch_project_budget_or_404(session: DatabaseSession, project_id: UUID) -> R
     row = session.fetch_one(
         """
         WITH phase_totals AS (
-          SELECT COALESCE(SUM(budget_spent), 0) AS spent
-          FROM phases
+          SELECT COALESCE(SUM(actual_spend), 0) AS spent
+          FROM project_milestone_finance
           WHERE project_id = %s
-            AND archived_at IS NULL
         )
         SELECT
           projects.id AS project_id,

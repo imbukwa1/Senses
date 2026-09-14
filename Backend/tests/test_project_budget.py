@@ -65,10 +65,10 @@ def test_finance_can_edit_project_allocated_and_pm_can_view_read_only() -> None:
             )
 
         assert pm_view.status_code == 200
-        assert_budget(pm_view.json(), allocated="0", spent="250", remaining="-250", utilisation="0")
+        assert_budget(pm_view.json(), allocated="0", spent="0", remaining="0", utilisation="0")
         assert pm_update.status_code == 403
         assert finance_update.status_code == 200
-        assert_budget(finance_update.json(), allocated="1000", spent="250", remaining="750", utilisation="0.25")
+        assert_budget(finance_update.json(), allocated="1000", spent="0", remaining="1000", utilisation="0")
         assert finance_spent_rejected.status_code == 422
     finally:
         database.close()
@@ -85,6 +85,23 @@ def test_finance_can_edit_phase_budget_and_project_totals_are_derived() -> None:
         second_phase = _create_phase(database, project["id"], "Phase Budget Two", display_order=2)
         _add_project_member(database, project["id"], pm["id"], "PM")
         _add_project_member(database, project["id"], finance["id"], "Finance")
+        with database.session() as session:
+            first_milestone = session.fetch_one(
+                """
+                INSERT INTO project_milestones (project_id, phase_id, name, status, created_by)
+                VALUES (%s, %s, %s, 'Not Started', %s)
+                RETURNING id
+                """,
+                (project["id"], first_phase["id"], "Phase One Spend", finance["id"]),
+            )
+            second_milestone = session.fetch_one(
+                """
+                INSERT INTO project_milestones (project_id, phase_id, name, status, created_by)
+                VALUES (%s, %s, %s, 'Not Started', %s)
+                RETURNING id
+                """,
+                (project["id"], second_phase["id"], "Phase Two Spend", finance["id"]),
+            )
         app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database)
 
         with TestClient(app) as client:
@@ -97,20 +114,40 @@ def test_finance_can_edit_phase_budget_and_project_totals_are_derived() -> None:
             first_update = client.patch(
                 f"/projects/{project['id']}/phases/{first_phase['id']}/budget",
                 headers=_auth_header(finance_token),
-                json={"allocated": "500.00", "spent": "125.00"},
+                json={"allocated": "500.00"},
             )
             second_update = client.patch(
                 f"/projects/{project['id']}/phases/{second_phase['id']}/budget",
                 headers=_auth_header(finance_token),
-                json={"allocated": "250.00", "spent": "75.00"},
+                json={"allocated": "250.00"},
+            )
+            first_finance = client.patch(
+                f"/projects/{project['id']}/finance/milestones/{first_milestone['id']}",
+                headers=_auth_header(finance_token),
+                json={"allocated": "100.00", "actual_spend": "125.00"},
+            )
+            second_finance = client.patch(
+                f"/projects/{project['id']}/finance/milestones/{second_milestone['id']}",
+                headers=_auth_header(finance_token),
+                json={"allocated": "100.00", "actual_spend": "75.00"},
+            )
+            first_after = client.get(
+                f"/projects/{project['id']}/phases/{first_phase['id']}/budget",
+                headers=_auth_header(finance_token),
+            )
+            second_after = client.get(
+                f"/projects/{project['id']}/phases/{second_phase['id']}/budget",
+                headers=_auth_header(finance_token),
             )
             project_budget = client.get(f"/projects/{project['id']}/budget", headers=_auth_header(finance_token))
 
         assert project_update.status_code == 200
         assert first_update.status_code == 200
-        assert_phase_budget(first_update.json(), allocated="500", spent="125", remaining="375", utilisation="0.25")
+        assert first_finance.status_code == 200
+        assert_phase_budget(first_after.json(), allocated="500", spent="125", remaining="375", utilisation="0.25")
         assert second_update.status_code == 200
-        assert_phase_budget(second_update.json(), allocated="250", spent="75", remaining="175", utilisation="0.3")
+        assert second_finance.status_code == 200
+        assert_phase_budget(second_after.json(), allocated="250", spent="75", remaining="175", utilisation="0.3")
         assert_budget(project_budget.json(), allocated="1000", spent="200", remaining="800", utilisation="0.2")
     finally:
         database.close()
@@ -237,9 +274,9 @@ def test_pm_phase0_budget_setup_updates_live_planned_budget_without_spending_rig
         assert Decimal(str(setup_budget.json()["total_project_budget"])) == Decimal("1000")
         assert setup_budget.json()["budget_notes"] == "Initial PM planning budget."
         assert finance_project_budget.status_code == 200
-        assert_budget(finance_project_budget.json(), allocated="1000", spent="10", remaining="990", utilisation="0.01")
+        assert_budget(finance_project_budget.json(), allocated="1000", spent="0", remaining="1000", utilisation="0")
         assert finance_second_phase.status_code == 200
-        assert_phase_budget(finance_second_phase.json(), allocated="250", spent="10", remaining="240", utilisation="0.04")
+        assert_phase_budget(finance_second_phase.json(), allocated="250", spent="0", remaining="250", utilisation="0")
         assert pm_finance_endpoint_still_forbidden.status_code == 403
         assert team_setup_forbidden.status_code == 403
     finally:
@@ -322,13 +359,13 @@ def test_project_budget_handles_zero_allocated_safely() -> None:
             phase_response = client.patch(
                 f"/projects/{project['id']}/phases/{phase['id']}/budget",
                 headers=_auth_header(token),
-                json={"allocated": "0.00", "spent": "125.00"},
+                    json={"allocated": "0.00"},
             )
             project_response = client.get(f"/projects/{project['id']}/budget", headers=_auth_header(token))
 
         assert phase_response.status_code == 200
-        assert_phase_budget(phase_response.json(), allocated="0", spent="125", remaining="-125", utilisation="0")
-        assert_budget(project_response.json(), allocated="0", spent="125", remaining="-125", utilisation="0")
+        assert_phase_budget(phase_response.json(), allocated="0", spent="0", remaining="0", utilisation="0")
+        assert_budget(project_response.json(), allocated="0", spent="0", remaining="0", utilisation="0")
     finally:
         database.close()
 
