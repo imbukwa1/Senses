@@ -4,8 +4,8 @@ import { navigationItems } from "./nav-items";
 
 describe("primary navigation", () => {
   it("exposes exactly the MVP navigation items in order", () => {
-    expect(navigationItems.map((item) => item.label)).toEqual(["Home", "Projects", "Attention", "My Work"]);
-    expect(navigationItems.map((item) => item.to)).toEqual(["/", "/projects", "/attention", "/my-work"]);
+    expect(navigationItems.map((item) => item.label)).toEqual(["Home", "Projects", "Attention", "My Work", "Team Calendar"]);
+    expect(navigationItems.map((item) => item.to)).toEqual(["/", "/projects", "/attention", "/my-work", "/team-calendar"]);
   });
 
   it("does not expose secondary areas as top-level navigation", () => {

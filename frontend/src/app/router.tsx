@@ -13,6 +13,7 @@ const ProjectDetailPlaceholderPage = lazy(() =>
 );
 const HomePage = lazy(() => import("@/pages/placeholders/home-page").then((module) => ({ default: module.HomePage })));
 const MyWorkPage = lazy(() => import("@/pages/my-work-page").then((module) => ({ default: module.MyWorkPage })));
+const TeamCalendarPage = lazy(() => import("@/pages/team-calendar-page").then((module) => ({ default: module.TeamCalendarPage })));
 const NotFoundPage = lazy(() => import("@/pages/placeholders/not-found-page").then((module) => ({ default: module.NotFoundPage })));
 const ProjectsPage = lazy(() => import("@/pages/placeholders/projects-page").then((module) => ({ default: module.ProjectsPage })));
 const SearchPage = lazy(() => import("@/pages/placeholders/search-page").then((module) => ({ default: module.SearchPage })));
@@ -75,6 +76,19 @@ export const router = createBrowserRouter([
           title: "My Work",
           subtitle: "Tasks you own or support.",
           breadcrumbs: [{ label: "My Work" }],
+        },
+      },
+      {
+        path: "team-calendar",
+        element: (
+          <RouteLoader>
+            <TeamCalendarPage />
+          </RouteLoader>
+        ),
+        handle: {
+          title: "Team Calendar",
+          subtitle: "Shared events for the SENSES team.",
+          breadcrumbs: [{ label: "Team Calendar" }],
         },
       },
       {
