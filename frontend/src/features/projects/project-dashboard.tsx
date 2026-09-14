@@ -654,11 +654,11 @@ function PhaseBudgetsSection({ canEdit, phases, projectId }: { canEdit: boolean;
 }
 
 function PhaseBudgetPie({ budget, isLoading, phases }: { budget: ProjectBudget | null; isLoading: boolean; phases: DashboardPhase[] }) {
-  const allocated = budget?.allocated ?? 0;
-  const totalSpent = phases.reduce((sum, phase) => sum + phase.budget_spent, 0);
+  const allocated = Number(budget?.allocated ?? 0);
+  const totalSpent = phases.reduce((sum, phase) => sum + Number(phase.budget_spent || 0), 0);
   const unutilized = Math.max(allocated - totalSpent, 0);
   const colors = ["#2c5aa0", "#3d8a43", "#7c3aed", "#ca8a04", "#0891b2", "#0f766e"];
-  const segments = buildPieSegments(phases, allocated, totalSpent);
+  const segments = buildPieSegments(phases, allocated);
   const donutBackground = buildDonutBackground(segments);
 
   return (
@@ -678,13 +678,13 @@ function PhaseBudgetPie({ budget, isLoading, phases }: { budget: ProjectBudget |
         !isLoading ? <div className="mt-4 flex aspect-square items-center justify-center rounded-full border text-sm text-muted-foreground">No budget allocated</div> : null
       )}
       <div className="mt-4 space-y-2">
-        {phases.filter((phase) => phase.budget_spent > 0).map((phase, index) => (
+        {phases.map((phase, index) => (
           <div key={phase.id} className="flex items-center justify-between gap-3 text-xs">
             <span className="flex min-w-0 items-center gap-2">
               <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
               <span className="truncate text-muted-foreground">{phase.name} spent</span>
             </span>
-            <span className="font-medium text-foreground">{allocated > 0 ? formatPercent(phase.budget_spent / allocated) : "0%"}</span>
+            <span className="font-medium text-foreground">{allocated > 0 ? formatPercent(Number(phase.budget_spent || 0) / allocated) : "0%"}</span>
           </div>
         ))}
         <div className="flex items-center justify-between gap-3 text-xs">
@@ -1306,17 +1306,18 @@ type PieSegment = {
   end: number;
 };
 
-function buildPieSegments(phases: DashboardPhase[], allocated: number, totalSpent: number): PieSegment[] {
+function buildPieSegments(phases: DashboardPhase[], allocated: number): PieSegment[] {
   if (allocated <= 0) {
     return [];
   }
 
+  const totalSpent = phases.reduce((sum, phase) => sum + Number(phase.budget_spent || 0), 0);
   let offset = 0;
   const segments: PieSegment[] = phases
-    .filter((phase) => phase.budget_spent > 0 && totalSpent > 0)
+    .filter((phase) => Number(phase.budget_spent || 0) > 0)
     .map((phase) => {
       const remainingPercent = Math.max(100 - offset, 0);
-      const percent = Math.min((phase.budget_spent / allocated) * 100, remainingPercent);
+      const percent = Math.min((Number(phase.budget_spent || 0) / allocated) * 100, remainingPercent);
       const segment = {
         id: phase.id,
         kind: "phase" as const,
