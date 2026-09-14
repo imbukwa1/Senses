@@ -17,7 +17,9 @@ export type SearchableSelectProps = {
   value?: string;
   onValueChange: (value: string) => void;
   placeholder?: string;
+  selectedLabel?: string;
   disabled?: boolean;
+  className?: string;
 };
 
 export function SearchableSelect({
@@ -26,7 +28,9 @@ export function SearchableSelect({
   value,
   onValueChange,
   placeholder = "Select option",
+  selectedLabel,
   disabled,
+  className,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -42,13 +46,13 @@ export function SearchableSelect({
         <Button
           type="button"
           variant="outline"
-          className="w-full justify-between"
+          className={cn("w-full justify-between", className)}
           disabled={disabled}
           aria-label={label}
           aria-expanded={open}
         >
           <span className={cn("truncate", !selectedOption && "text-muted-foreground")}>
-            {selectedOption?.label ?? placeholder}
+            {selectedOption ? selectedLabel ?? selectedOption.label : placeholder}
           </span>
           <ChevronDown className="size-4 opacity-60" aria-hidden="true" />
         </Button>

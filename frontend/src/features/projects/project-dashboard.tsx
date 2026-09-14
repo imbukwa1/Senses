@@ -8,6 +8,7 @@ import { ErrorState } from "@/components/common/error-state";
 import { HealthBadge } from "@/components/common/health-badge";
 import { LoadingState } from "@/components/common/loading-state";
 import { MetadataRow } from "@/components/common/metadata-row";
+import { SearchableSelect } from "@/components/common/searchable-select";
 import { StatusBadge } from "@/components/common/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,17 @@ import { ProjectSetupCard, ProjectSetupPanel } from "./project-setup";
 import { ProjectWorkspace } from "./project-workspace";
 import { ProjectOverviewPage } from "./project-overview";
 import type { AttentionItem, DashboardDeliverable, DashboardPhase, PhaseMember, ProjectBudget, ProjectDashboard, ProjectFile, ProjectMember, ProjectMilestoneFinance, UpcomingDeadline } from "./types";
+
+const CURRENCY_OPTIONS = [
+  ["Kenyan Shilling", "KSH"], ["US Dollar", "USD"], ["British Pound Sterling", "GBP"], ["Euro", "EUR"],
+  ["South African Rand", "ZAR"], ["Nigerian Naira", "NGN"], ["Ugandan Shilling", "UGX"], ["Tanzanian Shilling", "TZS"],
+  ["Australian Dollar", "AUD"], ["Canadian Dollar", "CAD"], ["Swiss Franc", "CHF"], ["Chinese Yuan", "CNY"],
+  ["Japanese Yen", "JPY"], ["Indian Rupee", "INR"], ["Brazilian Real", "BRL"], ["Mexican Peso", "MXN"],
+  ["Rwandan Franc", "RWF"], ["Ghanaian Cedi", "GHS"], ["Egyptian Pound", "EGP"], ["United Arab Emirates Dirham", "AED"],
+  ["Saudi Riyal", "SAR"], ["Norwegian Krone", "NOK"], ["Swedish Krona", "SEK"], ["Danish Krone", "DKK"],
+  ["Singapore Dollar", "SGD"], ["New Zealand Dollar", "NZD"], ["South Korean Won", "KRW"], ["West African CFA Franc", "XOF"],
+] as const;
+const currencyOptions = CURRENCY_OPTIONS.map(([name, code]) => ({ label: `${name} ${code}`, value: code }));
 
 export function ProjectDashboardPage() {
   const { projectId } = useParams();
@@ -432,7 +444,7 @@ function FinanceMilestonesSection({ canEdit, projectId }: { canEdit: boolean; pr
             const actualSpend = Number(draft.actual_spend);
             const variance = allocated - actualSpend;
             const varianceClass = variance > 0 ? "text-success" : variance < 0 ? "text-error" : "text-amber-600";
-            return <tr key={row.milestone_id ?? row.work_plan_entry_id} className="border-b last:border-b-0"><td className="py-3 pr-3 font-medium">{row.name}</td><td className="px-3 py-3 text-muted-foreground">{row.description || "-"}</td><td className="px-3 py-3">{canEdit ? <Input value={draft.month} onChange={(event) => setDraft(row, "month", event.target.value)} aria-label={`${row.name} month`} /> : row.month || "-"}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.allocated} onChange={(event) => setDraft(row, "allocated", event.target.value)} aria-label={`${row.name} allocated`} /> : formatCurrency(row.allocated)}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.actual_spend} onChange={(event) => setDraft(row, "actual_spend", event.target.value)} aria-label={`${row.name} actual spend`} /> : formatCurrency(row.actual_spend)}</td><td className={`px-3 py-3 font-semibold ${varianceClass}`}>{formatCurrency(variance)}</td>{canEdit ? <td className="py-3 pl-3"><Button type="button" variant="outline" size="sm" disabled={!isNonNegativeNumber(draft.allocated) || !isNonNegativeNumber(draft.actual_spend) || update.isPending} onClick={() => void save(row)}><Save className="size-4" aria-hidden="true" />Save</Button></td> : null}</tr>;
+            return <tr key={row.milestone_id ?? row.work_plan_entry_id} className="border-b last:border-b-0"><td className="py-3 pr-3 font-medium">{row.name}</td><td className="px-3 py-3 text-muted-foreground">{row.description || "-"}</td><td className="px-3 py-3">{canEdit ? <Input value={draft.month} onChange={(event) => setDraft(row, "month", event.target.value)} aria-label={`${row.name} month`} /> : row.month || "-"}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.allocated} onChange={(event) => setDraft(row, "allocated", event.target.value)} aria-label={`${row.name} allocated`} /> : formatCurrency(row.allocated, row.currency)}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.actual_spend} onChange={(event) => setDraft(row, "actual_spend", event.target.value)} aria-label={`${row.name} actual spend`} /> : formatCurrency(row.actual_spend, row.currency)}</td><td className={`px-3 py-3 font-semibold ${varianceClass}`}>{formatCurrency(variance, row.currency)}</td>{canEdit ? <td className="py-3 pl-3"><Button type="button" variant="outline" size="sm" disabled={!isNonNegativeNumber(draft.allocated) || !isNonNegativeNumber(draft.actual_spend) || update.isPending || updateActivity.isPending} onClick={() => void save(row)}><Save className="size-4" aria-hidden="true" />Save</Button></td> : null}</tr>;
           })}</tbody>
         </table>
         {update.error ? <p className="mt-3 text-sm text-error">{dashboardErrorMessage(update.error)}</p> : null}
@@ -445,10 +457,12 @@ function BudgetSection({ canEdit, projectId }: { canEdit: boolean; projectId: st
   const budgetQuery = useProjectBudgetQuery(projectId);
   const updateBudget = useUpdateProjectBudgetMutation(projectId);
   const [allocated, setAllocated] = useState("");
+  const [currency, setCurrency] = useState("USD");
 
   useEffect(() => {
     if (budgetQuery.data) {
       setAllocated(String(budgetQuery.data.allocated));
+      setCurrency(budgetQuery.data.currency);
     }
   }, [budgetQuery.data]);
 
@@ -482,16 +496,19 @@ function BudgetSection({ canEdit, projectId }: { canEdit: boolean; projectId: st
           </CardTitle>
           <CardDescription>Project allocated budget with phase spending totals.</CardDescription>
         </div>
-        {canEdit ? <Button type="button" variant="outline" disabled={hasInvalidValues || updateBudget.isPending} onClick={onSave}>
-          <Save className="size-4" aria-hidden="true" />
-          {updateBudget.isPending ? "Saving..." : "Save Budget"}
-        </Button> : null}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <SearchableSelect label="Currency" options={currencyOptions} value={currency} selectedLabel={currency} className="w-[5rem]" disabled={!canEdit || updateBudget.isPending} onValueChange={(value) => { setCurrency(value); void updateBudget.mutateAsync({ currency: value }); }} />
+          {canEdit ? <Button type="button" variant="outline" disabled={hasInvalidValues || updateBudget.isPending} onClick={onSave}>
+            <Save className="size-4" aria-hidden="true" />
+            {updateBudget.isPending ? "Saving..." : "Save Budget"}
+          </Button> : null}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-4 md:grid-cols-4">
-          <BudgetMetric label="Allocated" value={formatCurrency(budgetQuery.data.allocated)} />
-          <BudgetMetric label="Spent" value={formatCurrency(budgetQuery.data.spent)} />
-          <BudgetMetric label="Remaining" value={formatCurrency(budgetQuery.data.remaining)} tone={budgetQuery.data.remaining < 0 ? "error" : "default"} />
+          <BudgetMetric label="Allocated" value={formatCurrency(budgetQuery.data.allocated, budgetQuery.data.currency)} />
+          <BudgetMetric label="Spent" value={formatCurrency(budgetQuery.data.spent, budgetQuery.data.currency)} />
+          <BudgetMetric label="Remaining" value={formatCurrency(budgetQuery.data.remaining, budgetQuery.data.currency)} tone={budgetQuery.data.remaining < 0 ? "error" : "default"} />
           <BudgetMetric label="Utilisation" value={formatPercent(budgetQuery.data.utilisation)} />
         </div>
         {canEdit ? <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -594,17 +611,17 @@ function PhaseBudgetsSection({ canEdit, phases, projectId }: { canEdit: boolean;
                       {canEdit ? (
                         <Input type="number" min="0" step="0.01" value={phase.draft.allocated} onChange={(event) => setDraft(phase.id, "allocated", event.target.value)} aria-label={`${phase.name} allocated`} />
                       ) : (
-                        formatCurrency(phase.budget_allocated)
+                        formatCurrency(phase.budget_allocated, budgetQuery.data?.currency)
                       )}
                     </td>
                     <td className="px-3 py-3">
                       {canEdit ? (
                         <Input type="number" min="0" step="0.01" value={phase.draft.spent} onChange={(event) => setDraft(phase.id, "spent", event.target.value)} aria-label={`${phase.name} spent`} />
                       ) : (
-                        formatCurrency(phase.budget_spent)
+                        formatCurrency(phase.budget_spent, budgetQuery.data?.currency)
                       )}
                     </td>
-                    <td className={phase.budget_remaining < 0 ? "px-3 py-3 text-error" : "px-3 py-3"}>{formatCurrency(phase.budget_remaining)}</td>
+                    <td className={phase.budget_remaining < 0 ? "px-3 py-3 text-error" : "px-3 py-3"}>{formatCurrency(phase.budget_remaining, budgetQuery.data?.currency)}</td>
                     <td className="px-3 py-3">{formatPercent(phase.budget_utilisation)}</td>
                     {canEdit ? (
                       <td className="py-3 pl-3 text-right">
@@ -1330,12 +1347,8 @@ function buildDonutBackground(segments: PieSegment[]) {
     .join(", ")})`;
 }
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
+function formatCurrency(value: number, currency = "USD") {
+  return `${currency} ${new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)}`;
 }
 
 function formatPercent(value: number) {

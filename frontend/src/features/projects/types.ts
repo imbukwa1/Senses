@@ -614,6 +614,7 @@ export type ProjectBudget = {
   spent: number;
   remaining: number;
   utilisation: number;
+  currency: string;
 };
 
 export type ProjectMilestoneFinance = {
@@ -621,6 +622,7 @@ export type ProjectMilestoneFinance = {
   work_plan_entry_id: string | null;
   source_type: "milestone" | "activity";
   project_id: string;
+  currency: string;
   name: string;
   description: string | null;
   month: string | null;
@@ -637,6 +639,7 @@ export type ProjectMilestoneFinancePayload = {
 
 export type ProjectBudgetMutationPayload = {
   allocated?: number;
+  currency?: string;
 };
 
 export type PhaseBudgetMutationPayload = {

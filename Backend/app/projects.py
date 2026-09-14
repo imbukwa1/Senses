@@ -187,6 +187,7 @@ class ProjectBudgetUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     allocated: Decimal | None = None
+    currency: str | None = Field(default=None, min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
 
 
 class ProjectMilestoneFinanceUpdateRequest(BaseModel):
@@ -1117,6 +1118,7 @@ class ProjectMilestoneFinanceResponse(BaseModel):
     work_plan_entry_id: UUID | None
     source_type: Literal["milestone", "activity"]
     project_id: UUID
+    currency: str
     name: str
     description: str | None
     month: str | None
@@ -1326,14 +1328,14 @@ def update_project_budget(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Budget values cannot be null: {', '.join(null_fields)}",
         )
-    negative_fields = sorted(field for field, value in values.items() if value is not None and value < 0)
+    negative_fields = sorted(field for field, value in values.items() if field == "allocated" and value is not None and value < 0)
     if negative_fields:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Budget values cannot be negative: {', '.join(negative_fields)}",
         )
 
-    field_map = {"allocated": "budget_allocated"}
+    field_map = {"allocated": "budget_allocated", "currency": "currency"}
     set_clause = ", ".join(f"{field_map[field]} = %s" for field in values)
     params = [*values.values(), project_id]
     row = session.fetch_one(
@@ -5590,6 +5592,7 @@ def fetch_project_budget_or_404(session: DatabaseSession, project_id: UUID) -> R
         SELECT
           projects.id AS project_id,
           projects.budget_allocated AS allocated,
+          projects.currency,
           phase_totals.spent AS spent,
           projects.budget_allocated - phase_totals.spent AS remaining,
           CASE
@@ -5821,6 +5824,7 @@ def fetch_project_milestone_finance(session: DatabaseSession, project_id: UUID) 
           NULL::uuid AS work_plan_entry_id,
           'milestone' AS source_type,
           milestones.project_id,
+          projects.currency,
           milestones.name,
           milestones.description,
           finance.month,
@@ -5829,6 +5833,7 @@ def fetch_project_milestone_finance(session: DatabaseSession, project_id: UUID) 
           milestones.target_date AS sort_date,
           milestones.created_at AS sort_created_at
         FROM project_milestones AS milestones
+        JOIN projects ON projects.id = milestones.project_id
         LEFT JOIN project_milestone_finance AS finance
           ON finance.milestone_id = milestones.id
          AND finance.project_id = milestones.project_id
@@ -5839,6 +5844,7 @@ def fetch_project_milestone_finance(session: DatabaseSession, project_id: UUID) 
           entries.id AS work_plan_entry_id,
           'activity' AS source_type,
           entries.project_id,
+          projects.currency,
           entries.name,
           entries.details AS description,
           finance.month,
@@ -5847,6 +5853,7 @@ def fetch_project_milestone_finance(session: DatabaseSession, project_id: UUID) 
           entries.start_date AS sort_date,
           entries.created_at AS sort_created_at
         FROM project_work_plan_entries AS entries
+        JOIN projects ON projects.id = entries.project_id
         LEFT JOIN project_milestone_finance AS finance
           ON finance.work_plan_entry_id = entries.id
          AND finance.project_id = entries.project_id
@@ -5871,6 +5878,7 @@ def project_milestone_finance_to_response(row: Row) -> ProjectMilestoneFinanceRe
         work_plan_entry_id=row["work_plan_entry_id"],
         source_type=row["source_type"],
         project_id=row["project_id"],
+        currency=row["currency"],
         name=row["name"],
         description=row["description"],
         month=row["month"],

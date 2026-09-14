@@ -133,6 +133,7 @@ const attentionItem = {
 
 const projectBudget = {
   project_id: project.id,
+  currency: "USD",
   allocated: 1000,
   spent: 250,
   remaining: 750,
