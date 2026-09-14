@@ -600,13 +600,21 @@ function ObjectivesForm({ canEdit, isSaving, onMarkComplete, onSave, setup, stat
 
 function WorkPlanForm({ canEdit, phases, setup }: Pick<FirstPassFormProps, "canEdit" | "setup"> & { phases: DashboardPhase[] }) {
   const details = setup.details.work_plan;
+  const milestonesQuery = useProjectSetupMilestonesQuery(setup.project_id);
   const createEntry = useCreateProjectSetupWorkPlanEntryMutation(setup.project_id);
   const updateEntry = useUpdateProjectSetupWorkPlanEntryMutation(setup.project_id);
   const deleteEntry = useDeleteProjectSetupWorkPlanEntryMutation(setup.project_id);
   const [entryForm, setEntryForm] = useState<ProjectSetupWorkPlanEntryPayload>(() => emptyWorkPlanEntry(phases[0]?.id ?? ""));
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
-
   const entries = details.entries;
+
+  useEffect(() => {
+    if (!editingEntryId) return;
+    const entry = entries.find((current) => current.id === editingEntryId);
+    if (!entry) return;
+    setEntryForm((current) => current.milestone_id === entry.milestone_id ? current : { ...current, milestone_id: entry.milestone_id });
+  }, [editingEntryId, entries]);
+
   const entryPending = createEntry.isPending || updateEntry.isPending || deleteEntry.isPending;
 
   function resetEntryForm() {
@@ -626,6 +634,7 @@ function WorkPlanForm({ canEdit, phases, setup }: Pick<FirstPassFormProps, "canE
 
   return (
     <div className="space-y-6">
+      {entries.some((entry) => entry.milestone_name) ? <div className="space-y-2"><h3 className="font-semibold">Linked Milestones / Activities</h3>{entries.filter((entry) => entry.milestone_name).map((entry) => <p key={`${entry.id}-milestone`} className="text-sm text-muted-foreground">{entry.milestone_name}{entry.milestone_description ? `: ${entry.milestone_description}` : ""}</p>)}</div> : null}
       <div className="space-y-3 border-t pt-5">
         <div>
           <h3 className="font-semibold">Scheduled Work Plan Entries</h3>
@@ -635,6 +644,7 @@ function WorkPlanForm({ canEdit, phases, setup }: Pick<FirstPassFormProps, "canE
           <div className="grid gap-3 md:grid-cols-2">
             <SetupInput label="Name" value={entryForm.name} onChange={(value) => setEntryForm((current) => ({ ...current, name: value }))} />
             <div className="space-y-2"><Label htmlFor="work-plan-entry-phase">Phase</Label><Select value={entryForm.phase_id} onValueChange={(value) => setEntryForm((current) => ({ ...current, phase_id: value }))}><SelectTrigger id="work-plan-entry-phase"><SelectValue placeholder="Select phase" /></SelectTrigger><SelectContent>{phases.map((phase) => <SelectItem key={phase.id} value={phase.id}>{phase.name}</SelectItem>)}</SelectContent></Select></div>
+            <div className="space-y-2"><Label htmlFor="work-plan-entry-milestone">Milestones / Activities</Label><Select value={entryForm.milestone_id ?? "none"} onValueChange={(value) => setEntryForm((current) => ({ ...current, milestone_id: value === "none" ? null : value }))}><SelectTrigger id="work-plan-entry-milestone"><SelectValue placeholder="Select milestone / activity" /></SelectTrigger><SelectContent><SelectItem value="none">No milestone / activity</SelectItem>{milestonesQuery.data?.map((milestone) => <SelectItem key={milestone.id} value={milestone.id}>{milestone.name}</SelectItem>)}</SelectContent></Select></div>
             <SetupInput label="Start Date" type="date" value={entryForm.start_date} onChange={(value) => setEntryForm((current) => ({ ...current, start_date: value }))} />
             <SetupInput label="End Date" type="date" value={entryForm.end_date} onChange={(value) => setEntryForm((current) => ({ ...current, end_date: value }))} />
           </div>
@@ -650,7 +660,7 @@ function WorkPlanForm({ canEdit, phases, setup }: Pick<FirstPassFormProps, "canE
 }
 
 function emptyWorkPlanEntry(phaseId: string): ProjectSetupWorkPlanEntryPayload {
-  return { name: "", details: "", key_activities: "", start_date: "", end_date: "", phase_id: phaseId };
+  return { name: "", details: "", key_activities: "", start_date: "", end_date: "", phase_id: phaseId, milestone_id: null };
 }
 
 function Phase0PhasesSection({

@@ -351,6 +351,79 @@ def test_project_setup_milestones_deliverables_and_resources_use_live_records() 
         database.close()
 
 
+def test_work_plan_reuses_live_milestone_activity_reference() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        pm = _create_auth_user(database, "Work Plan Link PM", _unique_email("work-plan-link.pm"))
+        project = _create_project(database, pm["id"], "Work Plan Link Project")
+        other_project = _create_project(database, pm["id"], "Other Work Plan Project")
+        _add_project_member(database, project["id"], pm["id"], "PM")
+        _add_project_member(database, other_project["id"], pm["id"], "PM")
+        phase = _create_phase(database, project["id"], pm["id"], "Delivery")
+        other_phase = _create_phase(database, other_project["id"], pm["id"], "Other")
+        app = create_app(settings=_settings(os.getenv("DATABASE_URL")), database=database)
+
+        with TestClient(app) as client:
+            token = _login(client, pm["email"])
+            milestone = client.post(
+                f"/projects/{project['id']}/setup/milestones",
+                headers=_auth_header(token),
+                json={"name": "Discovery", "description": "Original description", "status": "Not Started"},
+            )
+            entry = client.post(
+                f"/projects/{project['id']}/setup/work-plan/entries",
+                headers=_auth_header(token),
+                json={
+                    "name": "Discovery schedule",
+                    "details": "Schedule details",
+                    "key_activities": "Interview",
+                    "start_date": "2026-02-01",
+                    "end_date": "2026-02-01",
+                    "phase_id": str(phase["id"]),
+                    "milestone_id": milestone.json()["id"],
+                },
+            )
+            cross_project = client.post(
+                f"/projects/{project['id']}/setup/work-plan/entries",
+                headers=_auth_header(token),
+                json={
+                    "name": "Invalid link",
+                    "details": "Invalid",
+                    "key_activities": "Invalid",
+                    "start_date": "2026-02-01",
+                    "end_date": "2026-02-01",
+                    "phase_id": str(phase["id"]),
+                    "milestone_id": str((client.post(
+                        f"/projects/{other_project['id']}/setup/milestones",
+                        headers=_auth_header(token),
+                        json={"name": "Other milestone", "status": "Not Started"},
+                    )).json()["id"]),
+                },
+            )
+            renamed = client.patch(
+                f"/projects/{project['id']}/setup/milestones/{milestone.json()['id']}",
+                headers=_auth_header(token),
+                json={"name": "Discovery updated", "description": "Updated description", "status": "In Progress"},
+            )
+            setup = client.get(f"/projects/{project['id']}/setup", headers=_auth_header(token))
+
+        assert other_phase["project_id"] == other_project["id"]
+        assert milestone.status_code == 201
+        assert entry.status_code == 201
+        assert entry.json()["milestone_id"] == milestone.json()["id"]
+        assert entry.json()["milestone_name"] == "Discovery"
+        assert entry.json()["milestone_description"] == "Original description"
+        assert cross_project.status_code == 422
+        assert renamed.status_code == 200
+        linked_entry = setup.json()["details"]["work_plan"]["entries"][0]
+        assert linked_entry["milestone_id"] == milestone.json()["id"]
+        assert linked_entry["milestone_name"] == "Discovery updated"
+        assert linked_entry["milestone_description"] == "Updated description"
+    finally:
+        database.close()
+
+
 def test_project_setup_risks_assumptions_and_dependencies_use_live_records() -> None:
     database = _database_from_env()
     database.connect()

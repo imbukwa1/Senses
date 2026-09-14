@@ -254,12 +254,15 @@ export type ProjectSetupWorkPlanEntry = {
   end_date: string;
   phase_id: string;
   phase_name: string;
+  milestone_id: string | null;
+  milestone_name: string | null;
+  milestone_description: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
 };
 
-export type ProjectSetupWorkPlanEntryPayload = Omit<ProjectSetupWorkPlanEntry, "id" | "project_id" | "phase_name" | "created_by" | "created_at" | "updated_at">;
+export type ProjectSetupWorkPlanEntryPayload = Omit<ProjectSetupWorkPlanEntry, "id" | "project_id" | "phase_name" | "milestone_id" | "milestone_name" | "milestone_description" | "created_by" | "created_at" | "updated_at"> & { milestone_id?: string | null };
 
 export type ProjectSetupBudgetDetails = {
   total_project_budget: number;
