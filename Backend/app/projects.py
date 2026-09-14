@@ -1111,6 +1111,7 @@ class ProjectBudgetResponse(BaseModel):
     spent: Decimal
     remaining: Decimal
     utilisation: Decimal
+    currency: str
 
 
 class ProjectMilestoneFinanceResponse(BaseModel):

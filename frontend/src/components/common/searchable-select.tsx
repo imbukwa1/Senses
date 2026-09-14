@@ -20,6 +20,7 @@ export type SearchableSelectProps = {
   selectedLabel?: string;
   disabled?: boolean;
   className?: string;
+  popoverClassName?: string;
 };
 
 export function SearchableSelect({
@@ -31,6 +32,7 @@ export function SearchableSelect({
   selectedLabel,
   disabled,
   className,
+  popoverClassName,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -57,7 +59,7 @@ export function SearchableSelect({
           <ChevronDown className="size-4 opacity-60" aria-hidden="true" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+      <PopoverContent className={cn("w-[var(--radix-popover-trigger-width)] p-2", popoverClassName)} align="start">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
           <Input

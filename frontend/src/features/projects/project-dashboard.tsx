@@ -497,7 +497,7 @@ function BudgetSection({ canEdit, projectId }: { canEdit: boolean; projectId: st
           <CardDescription>Project allocated budget with phase spending totals.</CardDescription>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <SearchableSelect label="Currency" options={currencyOptions} value={currency} selectedLabel={currency} className="w-[5rem]" disabled={!canEdit || updateBudget.isPending} onValueChange={(value) => { setCurrency(value); void updateBudget.mutateAsync({ currency: value }); }} />
+          <SearchableSelect label="Currency" options={currencyOptions} value={currency} selectedLabel={currency} className="h-7 w-[58px] gap-1 px-2 text-xs" popoverClassName="w-[260px]" disabled={!canEdit || updateBudget.isPending} onValueChange={(value) => { setCurrency(value); void updateBudget.mutateAsync({ currency: value }); }} />
           {canEdit ? <Button type="button" variant="outline" disabled={hasInvalidValues || updateBudget.isPending} onClick={onSave}>
             <Save className="size-4" aria-hidden="true" />
             {updateBudget.isPending ? "Saving..." : "Save Budget"}
