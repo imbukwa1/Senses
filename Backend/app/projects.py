@@ -1113,7 +1113,9 @@ class ProjectBudgetResponse(BaseModel):
 
 
 class ProjectMilestoneFinanceResponse(BaseModel):
-    milestone_id: UUID
+    milestone_id: UUID | None
+    work_plan_entry_id: UUID | None
+    source_type: Literal["milestone", "activity"]
     project_id: UUID
     name: str
     description: str | None
@@ -1387,6 +1389,32 @@ def update_project_milestone_finance(
     return project_milestone_finance_to_response(
         fetch_project_milestone_finance_row(session, project_id, milestone_id)
     )
+
+
+@router.patch("/{project_id}/finance/activities/{entry_id}", response_model=ProjectMilestoneFinanceResponse)
+def update_project_work_plan_finance(
+    project_id: UUID,
+    entry_id: UUID,
+    payload: ProjectMilestoneFinanceUpdateRequest,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: DatabaseSession = Depends(get_authenticated_db_session),
+) -> ProjectMilestoneFinanceResponse:
+    ensure_project_access(session, current_user.id, project_id)
+    ensure_project_budget_edit_role(session, current_user.id, project_id)
+    entry = fetch_project_setup_work_plan_entry(session, project_id, entry_id)
+    session.execute(
+        """
+        INSERT INTO project_milestone_finance (milestone_id, work_plan_entry_id, project_id, month, allocated, actual_spend)
+        VALUES (NULL, %s, %s, %s, %s, %s)
+        ON CONFLICT (work_plan_entry_id) DO UPDATE SET
+          month = EXCLUDED.month,
+          allocated = EXCLUDED.allocated,
+          actual_spend = EXCLUDED.actual_spend,
+          updated_at = NOW()
+        """,
+        (entry_id, project_id, normalize_optional_text(payload.month), payload.allocated, payload.actual_spend),
+    )
+    return project_milestone_finance_to_response(fetch_project_milestone_finance_row(session, project_id, entry_id, source_type="activity"))
 
 
 @router.get("/{project_id}/files", response_model=list[ProjectFileResponse])
@@ -5790,34 +5818,58 @@ def fetch_project_milestone_finance(session: DatabaseSession, project_id: UUID) 
         """
         SELECT
           milestones.id AS milestone_id,
+          NULL::uuid AS work_plan_entry_id,
+          'milestone' AS source_type,
           milestones.project_id,
           milestones.name,
           milestones.description,
           finance.month,
           COALESCE(finance.allocated, 0) AS allocated,
-          COALESCE(finance.actual_spend, 0) AS actual_spend
+          COALESCE(finance.actual_spend, 0) AS actual_spend,
+          milestones.target_date AS sort_date,
+          milestones.created_at AS sort_created_at
         FROM project_milestones AS milestones
         LEFT JOIN project_milestone_finance AS finance
           ON finance.milestone_id = milestones.id
          AND finance.project_id = milestones.project_id
         WHERE milestones.project_id = %s
-        ORDER BY milestones.target_date NULLS LAST, milestones.created_at, milestones.id
+        UNION ALL
+        SELECT
+          NULL::uuid AS milestone_id,
+          entries.id AS work_plan_entry_id,
+          'activity' AS source_type,
+          entries.project_id,
+          entries.name,
+          entries.details AS description,
+          finance.month,
+          COALESCE(finance.allocated, 0) AS allocated,
+          COALESCE(finance.actual_spend, 0) AS actual_spend,
+          entries.start_date AS sort_date,
+          entries.created_at AS sort_created_at
+        FROM project_work_plan_entries AS entries
+        LEFT JOIN project_milestone_finance AS finance
+          ON finance.work_plan_entry_id = entries.id
+         AND finance.project_id = entries.project_id
+        WHERE entries.project_id = %s
+        ORDER BY sort_date NULLS LAST, sort_created_at, milestone_id NULLS LAST, work_plan_entry_id
         """,
-        (project_id,),
+        (project_id, project_id),
     )
 
 
-def fetch_project_milestone_finance_row(session: DatabaseSession, project_id: UUID, milestone_id: UUID) -> Row:
+def fetch_project_milestone_finance_row(session: DatabaseSession, project_id: UUID, source_id: UUID, source_type: str = "milestone") -> Row:
     rows = fetch_project_milestone_finance(session, project_id)
     for row in rows:
-        if row["milestone_id"] == milestone_id:
+        if row["source_type"] == source_type and (row["milestone_id"] if source_type == "milestone" else row["work_plan_entry_id"]) == source_id:
             return row
-    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project milestone finance record not found")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project milestone/activity finance record not found")
 
 
 def project_milestone_finance_to_response(row: Row) -> ProjectMilestoneFinanceResponse:
     return ProjectMilestoneFinanceResponse(
         milestone_id=row["milestone_id"],
+        work_plan_entry_id=row["work_plan_entry_id"],
+        source_type=row["source_type"],
         project_id=row["project_id"],
         name=row["name"],
         description=row["description"],

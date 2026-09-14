@@ -669,6 +669,18 @@ export async function updateProjectMilestoneFinance(
   return result.data;
 }
 
+export async function updateProjectWorkPlanFinance(
+  token: string,
+  projectId: string,
+  entryId: string,
+  payload: ProjectMilestoneFinancePayload,
+): Promise<ProjectMilestoneFinance> {
+  const data = await apiRequest<unknown>(`/projects/${projectId}/finance/activities/${entryId}`, { method: "PATCH", body: JSON.stringify(payload) }, token);
+  const result = projectMilestoneFinanceSchema.safeParse(data);
+  if (!result.success) throw new ApiError("Project milestone/activity finance data could not be saved.", 500);
+  return result.data;
+}
+
 export async function listProjectFiles(token: string, projectId: string): Promise<ProjectFile[]> {
   const data = await apiRequest<unknown>(`/projects/${projectId}/files`, {}, token);
   const result = projectFilesSchema.safeParse(data);

@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   useUpdatePhaseBudgetMutation: vi.fn(),
   useUpdateProjectBudgetMutation: vi.fn(),
   useUpdateProjectMilestoneFinanceMutation: vi.fn(),
+  useUpdateProjectWorkPlanFinanceMutation: vi.fn(),
   useUploadTaskFileMutation: vi.fn(),
   useAuth: vi.fn(),
 }));
@@ -87,6 +88,7 @@ vi.mock("./hooks", () => ({
   useUpdatePhaseBudgetMutation: mocks.useUpdatePhaseBudgetMutation,
   useUpdateProjectBudgetMutation: mocks.useUpdateProjectBudgetMutation,
   useUpdateProjectMilestoneFinanceMutation: mocks.useUpdateProjectMilestoneFinanceMutation,
+  useUpdateProjectWorkPlanFinanceMutation: mocks.useUpdateProjectWorkPlanFinanceMutation,
   useUploadTaskFileMutation: mocks.useUploadTaskFileMutation,
 }));
 
@@ -283,6 +285,7 @@ describe("ProjectDashboardPage", () => {
     mocks.useUpdatePhaseBudgetMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useUpdateProjectBudgetMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useUpdateProjectMilestoneFinanceMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
+    mocks.useUpdateProjectWorkPlanFinanceMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useUploadTaskFileMutation.mockReturnValue({ error: null, isPending: false, mutateAsync: vi.fn() });
     mocks.useRemovePhaseMemberMutation.mockReturnValue({ error: null, isPending: false, mutate: vi.fn() });
   });

@@ -498,7 +498,9 @@ export const projectBudgetSchema = z.object({
 });
 
 export const projectMilestoneFinanceSchema = z.object({
-  milestone_id: z.uuid(),
+  milestone_id: z.uuid().nullable(),
+  work_plan_entry_id: z.uuid().nullable(),
+  source_type: z.enum(["milestone", "activity"]),
   project_id: z.uuid(),
   name: z.string().min(1),
   description: z.string().nullable(),

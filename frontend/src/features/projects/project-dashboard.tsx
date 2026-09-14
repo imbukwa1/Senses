@@ -41,6 +41,7 @@ import {
   useUpdatePhaseBudgetMutation,
   useUpdateProjectBudgetMutation,
   useUpdateProjectMilestoneFinanceMutation,
+  useUpdateProjectWorkPlanFinanceMutation,
   useUploadTaskFileMutation,
 } from "./hooks";
 import { PhaseManagementDialog } from "./phase-management-dialog";
@@ -392,6 +393,7 @@ function ProjectFinanceSection({ canEdit, phases, projectId }: { canEdit: boolea
 function FinanceMilestonesSection({ canEdit, projectId }: { canEdit: boolean; projectId: string }) {
   const query = useProjectMilestoneFinanceQuery(projectId);
   const update = useUpdateProjectMilestoneFinanceMutation(projectId);
+  const updateActivity = useUpdateProjectWorkPlanFinanceMutation(projectId);
   const [drafts, setDrafts] = useState<Record<string, { month: string; allocated: string; actual_spend: string }>>({});
 
   if (query.isLoading) return <LoadingState label="Loading milestone finance" />;
@@ -399,23 +401,28 @@ function FinanceMilestonesSection({ canEdit, projectId }: { canEdit: boolean; pr
   if (!query.data?.length) return null;
 
   function draftFor(row: ProjectMilestoneFinance) {
-    return drafts[row.milestone_id] ?? { month: row.month ?? "", allocated: String(row.allocated), actual_spend: String(row.actual_spend) };
+    const sourceId = row.milestone_id ?? row.work_plan_entry_id ?? "";
+    return drafts[sourceId] ?? { month: row.month ?? "", allocated: String(row.allocated), actual_spend: String(row.actual_spend) };
   }
 
   function setDraft(row: ProjectMilestoneFinance, field: "month" | "allocated" | "actual_spend", value: string) {
     const current = draftFor(row);
-    setDrafts((draftsValue) => ({ ...draftsValue, [row.milestone_id]: { ...current, [field]: value } }));
+    const sourceId = row.milestone_id ?? row.work_plan_entry_id ?? "";
+    setDrafts((draftsValue) => ({ ...draftsValue, [sourceId]: { ...current, [field]: value } }));
   }
 
   async function save(row: ProjectMilestoneFinance) {
     const draft = draftFor(row);
-    await update.mutateAsync({ milestoneId: row.milestone_id, payload: { month: draft.month || null, allocated: Number(draft.allocated), actual_spend: Number(draft.actual_spend) } });
-    setDrafts((current) => { const next = { ...current }; delete next[row.milestone_id]; return next; });
+    const payload = { month: draft.month || null, allocated: Number(draft.allocated), actual_spend: Number(draft.actual_spend) };
+    const sourceId = row.milestone_id ?? row.work_plan_entry_id ?? "";
+    if (row.source_type === "activity") await updateActivity.mutateAsync({ entryId: sourceId, payload });
+    else await update.mutateAsync({ milestoneId: sourceId, payload });
+    setDrafts((current) => { const next = { ...current }; delete next[sourceId]; return next; });
   }
 
   return (
     <Card>
-      <CardHeader><CardTitle>Milestone Finance</CardTitle></CardHeader>
+      <CardHeader><CardTitle>Milestones / Activities</CardTitle></CardHeader>
       <CardContent className="overflow-x-auto">
         <table className="w-full min-w-[58rem] text-sm">
           <thead><tr className="border-b text-left text-xs text-muted-foreground"><th className="py-2 pr-3">Milestone / Activity</th><th className="px-3 py-2">Description</th><th className="px-3 py-2">Month</th><th className="px-3 py-2">Allocated</th><th className="px-3 py-2">Actual Spend</th><th className="px-3 py-2">Variance</th>{canEdit ? <th className="py-2 pl-3">Save</th> : null}</tr></thead>
@@ -425,7 +432,7 @@ function FinanceMilestonesSection({ canEdit, projectId }: { canEdit: boolean; pr
             const actualSpend = Number(draft.actual_spend);
             const variance = allocated - actualSpend;
             const varianceClass = variance > 0 ? "text-success" : variance < 0 ? "text-error" : "text-amber-600";
-            return <tr key={row.milestone_id} className="border-b last:border-b-0"><td className="py-3 pr-3 font-medium">{row.name}</td><td className="px-3 py-3 text-muted-foreground">{row.description || "-"}</td><td className="px-3 py-3">{canEdit ? <Input value={draft.month} onChange={(event) => setDraft(row, "month", event.target.value)} aria-label={`${row.name} month`} /> : row.month || "-"}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.allocated} onChange={(event) => setDraft(row, "allocated", event.target.value)} aria-label={`${row.name} allocated`} /> : formatCurrency(row.allocated)}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.actual_spend} onChange={(event) => setDraft(row, "actual_spend", event.target.value)} aria-label={`${row.name} actual spend`} /> : formatCurrency(row.actual_spend)}</td><td className={`px-3 py-3 font-semibold ${varianceClass}`}>{formatCurrency(variance)}</td>{canEdit ? <td className="py-3 pl-3"><Button type="button" variant="outline" size="sm" disabled={!isNonNegativeNumber(draft.allocated) || !isNonNegativeNumber(draft.actual_spend) || update.isPending} onClick={() => void save(row)}><Save className="size-4" aria-hidden="true" />Save</Button></td> : null}</tr>;
+            return <tr key={row.milestone_id ?? row.work_plan_entry_id} className="border-b last:border-b-0"><td className="py-3 pr-3 font-medium">{row.name}</td><td className="px-3 py-3 text-muted-foreground">{row.description || "-"}</td><td className="px-3 py-3">{canEdit ? <Input value={draft.month} onChange={(event) => setDraft(row, "month", event.target.value)} aria-label={`${row.name} month`} /> : row.month || "-"}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.allocated} onChange={(event) => setDraft(row, "allocated", event.target.value)} aria-label={`${row.name} allocated`} /> : formatCurrency(row.allocated)}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.actual_spend} onChange={(event) => setDraft(row, "actual_spend", event.target.value)} aria-label={`${row.name} actual spend`} /> : formatCurrency(row.actual_spend)}</td><td className={`px-3 py-3 font-semibold ${varianceClass}`}>{formatCurrency(variance)}</td>{canEdit ? <td className="py-3 pl-3"><Button type="button" variant="outline" size="sm" disabled={!isNonNegativeNumber(draft.allocated) || !isNonNegativeNumber(draft.actual_spend) || update.isPending} onClick={() => void save(row)}><Save className="size-4" aria-hidden="true" />Save</Button></td> : null}</tr>;
           })}</tbody>
         </table>
         {update.error ? <p className="mt-3 text-sm text-error">{dashboardErrorMessage(update.error)}</p> : null}

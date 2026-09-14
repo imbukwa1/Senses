@@ -617,7 +617,9 @@ export type ProjectBudget = {
 };
 
 export type ProjectMilestoneFinance = {
-  milestone_id: string;
+  milestone_id: string | null;
+  work_plan_entry_id: string | null;
+  source_type: "milestone" | "activity";
   project_id: string;
   name: string;
   description: string | null;

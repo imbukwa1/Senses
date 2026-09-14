@@ -95,6 +95,7 @@ import {
   updateProjectSetupBudget,
   listProjectMilestoneFinance,
   updateProjectMilestoneFinance,
+  updateProjectWorkPlanFinance,
   updateProjectSetupDetails,
   createProjectSetupWorkPlanEntry,
   updateProjectSetupWorkPlanEntry,
@@ -863,6 +864,16 @@ export function useUpdateProjectMilestoneFinanceMutation(projectId: string) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: projectMilestoneFinanceQueryKey(projectId) });
     },
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUpdateProjectWorkPlanFinanceMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+  return useMutation({
+    mutationFn: ({ entryId, payload }: { entryId: string; payload: ProjectMilestoneFinancePayload }) => updateProjectWorkPlanFinance(requireToken(token), projectId, entryId, payload),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: projectMilestoneFinanceQueryKey(projectId) }); },
     onError: authFailureHandler(logout),
   });
 }
