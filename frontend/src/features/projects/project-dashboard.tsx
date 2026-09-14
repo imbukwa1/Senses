@@ -64,6 +64,10 @@ const CURRENCY_OPTIONS = [
   ["Singapore Dollar", "SGD"], ["New Zealand Dollar", "NZD"], ["South Korean Won", "KRW"], ["West African CFA Franc", "XOF"],
 ] as const;
 const currencyOptions = CURRENCY_OPTIONS.map(([name, code]) => ({ label: `${name} ${code}`, value: code }));
+const FINANCE_MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+] as const;
 
 export function ProjectDashboardPage() {
   const { projectId } = useParams();
@@ -414,7 +418,7 @@ function FinanceMilestonesSection({ canEdit, projectId }: { canEdit: boolean; pr
 
   function draftFor(row: ProjectMilestoneFinance) {
     const sourceId = row.milestone_id ?? row.work_plan_entry_id ?? "";
-    return drafts[sourceId] ?? { month: row.month ?? "", allocated: String(row.allocated), actual_spend: String(row.actual_spend) };
+    return drafts[sourceId] ?? { month: normalizeFinanceMonth(row.month), allocated: String(row.allocated), actual_spend: String(row.actual_spend) };
   }
 
   function setDraft(row: ProjectMilestoneFinance, field: "month" | "allocated" | "actual_spend", value: string) {
@@ -444,13 +448,18 @@ function FinanceMilestonesSection({ canEdit, projectId }: { canEdit: boolean; pr
             const actualSpend = Number(draft.actual_spend);
             const variance = allocated - actualSpend;
             const varianceClass = variance > 0 ? "text-success" : variance < 0 ? "text-error" : "text-amber-600";
-            return <tr key={row.milestone_id ?? row.work_plan_entry_id} className="border-b last:border-b-0"><td className="py-3 pr-3 font-medium">{row.name}</td><td className="px-3 py-3 text-muted-foreground">{row.description || "-"}</td><td className="px-3 py-3">{row.phase_name || "—"}</td><td className="px-3 py-3">{canEdit ? <Input value={draft.month} onChange={(event) => setDraft(row, "month", event.target.value)} aria-label={`${row.name} month`} /> : row.month || "-"}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.allocated} onChange={(event) => setDraft(row, "allocated", event.target.value)} aria-label={`${row.name} allocated`} /> : formatCurrency(row.allocated, row.currency)}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.actual_spend} onChange={(event) => setDraft(row, "actual_spend", event.target.value)} aria-label={`${row.name} actual spend`} /> : formatCurrency(row.actual_spend, row.currency)}</td><td className={`px-3 py-3 font-semibold ${varianceClass}`}>{formatCurrency(variance, row.currency)}</td>{canEdit ? <td className="py-3 pl-3"><Button type="button" variant="outline" size="sm" disabled={!isNonNegativeNumber(draft.allocated) || !isNonNegativeNumber(draft.actual_spend) || update.isPending || updateActivity.isPending} onClick={() => void save(row)}><Save className="size-4" aria-hidden="true" />Save</Button></td> : null}</tr>;
+            return <tr key={row.milestone_id ?? row.work_plan_entry_id} className="border-b last:border-b-0"><td className="py-3 pr-3 font-medium">{row.name}</td><td className="px-3 py-3 text-muted-foreground">{row.description || "-"}</td><td className="px-3 py-3">{row.phase_name || "—"}</td><td className="px-3 py-3">{canEdit ? <select value={draft.month} onChange={(event) => setDraft(row, "month", event.target.value)} aria-label={`${row.name} month`} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"><option value="">Select month</option>{FINANCE_MONTHS.map((month) => <option key={month} value={month}>{month}</option>)}</select> : normalizeFinanceMonth(row.month) || "—"}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.allocated} onChange={(event) => setDraft(row, "allocated", event.target.value)} aria-label={`${row.name} allocated`} /> : formatCurrency(row.allocated, row.currency)}</td><td className="px-3 py-3">{canEdit ? <Input type="number" min="0" step="0.01" value={draft.actual_spend} onChange={(event) => setDraft(row, "actual_spend", event.target.value)} aria-label={`${row.name} actual spend`} /> : formatCurrency(row.actual_spend, row.currency)}</td><td className={`px-3 py-3 font-semibold ${varianceClass}`}>{formatCurrency(variance, row.currency)}</td>{canEdit ? <td className="py-3 pl-3"><Button type="button" variant="outline" size="sm" disabled={!isNonNegativeNumber(draft.allocated) || !isNonNegativeNumber(draft.actual_spend) || update.isPending || updateActivity.isPending} onClick={() => void save(row)}><Save className="size-4" aria-hidden="true" />Save</Button></td> : null}</tr>;
           })}</tbody>
         </table>
         {update.error ? <p className="mt-3 text-sm text-error">{dashboardErrorMessage(update.error)}</p> : null}
       </CardContent>
     </Card>
   );
+}
+
+function normalizeFinanceMonth(value: string | null) {
+  const normalized = value?.trim().toLowerCase();
+  return FINANCE_MONTHS.find((month) => month.toLowerCase() === normalized) ?? "";
 }
 
 function BudgetSection({ canEdit, projectId }: { canEdit: boolean; projectId: string }) {
