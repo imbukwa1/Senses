@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
@@ -24,6 +24,8 @@ const COLORS: { value: CalendarEventColor; label: string; className: string }[] 
   { value: "purple", label: "Purple", className: "bg-purple-600" },
   { value: "teal", label: "Teal", className: "bg-teal-600" },
 ];
+const BORDER_COLORS: Record<CalendarEventColor, string> = { blue: "border-blue-500", green: "border-green-600", red: "border-red-500", amber: "border-amber-500", purple: "border-purple-600", teal: "border-teal-600" };
+const COLOR_HEX: Record<CalendarEventColor, string> = { blue: "#3b82f6", green: "#16a34a", red: "#ef4444", amber: "#f59e0b", purple: "#9333ea", teal: "#0d9488" };
 
 export function TeamCalendarPage() {
   const query = useCalendarEventsQuery();
@@ -66,7 +68,7 @@ function MonthView({ anchor, events, onSelect }: { anchor: Date; events: Calenda
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const gridStart = new Date(first); gridStart.setDate(first.getDate() - first.getDay());
   const days = Array.from({ length: 42 }, (_, index) => { const day = new Date(gridStart); day.setDate(gridStart.getDate() + index); return day; });
-  return <CalendarFrame columns={7} headings={["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]}>{days.map((day) => <DayCell key={dateKey(day)} day={day} muted={day.getMonth() !== anchor.getMonth()} events={eventsForDay(events, day)} onSelect={onSelect} />)}</CalendarFrame>;
+  return <CalendarFrame columns={7} headings={["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]}>{days.map((day) => <DayCell key={dateKey(day)} day={day} muted={day.getMonth() !== anchor.getMonth()} events={eventsForDay(events, day)} onSelect={onSelect} monthIcons />)}</CalendarFrame>;
 }
 
 function WeekView({ anchor, events, onSelect }: { anchor: Date; events: CalendarEvent[]; onSelect: (event: CalendarEvent) => void }) {
@@ -83,11 +85,11 @@ function CalendarFrame({ columns, headings, children, scroll = false }: { column
   return <Card><CardHeader><CardTitle className="sr-only">Team Calendar</CardTitle></CardHeader><CardContent className="p-0"><div className="grid border-b" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{headings.map((heading) => <div key={heading} className="border-r p-2 text-center text-xs font-medium text-muted-foreground last:border-r-0">{heading}</div>)}</div><div className={`grid ${scroll ? "max-h-[calc(100vh-14rem)] overflow-y-auto" : ""}`} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>{children}</div></CardContent></Card>;
 }
 
-function DayCell({ day, muted = false, events, onSelect, overlap = false }: { day: Date; muted?: boolean; events: CalendarEvent[]; onSelect: (event: CalendarEvent) => void; overlap?: boolean }) {
+function DayCell({ day, muted = false, events, onSelect, overlap = false, monthIcons = false }: { day: Date; muted?: boolean; events: CalendarEvent[]; onSelect: (event: CalendarEvent) => void; overlap?: boolean; monthIcons?: boolean }) {
   const today = dateKey(day) === dateKey(new Date());
   const layout = overlap ? overlapLayout(events) : new Map(events.map((event) => [event.id, { column: 1, columns: 1 }]));
   const columnCount = Math.max(1, ...Array.from(layout.values()).map((item) => item.columns));
-  return <div className={`min-h-32 border-b border-r p-2 last:border-r-0 ${muted ? "bg-muted/20" : "bg-background"} ${today ? "bg-primary/5 ring-1 ring-inset ring-primary/30" : ""}`}><p className={`mb-2 flex items-center gap-1 text-xs font-medium ${muted ? "text-muted-foreground/60" : "text-muted-foreground"}`}>{day.getDate()}{today ? <span className="rounded bg-primary px-1 py-0.5 text-[10px] text-primary-foreground">Today</span> : null}</p><div className={overlap ? "grid items-start gap-1" : "space-y-1"} style={overlap ? { gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` } : undefined}>{events.map((event) => { const placement = layout.get(event.id) ?? { column: 1, columns: 1 }; return <button key={event.id} type="button" className={`block min-w-0 w-full truncate rounded px-2 py-1 text-left text-xs font-medium text-white ${colorClass(event)}`} style={overlap ? { gridColumn: placement.column } : undefined} onClick={() => onSelect(event)}>{event.all_day ? event.title : `${formatTime(event.start_at)} ${event.title}`}</button>; })}</div></div>;
+  return <div className={`min-h-32 border-b border-r p-2 last:border-r-0 ${muted ? "bg-muted/20" : "bg-background"} ${today ? "bg-primary/5 ring-1 ring-inset ring-primary/30" : ""}`}><p className={`mb-2 flex items-center gap-1 text-xs font-medium ${muted ? "text-muted-foreground/60" : "text-muted-foreground"}`}>{day.getDate()}{today ? <span className="rounded bg-primary px-1 py-0.5 text-[10px] text-primary-foreground">Today</span> : null}</p><div className={monthIcons ? "flex flex-wrap gap-1" : overlap ? "grid items-start gap-1" : "space-y-1"} style={overlap ? { gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` } : undefined}>{events.map((event) => { const placement = layout.get(event.id) ?? { column: 1, columns: 1 }; return <button key={event.id} type="button" aria-label={`${event.source_type === "work_plan" ? "Work Plan activity" : "Manual event"}: ${event.title}`} title={event.title} className={monthIcons ? "flex size-7 items-center justify-center rounded-full text-white transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2" : `block min-w-0 w-full truncate rounded px-2 py-1 text-left text-xs font-medium text-white ${colorClass(event)}`} style={{ ...(overlap ? { gridColumn: placement.column } : {}), ...(monthIcons ? { backgroundColor: colorHex(event) } : {}) }} onClick={() => onSelect(event)}>{monthIcons ? <CalendarDays className="size-4" aria-hidden="true" /> : event.all_day ? event.title : `${formatTime(event.start_at)} ${event.title}`}</button>; })}</div></div>;
 }
 
 function EventDialog({ event, onClose }: { event: CalendarEvent | null | undefined; onClose: () => void }) {
@@ -102,7 +104,7 @@ function EventDialog({ event, onClose }: { event: CalendarEvent | null | undefin
   if (event?.source_type === "work_plan") {
     return (
       <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-        <DialogContent>
+        <DialogContent className={`border-l-4 ${borderColorClass(event)}`}>
           <DialogHeader>
             <DialogTitle>Work Plan Activity</DialogTitle>
             <DialogDescription>{event.project_name}{event.phase_name ? ` · ${event.phase_name}` : ""}</DialogDescription>
@@ -137,7 +139,7 @@ function EventDialog({ event, onClose }: { event: CalendarEvent | null | undefin
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent>
+      <DialogContent className={`border-l-4 ${event ? borderColorClass(event) : "border-blue-500"}`}>
         <DialogHeader>
           <DialogTitle>{event ? "Edit event" : "New event"}</DialogTitle>
         </DialogHeader>
@@ -176,6 +178,8 @@ function eventsForDay(events: CalendarEvent[], day: Date) { return events.filter
 function formatTime(value: string) { return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
 function formatDateRange(start: string, end: string) { return `${new Date(start).toLocaleString()} - ${new Date(end).toLocaleString()}`; }
 function colorClass(event: CalendarEvent) { const color = event.source_type === "work_plan" ? projectColor(event.project_id) : event.color; return COLORS.find((item) => item.value === color)?.className ?? "bg-blue-500"; }
+function colorHex(event: CalendarEvent) { const color = event.source_type === "work_plan" ? projectColor(event.project_id) : event.color; return COLOR_HEX[color]; }
+function borderColorClass(event: CalendarEvent) { const color = event.source_type === "work_plan" ? projectColor(event.project_id) : event.color; return BORDER_COLORS[color]; }
 function projectColor(projectId: string | null): CalendarEventColor { if (!projectId) return "blue"; let hash = 0; for (const character of projectId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0; return COLORS[hash % COLORS.length].value; }
 function overlapLayout(events: CalendarEvent[]) {
   const layout = new Map<string, { column: number; columns: number }>();
