@@ -56,6 +56,7 @@ export function TeamCalendarPage() {
       {view === "month" ? <MonthView anchor={anchor} events={events} onSelect={setEditing} /> : null}
       {view === "week" ? <WeekView anchor={anchor} events={events} onSelect={setEditing} /> : null}
       {view === "day" ? <DayView anchor={anchor} events={events} onSelect={setEditing} /> : null}
+      {events.length === 0 ? <p className="text-center text-sm text-muted-foreground" role="status">No events scheduled</p> : null}
       <EventDialog event={editing} onClose={() => setEditing(undefined)} />
     </section>
   );
