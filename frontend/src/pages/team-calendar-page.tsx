@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 
 import { ErrorState } from "@/components/common/error-state";
 import { LoadingState } from "@/components/common/loading-state";
@@ -94,6 +95,25 @@ function EventDialog({ event, onClose }: { event: CalendarEvent | null | undefin
   const isOpen = event !== undefined;
   const pending = create.isPending || update.isPending || remove.isPending;
 
+  if (event?.source_type === "work_plan") {
+    return (
+      <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Work Plan Activity</DialogTitle>
+            <DialogDescription>{event.project_name}{event.phase_name ? ` · ${event.phase_name}` : ""}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="font-medium text-foreground">{event.title}</p>
+            {event.description ? <p className="whitespace-pre-wrap text-muted-foreground">{event.description}</p> : null}
+            <p className="text-muted-foreground">{formatDateRange(event.start_at, event.end_at)}</p>
+          </div>
+          {event.project_id ? <Link className="text-sm font-medium text-primary hover:underline" to={`/projects/${event.project_id}?tab=setup&section=work_plan`}>Open Work Plan</Link> : null}
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
   async function save() {
     const payload = toPayload(form);
     if (event) {
@@ -149,8 +169,9 @@ function toPayload(form: ReturnType<typeof eventForm>): CalendarEventPayload { r
 function toLocalInput(value: string) { const date = new Date(value); const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
 function startOfDay(date: Date) { return new Date(date.getFullYear(), date.getMonth(), date.getDate()); }
 function dateKey(date: Date) { return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`; }
-function eventsForDay(events: CalendarEvent[], day: Date) { return events.filter((event) => { const start = startOfDay(new Date(event.start_at)); const end = startOfDay(new Date(event.end_at)); return day >= start && day <= end; }); }
+function eventsForDay(events: CalendarEvent[], day: Date) { return events.filter((event) => { const start = startOfDay(new Date(event.start_at)); const end = startOfDay(new Date(event.end_at)); if (event.source_type === "work_plan") end.setDate(end.getDate() - 1); return day >= start && day <= end; }); }
 function formatTime(value: string) { return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+function formatDateRange(start: string, end: string) { return `${new Date(start).toLocaleString()} - ${new Date(end).toLocaleString()}`; }
 function colorClass(color: CalendarEventColor) { return COLORS.find((item) => item.value === color)?.className ?? "bg-blue-500"; }
 function movePeriod(date: Date, view: CalendarView, amount: number) { const next = new Date(date); if (view === "month") next.setMonth(next.getMonth() + amount); else if (view === "week") next.setDate(next.getDate() + amount * 7); else next.setDate(next.getDate() + amount); return next; }
 function weekLabel(date: Date) { const start = new Date(date); start.setDate(date.getDate() - date.getDay()); const end = new Date(start); end.setDate(start.getDate() + 6); return `${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} - ${end.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`; }

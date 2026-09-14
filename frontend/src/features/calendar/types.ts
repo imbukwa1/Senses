@@ -2,6 +2,11 @@ export type CalendarEventColor = "blue" | "green" | "red" | "amber" | "purple" |
 
 export type CalendarEvent = {
   id: string;
+  source_type: "manual" | "work_plan";
+  source_id: string;
+  project_id: string | null;
+  project_name: string | null;
+  phase_name: string | null;
   title: string;
   description: string | null;
   start_at: string;

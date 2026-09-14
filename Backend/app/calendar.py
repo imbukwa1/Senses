@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -42,6 +43,11 @@ class CalendarEventPayload(BaseModel):
 
 class CalendarEventResponse(CalendarEventPayload):
     id: UUID
+    source_type: Literal["manual", "work_plan"]
+    source_id: UUID
+    project_id: UUID | None
+    project_name: str | None
+    phase_name: str | None
     created_by: UUID
     creator_name: str
     created_at: datetime
@@ -64,21 +70,40 @@ def list_calendar_events(
     conditions = []
     params: list[object] = []
     if start is not None:
-        conditions.append("events.end_at > %s")
+        conditions.append("end_at > %s")
         params.append(start)
     if end is not None:
-        conditions.append("events.start_at < %s")
+        conditions.append("start_at < %s")
         params.append(end)
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     rows = session.fetch_all(
         f"""
-        SELECT events.id, events.title, events.description, events.start_at, events.end_at,
-               events.all_day, events.color, events.created_by, users.name AS creator_name,
-               events.created_at, events.updated_at
-        FROM calendar_events AS events
-        JOIN users ON users.id = events.created_by
+        WITH calendar_items AS (
+          SELECT events.id, events.title, events.description, events.start_at, events.end_at,
+                 events.all_day, events.color, events.id AS source_id, 'manual' AS source_type,
+                 NULL::uuid AS project_id, NULL::text AS project_name, NULL::text AS phase_name,
+                 events.created_by, users.name AS creator_name, events.created_at, events.updated_at
+          FROM calendar_events AS events
+          JOIN users ON users.id = events.created_by
+          UNION ALL
+          SELECT entries.id, entries.name, NULL::text,
+                 entries.start_date::timestamp AT TIME ZONE 'UTC',
+                 (entries.end_date + 1)::timestamp AT TIME ZONE 'UTC',
+                 TRUE, 'blue', entries.id, 'work_plan', entries.project_id,
+                 projects.name, phases.name, COALESCE(entries.created_by, projects.project_lead_id),
+                 creators.name, entries.created_at, entries.updated_at
+          FROM project_work_plan_entries AS entries
+          JOIN projects ON projects.id = entries.project_id AND projects.archived_at IS NULL
+          JOIN phases ON phases.id = entries.phase_id AND phases.project_id = entries.project_id
+          LEFT JOIN users AS creators ON creators.id = COALESCE(entries.created_by, projects.project_lead_id)
+          WHERE entries.start_date IS NOT NULL AND entries.end_date IS NOT NULL
+        )
+        SELECT id, title, description, start_at, end_at, all_day, color, source_type,
+               source_id, project_id, project_name, phase_name, created_by, creator_name,
+               created_at, updated_at
+        FROM calendar_items
         {where}
-        ORDER BY events.start_at, events.end_at, events.created_at, events.id
+        ORDER BY start_at, end_at, created_at, id
         """,
         params,
     )
@@ -141,8 +166,9 @@ def fetch_calendar_event(session: DatabaseSession, event_id: UUID) -> dict:
     row = session.fetch_one(
         """
         SELECT events.id, events.title, events.description, events.start_at, events.end_at,
-               events.all_day, events.color, events.created_by, users.name AS creator_name,
-               events.created_at, events.updated_at
+               events.all_day, events.color, 'manual' AS source_type, events.id AS source_id,
+               NULL::uuid AS project_id, NULL::text AS project_name, NULL::text AS phase_name,
+               events.created_by, users.name AS creator_name, events.created_at, events.updated_at
         FROM calendar_events AS events
         JOIN users ON users.id = events.created_by
         WHERE events.id = %s
