@@ -140,7 +140,6 @@ function EventDialog({ event, onClose }: { event: CalendarEvent | null | undefin
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{event ? "Edit event" : "New event"}</DialogTitle>
-          <DialogDescription>Source: Manual event · Shared with the SENSES team.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2"><Label htmlFor="calendar-title">Title</Label><Input id="calendar-title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
