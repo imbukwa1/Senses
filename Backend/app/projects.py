@@ -1122,6 +1122,7 @@ class ProjectMilestoneFinanceResponse(BaseModel):
     currency: str
     name: str
     description: str | None
+    phase_name: str | None
     month: str | None
     allocated: Decimal
     actual_spend: Decimal
@@ -5828,6 +5829,7 @@ def fetch_project_milestone_finance(session: DatabaseSession, project_id: UUID) 
           projects.currency,
           milestones.name,
           milestones.description,
+          NULL::text AS phase_name,
           finance.month,
           COALESCE(finance.allocated, 0) AS allocated,
           COALESCE(finance.actual_spend, 0) AS actual_spend,
@@ -5848,6 +5850,7 @@ def fetch_project_milestone_finance(session: DatabaseSession, project_id: UUID) 
           projects.currency,
           entries.name,
           entries.details AS description,
+          phases.name AS phase_name,
           finance.month,
           COALESCE(finance.allocated, 0) AS allocated,
           COALESCE(finance.actual_spend, 0) AS actual_spend,
@@ -5858,6 +5861,8 @@ def fetch_project_milestone_finance(session: DatabaseSession, project_id: UUID) 
         LEFT JOIN project_milestone_finance AS finance
           ON finance.work_plan_entry_id = entries.id
          AND finance.project_id = entries.project_id
+        LEFT JOIN phases ON phases.id = entries.phase_id
+         AND phases.project_id = entries.project_id
         WHERE entries.project_id = %s
         ORDER BY sort_date NULLS LAST, sort_created_at, milestone_id NULLS LAST, work_plan_entry_id
         """,
@@ -5882,6 +5887,7 @@ def project_milestone_finance_to_response(row: Row) -> ProjectMilestoneFinanceRe
         currency=row["currency"],
         name=row["name"],
         description=row["description"],
+        phase_name=row["phase_name"],
         month=row["month"],
         allocated=row["allocated"],
         actual_spend=row["actual_spend"],

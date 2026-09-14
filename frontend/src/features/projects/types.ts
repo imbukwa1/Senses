@@ -625,6 +625,7 @@ export type ProjectMilestoneFinance = {
   currency: string;
   name: string;
   description: string | null;
+  phase_name: string | null;
   month: string | null;
   allocated: number;
   actual_spend: number;

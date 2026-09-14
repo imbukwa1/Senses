@@ -506,6 +506,7 @@ export const projectMilestoneFinanceSchema = z.object({
   currency: z.string().length(3),
   name: z.string().min(1),
   description: z.string().nullable(),
+  phase_name: z.string().nullable(),
   month: z.string().nullable(),
   allocated: backendNumberSchema,
   actual_spend: backendNumberSchema,
