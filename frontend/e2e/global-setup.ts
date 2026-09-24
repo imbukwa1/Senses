@@ -32,6 +32,7 @@ export default async function globalSetup() {
     env: { ...process.env, PYTHONPATH: "../Backend" },
     encoding: "utf8",
     timeout: 30000,
+    windowsHide: true,
   });
   if (fixtureProcess.error) throw new Error(`E2E fixture provisioning failed: ${fixtureProcess.error.message}`);
   if (fixtureProcess.status !== 0) throw new Error(`E2E fixture provisioning failed: ${fixtureProcess.stderr || fixtureProcess.stdout}`);

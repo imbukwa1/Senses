@@ -10,6 +10,8 @@ export default function globalTeardown() {
     env: { ...process.env, PYTHONPATH: "../Backend" },
     input: readFileSync(statePath),
     encoding: "utf8",
+    timeout: 30000,
+    windowsHide: true,
   });
   if (result.status !== 0) throw new Error(`E2E fixture cleanup failed: ${result.stderr || result.stdout}`);
 }
