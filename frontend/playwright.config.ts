@@ -5,7 +5,7 @@ const windows = process.platform === "win32";
 export default defineConfig({
   testDir: "./e2e",
   testMatch: "**/*.spec.ts",
-  testIgnore: ["**/global-setup.ts", "**/global-teardown.ts", "**/helpers/**"],
+  testIgnore: ["**/live/**", "**/global-setup.ts", "**/global-teardown.ts", "**/helpers/**"],
   outputDir: "./e2e-artifacts/test-results",
   globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
