@@ -575,10 +575,11 @@ export const taskFileSchema = z.object({
 export const taskFilesSchema = z.array(taskFileSchema);
 
 export const projectFileSchema = taskFileSchema.extend({
+  task_id: z.uuid().nullable(),
   project_id: z.uuid(),
-  phase_id: z.uuid(),
-  phase_name: z.string().min(1),
-  task_name: z.string().min(1),
+  phase_id: z.uuid().nullable(),
+  phase_name: z.string().nullable(),
+  task_name: z.string().nullable(),
   folder_id: z.uuid().nullable().optional(),
 });
 

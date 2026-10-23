@@ -108,6 +108,66 @@ def test_authorized_user_can_upload_file_and_metadata_is_saved_after_storage_upl
         database.close()
 
 
+def test_project_and_phase_level_documents_can_upload_list_download_and_audit() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        user = _create_auth_user(database, "Project Document Uploader", _unique_email("files.project"))
+        project = _create_project(database, user["id"], "Project Document Upload Project")
+        phase = _create_phase(database, project["id"], user["id"], "Document Phase", 1)
+        _add_project_member(database, project["id"], user["id"], "PM")
+        storage = FakeFileStorage()
+        app = create_app(settings=_settings(database_url=os.getenv("DATABASE_URL")), database=database, file_storage=storage)
+
+        with TestClient(app) as client:
+            token = _login(client, user["email"])
+            project_level = client.post(
+                f"/projects/{project['id']}/files",
+                headers=_auth_header(token),
+                data={"setup_document_type": "Proposal"},
+                files={"file": ("project.pdf", b"project-content", "application/pdf")},
+            )
+            phase_level = client.post(
+                f"/projects/{project['id']}/files",
+                headers=_auth_header(token),
+                data={"phase_id": str(phase["id"]), "setup_document_type": "Baseline"},
+                files={"file": ("phase.pdf", b"phase-content", "application/pdf")},
+            )
+            assert project_level.status_code == 201, project_level.text
+            assert phase_level.status_code == 201, phase_level.text
+            listed = client.get(f"/projects/{project['id']}/files", headers=_auth_header(token))
+            downloaded = client.get(
+                f"/projects/{project['id']}/files/{project_level.json()['id']}/download",
+                headers=_auth_header(token),
+            )
+
+        assert project_level.status_code == 201
+        assert project_level.json()["task_id"] is None
+        assert project_level.json()["phase_id"] is None
+        assert project_level.json()["setup_document_type"] == "Proposal"
+        assert phase_level.status_code == 201
+        assert phase_level.json()["task_id"] is None
+        assert phase_level.json()["phase_id"] == str(phase["id"])
+        assert listed.status_code == 200
+        assert {item["file_name"] for item in listed.json()} >= {"project.pdf", "phase.pdf"}
+        assert downloaded.status_code == 200
+        assert downloaded.content == b"project-content"
+        database.connect()
+        with database.session() as session:
+            audit = session.fetch_one(
+                """
+                SELECT new_values
+                FROM audit_logs
+                WHERE entity_type = 'task_files' AND entity_id = %s AND action = 'CREATE'
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (project_level.json()["id"],),
+            )
+        assert audit["new_values"]["project_id"] == str(project["id"])
+    finally:
+        database.close()
+
+
 def test_multiple_files_can_belong_to_one_task_and_list_with_unique_storage_keys() -> None:
     database = _database_from_env()
     database.connect()

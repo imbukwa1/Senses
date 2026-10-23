@@ -15,6 +15,7 @@ import {
   projectMilestoneFinanceListSchema,
   projectDashboardSchema,
   projectFilesSchema,
+  projectFileSchema,
   projectMemberSchema,
   projectMembersSchema,
   projectSetupBudgetSchema,
@@ -1453,6 +1454,26 @@ export async function uploadTaskFile(
     throw new ApiError("File data could not be loaded.", 500);
   }
 
+  return result.data;
+}
+
+export async function uploadProjectFile(
+  token: string,
+  projectId: string,
+  phaseId: string | null,
+  taskId: string | null,
+  file: File,
+  setupDocumentType: TaskFile["setup_document_type"],
+): Promise<ProjectFile> {
+  const body = new FormData();
+  if (phaseId) body.append("phase_id", phaseId);
+  if (taskId) body.append("task_id", taskId);
+  body.append("file_category", "reference");
+  if (setupDocumentType) body.append("setup_document_type", setupDocumentType);
+  body.append("file", file);
+  const data = await apiRequest<unknown>(`/projects/${projectId}/files`, { method: "POST", body }, token);
+  const result = projectFileSchema.safeParse(data);
+  if (!result.success) throw new ApiError("Project file data could not be loaded.", 500);
   return result.data;
 }
 

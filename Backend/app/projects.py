@@ -502,10 +502,11 @@ class TaskFileResponse(BaseModel):
 
 
 class ProjectFileResponse(TaskFileResponse):
+    task_id: UUID | None
     project_id: UUID
-    phase_id: UUID
-    phase_name: str
-    task_name: str
+    phase_id: UUID | None
+    phase_name: str | None
+    task_name: str | None
 
 
 class WorkspaceFolderCreateRequest(BaseModel):
@@ -1481,6 +1482,65 @@ def list_project_files(
     ]
 
 
+@router.post("/{project_id}/files", response_model=ProjectFileResponse, status_code=status.HTTP_201_CREATED)
+async def upload_project_file(
+    request: Request,
+    project_id: UUID,
+    phase_id: UUID | None = Form(None),
+    task_id: UUID | None = Form(None),
+    file_category: TaskFileCategory = Form("reference"),
+    setup_document_type: SetupDocumentType = Form(...),
+    file: UploadFile = File(...),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> ProjectFileResponse:
+    with request.app.state.database.session(actor_user_id=current_user.id) as session:
+        ensure_project_access(session, current_user.id, project_id)
+        task = None
+        if task_id is not None:
+            task = fetch_task_in_project_or_404(session, project_id, task_id)
+            if phase_id is not None and task["phase_id"] != phase_id:
+                raise_task_not_found()
+            phase_id = task["phase_id"]
+            ensure_task_file_upload_allowed(session, current_user.id, project_id, task, file_category)
+        elif phase_id is not None:
+            fetch_project_phase_or_404(session, project_id, phase_id)
+            ensure_project_pm(session, current_user.id, project_id)
+        else:
+            ensure_project_pm(session, current_user.id, project_id)
+
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=FILE_UPLOAD_EMPTY_DETAIL)
+    max_upload_bytes = request.app.state.settings.max_upload_bytes
+    if len(content) > max_upload_bytes:
+        raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail=FILE_UPLOAD_TOO_LARGE_DETAIL)
+
+    safe_file_name = sanitize_storage_file_name(file.filename or "attachment")
+    storage_key = build_project_file_storage_key(project_id, safe_file_name)
+    storage = get_file_storage(request)
+    await run_in_threadpool(storage.upload, storage_key, content, file.content_type)
+    try:
+        with request.app.state.database.session(actor_user_id=current_user.id) as session:
+            ensure_project_access(session, current_user.id, project_id)
+            row = session.fetch_one(
+                """
+                INSERT INTO task_files (
+                  project_id, phase_id, task_id, uploaded_by, file_name, storage_key,
+                  file_type, file_size, file_category, setup_document_type
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (project_id, phase_id, task_id, current_user.id, safe_file_name, storage_key,
+                 file.content_type, len(content), file_category, setup_document_type),
+            )
+            response = project_file_to_response(fetch_project_file_or_404(session, project_id, row["id"]))
+    except Exception:
+        await run_in_threadpool(cleanup_uploaded_file, storage, storage_key)
+        raise
+    return response
+
+
 @router.get("/{project_id}/files/{file_id}/download")
 def download_project_file(
     request: Request,
@@ -1519,8 +1579,8 @@ def delete_project_file(
     except FileStorageError as exc:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="File could not be removed from storage") from exc
     deleted = session.fetch_one(
-        "DELETE FROM task_files WHERE id = %s AND task_id = %s RETURNING id",
-        (file_id, metadata["task_id"]),
+        "DELETE FROM task_files WHERE id = %s AND COALESCE(project_id, (SELECT phases.project_id FROM tasks JOIN phases ON phases.id = tasks.phase_id WHERE tasks.id = task_files.task_id)) = %s RETURNING id",
+        (file_id, project_id),
     )
     if deleted is None:
         raise_task_file_not_found()
@@ -5146,15 +5206,15 @@ def fetch_project_files(session: DatabaseSession, project_id: UUID, include_fina
           task_files.setup_document_type,
           task_files.folder_id,
           task_files.created_at,
-          phases.project_id,
-          phases.id AS phase_id,
+          COALESCE(task_files.project_id, phases.project_id) AS project_id,
+          COALESCE(task_files.phase_id, phases.id) AS phase_id,
           phases.name AS phase_name,
           tasks.name AS task_name
         FROM task_files
-        JOIN tasks ON tasks.id = task_files.task_id
-        JOIN phases ON phases.id = tasks.phase_id
+        LEFT JOIN tasks ON tasks.id = task_files.task_id
+        LEFT JOIN phases ON phases.id = COALESCE(task_files.phase_id, tasks.phase_id)
         JOIN users ON users.id = task_files.uploaded_by
-        WHERE phases.project_id = %s
+        WHERE COALESCE(task_files.project_id, phases.project_id) = %s
           {finance_filter}
         ORDER BY task_files.created_at DESC, task_files.id DESC
         """,
@@ -5179,15 +5239,15 @@ def fetch_project_file_or_404(session: DatabaseSession, project_id: UUID, file_i
           task_files.setup_document_type,
           task_files.folder_id,
           task_files.created_at,
-          phases.project_id,
-          phases.id AS phase_id,
+          COALESCE(task_files.project_id, phases.project_id) AS project_id,
+          COALESCE(task_files.phase_id, phases.id) AS phase_id,
           phases.name AS phase_name,
           tasks.name AS task_name
         FROM task_files
-        JOIN tasks ON tasks.id = task_files.task_id
-        JOIN phases ON phases.id = tasks.phase_id
+        LEFT JOIN tasks ON tasks.id = task_files.task_id
+        LEFT JOIN phases ON phases.id = COALESCE(task_files.phase_id, tasks.phase_id)
         JOIN users ON users.id = task_files.uploaded_by
-        WHERE phases.project_id = %s
+        WHERE COALESCE(task_files.project_id, phases.project_id) = %s
           AND task_files.id = %s
         """,
         (project_id, file_id),
@@ -7532,6 +7592,11 @@ def get_file_storage(request: Request) -> FileStorage:
 def build_task_file_storage_key(task_id: UUID, file_name: str) -> str:
     safe_name = sanitize_storage_file_name(file_name)
     return f"tasks/{task_id}/{uuid4().hex}-{safe_name}"
+
+
+def build_project_file_storage_key(project_id: UUID, file_name: str) -> str:
+    safe_name = sanitize_storage_file_name(file_name)
+    return f"projects/{project_id}/{uuid4().hex}-{safe_name}"
 
 
 def sanitize_storage_file_name(file_name: str) -> str:

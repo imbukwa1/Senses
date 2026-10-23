@@ -713,11 +713,12 @@ export type TaskFile = {
   created_at: string;
 };
 
-export type ProjectFile = TaskFile & {
+export type ProjectFile = Omit<TaskFile, "task_id"> & {
   project_id: string;
-  phase_id: string;
-  phase_name: string;
-  task_name: string;
+  task_id: string | null;
+  phase_id: string | null;
+  phase_name: string | null;
+  task_name: string | null;
   folder_id?: string | null;
 };
 

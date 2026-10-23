@@ -107,6 +107,7 @@ import {
   moveWorkspaceNativeResource,
   moveWorkspaceFile,
   uploadTaskFile,
+  uploadProjectFile,
 } from "./api";
 import type {
   PhaseBudgetMutationPayload,
@@ -599,6 +600,20 @@ export function useDownloadProjectFileMutation(projectId: string) {
 
   return useMutation({
     mutationFn: (fileId: string) => downloadProjectFile(requireToken(token), projectId, fileId),
+    onError: authFailureHandler(logout),
+  });
+}
+
+export function useUploadProjectFileMutation(projectId: string) {
+  const queryClient = useQueryClient();
+  const { logout, token } = useAuth();
+  return useMutation({
+    mutationFn: ({ file, phaseId, taskId, setupDocumentType }: { file: File; phaseId: string | null; taskId: string | null; setupDocumentType: NonNullable<TaskFile["setup_document_type"]> }) =>
+      uploadProjectFile(requireToken(token), projectId, phaseId, taskId, file, setupDocumentType),
+    onSuccess: () => {
+      invalidateWorkspaceQueries(queryClient, projectId);
+      void queryClient.invalidateQueries({ queryKey: projectSetupQueryKey(projectId) });
+    },
     onError: authFailureHandler(logout),
   });
 }
