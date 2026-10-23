@@ -27,10 +27,10 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request,
         exc: RequestValidationError,
     ) -> JSONResponse:
-        logger.info("Request validation failed")
+        logger.info("Request validation failed: %s", _safe_validation_details(exc))
         return JSONResponse(
             status_code=422,
-            content={"error": {"message": "Invalid input"}},
+            content={"error": {"message": _safe_validation_details(exc)}},
         )
 
     @app.exception_handler(DatabaseConstraintError)
@@ -67,3 +67,14 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=500,
             content={"error": {"message": "Internal server error"}},
         )
+
+
+def _safe_validation_details(exc: RequestValidationError) -> str:
+    details: list[str] = []
+    for error in exc.errors():
+        location = ".".join(str(part) for part in error.get("loc", ()) if part != "body") or "request"
+        message = str(error.get("msg", "Invalid value")).strip()
+        if message:
+            details.append(f"{location}: {message}")
+
+    return "; ".join(details) or "Invalid input"

@@ -49,8 +49,10 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, token?
 }
 
 async function safeErrorMessage(response: Response) {
+  const backendMessage = await readSafeBackendMessage(response);
+
   if (response.status === 400) {
-    return "Please check your request and try again.";
+    return backendMessage ?? "Please check your request and try again.";
   }
 
   if (response.status === 401) {
@@ -74,7 +76,7 @@ async function safeErrorMessage(response: Response) {
   }
 
   if (response.status === 422) {
-    return "Please check the form and try again.";
+    return backendMessage ?? "Please check the form and try again.";
   }
 
   if (response.status >= 500) {
@@ -82,4 +84,19 @@ async function safeErrorMessage(response: Response) {
   }
 
   return "The request could not be completed.";
+}
+
+async function readSafeBackendMessage(response: Response): Promise<string | undefined> {
+  try {
+    const body = (await response.clone().json()) as unknown;
+    if (!body || typeof body !== "object") return undefined;
+
+    const error = (body as { error?: unknown }).error;
+    if (!error || typeof error !== "object") return undefined;
+
+    const message = (error as { message?: unknown }).message;
+    return typeof message === "string" && message.trim() ? message.trim() : undefined;
+  } catch {
+    return undefined;
+  }
 }

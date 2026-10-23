@@ -15,7 +15,7 @@ type MessageOptions = {
 export function userFacingErrorMessage(error: Error | null | undefined, options: MessageOptions = {}) {
   if (error instanceof ApiError) {
     if (error.status === 400) {
-      return options.badRequest ?? options.validation ?? defaultActionMessage(options.action);
+      return options.badRequest ?? options.validation ?? safeApiDetail(error) ?? defaultActionMessage(options.action);
     }
     if (error.status === 401) {
       return options.unauthenticated ?? "Your session has expired. Please sign in again.";
@@ -33,7 +33,7 @@ export function userFacingErrorMessage(error: Error | null | undefined, options:
       return options.payloadTooLarge ?? "The selected file is too large.";
     }
     if (error.status === 422) {
-      return options.validation ?? defaultActionMessage(options.action);
+      return options.validation ?? safeApiDetail(error) ?? defaultActionMessage(options.action);
     }
     if (error.status >= 500) {
       return options.server ?? "The server is unavailable. Please try again shortly.";
@@ -43,6 +43,19 @@ export function userFacingErrorMessage(error: Error | null | undefined, options:
   }
 
   return "Unable to reach the server. Please try again.";
+}
+
+function safeApiDetail(error: ApiError) {
+  const message = error.message.trim();
+  return message && !isGenericApiMessage(message) ? message : undefined;
+}
+
+function isGenericApiMessage(message: string) {
+  return [
+    "Please check your request and try again.",
+    "Please check the form and try again.",
+    "The request could not be completed.",
+  ].includes(message);
 }
 
 function defaultActionMessage(action: string | undefined) {

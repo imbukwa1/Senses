@@ -30,5 +30,7 @@ export default defineConfig({
     { name: "public-mobile", testMatch: "public.spec.ts", use: { ...devices["Pixel 7"] } },
     ...(authenticated ? [{ name: "authenticated-readonly", testMatch: "authenticated.spec.ts",
       use: { ...devices["Desktop Chrome"] } }] : []),
+    ...(process.env.E2E_LIVE_SETUP === "1" ? [{ name: "project-setup", testMatch: "project-setup.spec.ts",
+      use: { ...devices["Desktop Chrome"] } }] : []),
   ],
 });

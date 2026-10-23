@@ -6,14 +6,19 @@ import { userFacingErrorMessage } from "./api-errors";
 
 describe("userFacingErrorMessage", () => {
   it("maps common API statuses to safe user-facing messages", () => {
-    expect(userFacingErrorMessage(new ApiError("raw detail", 400))).toBe("Please check your request and try again.");
+    expect(userFacingErrorMessage(new ApiError("raw detail", 400))).toBe("raw detail");
     expect(userFacingErrorMessage(new ApiError("raw detail", 401))).toBe("Your session has expired. Please sign in again.");
     expect(userFacingErrorMessage(new ApiError("raw detail", 403))).toBe("You do not have access to this resource.");
     expect(userFacingErrorMessage(new ApiError("raw detail", 404))).toBe("The requested record could not be found.");
     expect(userFacingErrorMessage(new ApiError("raw detail", 409))).toBe("This change conflicts with existing data.");
     expect(userFacingErrorMessage(new ApiError("raw detail", 413))).toBe("The selected file is too large.");
-    expect(userFacingErrorMessage(new ApiError("raw detail", 422))).toBe("Please check your request and try again.");
+    expect(userFacingErrorMessage(new ApiError("raw detail", 422))).toBe("raw detail");
     expect(userFacingErrorMessage(new ApiError("raw detail", 500))).toBe("The server is unavailable. Please try again shortly.");
+  });
+
+  it("falls back when the API only supplied a generic validation message", () => {
+    expect(userFacingErrorMessage(new ApiError("Please check the form and try again.", 422), { action: "resource" }))
+      .toBe("Please check resource and try again.");
   });
 
   it("uses context-specific messages without exposing backend detail", () => {
