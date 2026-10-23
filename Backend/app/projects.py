@@ -654,6 +654,7 @@ class ProjectSetupWorkPlanEntryCreateRequest(BaseModel):
     start_date: date
     end_date: date
     phase_id: UUID
+    activity: str | None = None
     milestone_id: UUID | None = None
 
 
@@ -861,6 +862,7 @@ class ProjectSetupWorkPlanEntryResponse(BaseModel):
     end_date: date
     phase_id: UUID
     phase_name: str
+    activity: str | None
     milestone_id: UUID | None
     milestone_name: str | None
     milestone_description: str | None
@@ -2120,11 +2122,11 @@ def create_project_setup_work_plan_entry(
     row = session.fetch_one(
         """
         INSERT INTO project_work_plan_entries
-          (project_id, phase_id, milestone_id, name, details, key_activities, start_date, end_date, created_by)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+          (project_id, phase_id, activity, milestone_id, name, details, key_activities, start_date, end_date, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
-        (project_id, payload.phase_id, payload.milestone_id, payload.name.strip(), payload.details.strip(), payload.key_activities.strip(), payload.start_date, payload.end_date, current_user.id),
+        (project_id, payload.phase_id, normalize_optional_text(payload.activity), payload.milestone_id, payload.name.strip(), payload.details.strip(), payload.key_activities.strip(), payload.start_date, payload.end_date, current_user.id),
     )
     return project_setup_work_plan_entry_to_response(fetch_project_setup_work_plan_entry(session, project_id, row["id"]))
 
@@ -2144,11 +2146,11 @@ def update_project_setup_work_plan_entry(
     session.execute(
         """
         UPDATE project_work_plan_entries
-        SET phase_id = %s, milestone_id = %s, name = %s, details = %s, key_activities = %s,
+        SET phase_id = %s, activity = %s, milestone_id = %s, name = %s, details = %s, key_activities = %s,
             start_date = %s, end_date = %s, updated_at = NOW()
         WHERE project_id = %s AND id = %s
         """,
-        (payload.phase_id, payload.milestone_id, payload.name.strip(), payload.details.strip(), payload.key_activities.strip(), payload.start_date, payload.end_date, project_id, entry_id),
+        (payload.phase_id, normalize_optional_text(payload.activity), payload.milestone_id, payload.name.strip(), payload.details.strip(), payload.key_activities.strip(), payload.start_date, payload.end_date, project_id, entry_id),
     )
     return project_setup_work_plan_entry_to_response(fetch_project_setup_work_plan_entry(session, project_id, entry_id))
 
@@ -5888,7 +5890,7 @@ def fetch_project_setup_work_plan_entries(session: DatabaseSession, project_id: 
         """
         SELECT entries.id, entries.project_id, entries.name, entries.details,
                entries.key_activities, entries.start_date, entries.end_date,
-               entries.phase_id, phases.name AS phase_name, entries.milestone_id,
+               entries.phase_id, phases.name AS phase_name, entries.activity, entries.milestone_id,
                milestones.name AS milestone_name, milestones.description AS milestone_description,
                entries.created_by,
                entries.created_at, entries.updated_at
@@ -5908,7 +5910,7 @@ def fetch_project_setup_work_plan_entry(session: DatabaseSession, project_id: UU
         """
         SELECT entries.id, entries.project_id, entries.name, entries.details,
                entries.key_activities, entries.start_date, entries.end_date,
-               entries.phase_id, phases.name AS phase_name, entries.milestone_id,
+               entries.phase_id, phases.name AS phase_name, entries.activity, entries.milestone_id,
                milestones.name AS milestone_name, milestones.description AS milestone_description,
                entries.created_by,
                entries.created_at, entries.updated_at

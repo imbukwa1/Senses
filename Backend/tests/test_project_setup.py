@@ -376,6 +376,7 @@ def test_work_plan_reuses_live_milestone_activity_reference() -> None:
                 headers=_auth_header(token),
                 json={
                     "name": "Discovery schedule",
+                    "activity": "Interview participants",
                     "details": "Schedule details",
                     "key_activities": "Interview",
                     "start_date": "2026-02-01",
@@ -411,6 +412,7 @@ def test_work_plan_reuses_live_milestone_activity_reference() -> None:
         assert other_phase["project_id"] == other_project["id"]
         assert milestone.status_code == 201
         assert entry.status_code == 201
+        assert entry.json()["activity"] == "Interview participants"
         assert entry.json()["milestone_id"] == milestone.json()["id"]
         assert entry.json()["milestone_name"] == "Discovery"
         assert entry.json()["milestone_description"] == "Original description"
