@@ -226,6 +226,135 @@ def test_membership_and_budget_changes_are_audited() -> None:
         database.close()
 
 
+def test_project_setup_and_file_crud_are_audited_once_with_delete_old_values() -> None:
+    database = _database_from_env()
+    database.connect()
+    try:
+        actor = _create_auth_user(database, "Audit Coverage Actor", _unique_email("audit.coverage"))
+
+        with database.session(actor_user_id=actor["id"]) as session:
+            project = _create_project_direct(session, actor["id"], "Audit Coverage Project")
+            phase = session.fetch_one(
+                """
+                INSERT INTO phases (project_id, name, owner_id, display_order, status)
+                VALUES (%s, 'Audit Coverage Phase', %s, 1, 'In Progress')
+                RETURNING id
+                """,
+                (project["id"], actor["id"]),
+            )
+            task = session.fetch_one(
+                """
+                INSERT INTO tasks (phase_id, name, owner_id, status)
+                VALUES (%s, 'Audit Coverage Task', %s, 'Not Started')
+                RETURNING id
+                """,
+                (phase["id"], actor["id"]),
+            )
+            stakeholder = session.fetch_one(
+                """
+                INSERT INTO project_stakeholders (project_id, name, interest_role, created_by)
+                VALUES (%s, 'Coverage Stakeholder', 'Reviewer', %s)
+                RETURNING id
+                """,
+                (project["id"], actor["id"]),
+            )
+            resource = session.fetch_one(
+                """
+                INSERT INTO project_resources (project_id, resource_type, name, created_by)
+                VALUES (%s, 'People', 'Coverage Resource', %s)
+                RETURNING id
+                """,
+                (project["id"], actor["id"]),
+            )
+            work_plan = session.fetch_one(
+                """
+                INSERT INTO project_work_plan_entries (
+                  project_id, phase_id, activity, name, details, key_activities,
+                  start_date, end_date, created_by
+                )
+                VALUES (%s, %s, 'Coverage Activity', 'Coverage Work Plan', 'Details', 'Activities', %s, %s, %s)
+                RETURNING id
+                """,
+                (project["id"], phase["id"], date(2098, 1, 1), date(2098, 1, 2), actor["id"]),
+            )
+            task_file = session.fetch_one(
+                """
+                INSERT INTO task_files (
+                  project_id, phase_id, task_id, uploaded_by, file_name, storage_key, file_size
+                )
+                VALUES (%s, %s, %s, %s, 'coverage.txt', 'audit-coverage-storage-key', 8)
+                RETURNING id
+                """,
+                (project["id"], phase["id"], task["id"], actor["id"]),
+            )
+
+            session.execute(
+                "UPDATE project_stakeholders SET name = 'Coverage Stakeholder Updated' WHERE id = %s",
+                (stakeholder["id"],),
+            )
+            session.execute(
+                "UPDATE project_resources SET name = 'Coverage Resource Updated' WHERE id = %s",
+                (resource["id"],),
+            )
+            session.execute(
+                "UPDATE project_work_plan_entries SET name = 'Coverage Work Plan Updated' WHERE id = %s",
+                (work_plan["id"],),
+            )
+            session.execute(
+                "UPDATE task_files SET file_name = 'coverage-updated.txt' WHERE id = %s",
+                (task_file["id"],),
+            )
+
+            session.execute("DELETE FROM task_files WHERE id = %s", (task_file["id"],))
+            session.execute("DELETE FROM project_work_plan_entries WHERE id = %s", (work_plan["id"],))
+            session.execute("DELETE FROM project_resources WHERE id = %s", (resource["id"],))
+            session.execute("DELETE FROM project_stakeholders WHERE id = %s", (stakeholder["id"],))
+
+            audit_by_entity = {}
+            for table, entity in (
+                ("project_stakeholders", stakeholder),
+                ("project_resources", resource),
+                ("project_work_plan_entries", work_plan),
+                ("task_files", task_file),
+            ):
+                rows = session.fetch_all(
+                    """
+                    SELECT user_id, action, old_values, new_values
+                    FROM audit_logs
+                    WHERE entity_type = %s AND entity_id = %s
+                    ORDER BY created_at, id
+                    """,
+                    (table, entity["id"]),
+                )
+                audit_by_entity[table] = sorted(
+                    rows,
+                    key=lambda row: {"CREATE": 0, "UPDATE": 1, "DELETE": 2}[row["action"]],
+                )
+
+        for table, rows in audit_by_entity.items():
+            assert [row["action"] for row in rows] == ["CREATE", "UPDATE", "DELETE"]
+            assert len(rows) == 3
+            assert all(row["user_id"] == actor["id"] for row in rows)
+            assert rows[0]["old_values"] is None
+            assert rows[0]["new_values"]["project_id"] == str(project["id"])
+            assert rows[1]["old_values"]["project_id"] == str(project["id"])
+            assert rows[1]["new_values"]["project_id"] == str(project["id"])
+            assert rows[2]["old_values"]["project_id"] == str(project["id"])
+            assert rows[2]["new_values"] is None
+
+        assert audit_by_entity["project_stakeholders"][1]["old_values"]["name"] == "Coverage Stakeholder"
+        assert audit_by_entity["project_stakeholders"][1]["new_values"]["name"] == "Coverage Stakeholder Updated"
+        assert audit_by_entity["project_resources"][1]["old_values"]["name"] == "Coverage Resource"
+        assert audit_by_entity["project_resources"][1]["new_values"]["name"] == "Coverage Resource Updated"
+        assert audit_by_entity["project_work_plan_entries"][1]["old_values"]["name"] == "Coverage Work Plan"
+        assert audit_by_entity["project_work_plan_entries"][1]["new_values"]["name"] == "Coverage Work Plan Updated"
+        assert audit_by_entity["task_files"][1]["old_values"]["file_name"] == "coverage.txt"
+        assert audit_by_entity["task_files"][1]["new_values"]["file_name"] == "coverage-updated.txt"
+        assert audit_by_entity["task_files"][2]["old_values"]["file_name"] == "coverage-updated.txt"
+    finally:
+        database.close()
+
+
 def _create_auth_user(database: Database, name: str, email: str, password: str = "audit-password") -> dict:
     with database.session() as session:
         user = session.fetch_one(
